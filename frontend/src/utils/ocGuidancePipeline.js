@@ -132,6 +132,7 @@ export async function computeGuidance({
   const draft = publishGuidance({
     scenarioName: scenario.name, positionIds, roleNames, weights,
     chosen: search.chosen.vector, ceiling: ceiling.vector, readings,
+    crews: search.chosen.crews,
     expectedBlend, nearMissWithin, gap, gapIsAssumed, rosterSize,
   })
   const expectedVector = Object.fromEntries(draft.roles.map((r) => [r.positionId, r.expected]))
@@ -140,6 +141,7 @@ export async function computeGuidance({
   const guidance = publishGuidance({
     scenarioName: scenario.name, positionIds, roleNames, weights,
     chosen: search.chosen.vector, ceiling: ceiling.vector, readings,
+    crews: search.chosen.crews,
     expectedBlend, nearMissWithin, gap, gapIsAssumed, rosterSize,
     generatedAt: now(),
     values: {

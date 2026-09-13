@@ -146,3 +146,55 @@ describe('publishGuidance', () => {
     expect(g.roles.map((r) => r.roleName)).toEqual(['Muscle', 'Bomber', 'Engineer', 'Picklock 2'])
   })
 })
+
+// ⚠️ THE EXPECTED CREW CANNOT BE WEAKER THAN THE PUBLISHED FLOOR.
+//
+// Found by MonChoon asking what the floor and ceiling were actually based on.
+// `maximalCprVector` is the highest bar with `n` candidates per role — Hall-safe
+// for ONE crew — but the search's k=1 rung STARTS there and is then greedily
+// raised above it. Using slice 3 as the blend target therefore produced:
+//
+//     P1 floor=95  ceiling=92  expected=93.5
+//
+// an expected crew below the minimum we told people to train to, which is not a
+// thing that can happen.
+describe('publishGuidance — the expected crew', () => {
+  const P = ['P1', 'P2', 'P3', 'P4']
+  const pool = () => Array.from({ length: 12 }, (_, i) => ({ member_id: `m${i}`, cpr: 95 - i }))
+  const readings = () => Object.fromEntries(P.map((p) => [p, pool()]))
+
+  it('⚠️ is never below the floor, even when the chosen bar beats slice 3\'s', () => {
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: { P1: 40, P2: 30, P3: 20, P4: 10 },
+      // The k=1 rung: raised above the Hall-safe vector below it.
+      chosen: { P1: 95, P2: 93, P3: 94, P4: 92 },
+      ceiling: { P1: 92, P2: 92, P3: 92, P4: 92 },
+      readings: readings(), crews: 1,
+    })
+    for (const r of g.roles) expect(r.expected).toBeGreaterThanOrEqual(r.floor)
+  })
+
+  it('blends toward what this role could reach at the chosen crew count', () => {
+    // Two crews: the 2nd-highest reading for the role is 94, so a seat could
+    // realistically hold 94 while still fielding two crews.
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: { P1: 40, P2: 30, P3: 20, P4: 10 },
+      chosen: { P1: 90, P2: 90, P3: 90, P4: 90 },
+      ceiling: { P1: 92, P2: 92, P3: 92, P4: 92 },
+      readings: readings(), crews: 2,
+    })
+    const p1 = g.roles.find((r) => r.positionId === 'P1')
+    expect(p1.ceiling).toBe(94)
+    expect(p1.expected).toBe(92)        // 90 + 0.5 x (94 - 90)
+  })
+
+  it('falls back to the supplied ceiling when no crew count is given', () => {
+    const g = publishGuidance({
+      scenarioName: 'X', positionIds: P, weights: { P1: 40, P2: 30, P3: 20, P4: 10 },
+      chosen: { P1: 80, P2: 80, P3: 80, P4: 80 },
+      ceiling: { P1: 90, P2: 90, P3: 90, P4: 90 },
+      readings: readings(),
+    })
+    expect(g.roles.find((r) => r.positionId === 'P1').expected).toBe(85)
+  })
+})
