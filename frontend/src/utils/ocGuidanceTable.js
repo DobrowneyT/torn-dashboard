@@ -40,7 +40,7 @@
  * is exactly what drifts today.
  */
 
-import { headcountAtCpr } from './ocRosterFit'
+import { headcountAtCpr, maxSustainableCpr } from './ocRosterFit'
 
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
 
@@ -63,7 +63,7 @@ export const EXPECTED_BLEND = 0.5
 
 export function publishGuidance({
   scenarioName, positionIds = [], roleNames = {}, weights = {},
-  chosen, ceiling = {}, readings = {},
+  chosen, ceiling = {}, readings = {}, crews = null,
   carryWeightMax = CARRY_WEIGHT_MAX, expectedBlend = EXPECTED_BLEND,
   nearMissWithin = 0, values = null,
   gap = null, gapIsAssumed = false, rosterSize = null, generatedAt = null,
@@ -86,12 +86,30 @@ export function publishGuidance({
   const roles = ordered.map((pos) => {
     const rows = (readings?.[pos] ?? []).filter((r) => num(r?.cpr) !== null)
     const floor = num(chosen[pos])
-    const top = num(ceiling[pos])
     const weight = num(weights[pos])
     const isCarry = weight !== null && weight < carryWeightMax
 
+    // ⚠️ The blend target is the best CPR this role could get IF IT HAD FIRST
+    // PICK at the chosen crew count — not `maximalCprVector`'s figure.
+    //
+    // Slice 3's vector is the highest bar with `n` candidates per role, which
+    // is Hall-safe for ONE crew. The search's k=1 rung starts there and is then
+    // greedily raised above it, so using slice 3 as the ceiling produced an
+    // "expected crew" BELOW the published floor:
+    //
+    //     P1 floor=95  ceiling=92  expected=93.5
+    //
+    // which is impossible — the floor is a floor. `maxSustainableCpr(rows, k)`
+    // is the honest upper end: the strongest people who could fill this seat
+    // while still fielding k crews, ignoring what the other roles want.
+    const reach = crews != null ? maxSustainableCpr(rows, crews) : null
+    const top = reach !== null ? reach : num(ceiling[pos])
     const expected =
-      floor === null ? null : top === null ? floor : floor + blend * (top - floor)
+      floor === null
+        ? null
+        // ⚠️ Clamped regardless. Whatever the target, a crew cannot be expected
+        // to come in under the minimum we told people to train to.
+        : top === null ? floor : Math.max(floor, floor + blend * (top - floor))
 
     const eligible = floor === null ? 0 : headcountAtCpr(rows, floor)
     const eligibleOneHigher = floor === null ? 0 : headcountAtCpr(rows, floor + 1)

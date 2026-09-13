@@ -18,6 +18,37 @@ surface it automatically.
 
 ---
 
+## [3.110.1] - 2026-09-13
+
+### Fixed
+
+- **⚠️ The "expected crew" could come out BELOW the published floor.** Found by
+  MonChoon asking what the floor and ceiling were actually based on — a good
+  question to have been asked.
+
+  The expected column blends `floor + 0.5 × (ceiling − floor)`, and the ceiling
+  was `maximalCprVector` — the highest bar with `n` candidates per role, which is
+  Hall-safe for **one** crew. But the search's `k=1` rung *starts* there and is
+  then greedily raised above it, so the "ceiling" was not a ceiling:
+
+  ```
+  ceiling (slice 3):  {P1: 92, P2: 92, P3: 92, P4: 92}
+  chosen (k=1 rung):  {P1: 95, P2: 93, P3: 94, P4: 92}
+
+  P1  floor=95  ceiling=92  expected=93.5   ← below the floor
+  ```
+
+  An expected crew weaker than the minimum we told people to train to is not a
+  thing that can happen.
+
+  The blend target is now `maxSustainableCpr(readings, chosenCrews)` — the best
+  people who could fill that seat while still fielding the chosen number of
+  crews, ignoring what the other roles want. That is the honest upper end, and
+  it is `>= floor` by construction. Clamped to the floor regardless, because a
+  silent inversion is worse than a conservative number.
+
+---
+
 ## [3.110.0] - 2026-09-13
 
 ### Added
