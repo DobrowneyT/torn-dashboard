@@ -18,6 +18,75 @@ surface it automatically.
 
 ---
 
+## [3.109.0] - 2026-09-13
+
+### Added
+
+- **`solveJointThresholds()`** (#710) — CPR thresholds for **all crimes at
+  once**, against one shared roster.
+
+  ⚠️ **Why the per-crime numbers came out too high.** #707 skips the spawn
+  simulation, so `searchThresholds` maximises `$/faction-member/day` for ONE
+  crime with the ENTIRE roster available — and the optimum for that question is
+  "take the strongest people". Every crime reaches it independently, so the
+  published sets are **individually optimal and jointly unfillable**. The
+  per-crime number is a *ceiling*; this descends from it.
+
+  **It costs no extra probability calls.** `E(X)` for a crime at a vector does
+  not depend on the other crimes, so each crime's candidates are priced once —
+  the same handful #707 already pays for — and the joint search runs entirely on
+  cached values. Verified by a test asserting the search adds none.
+
+### Fixed
+
+- **⚠️ A single-step descent parks in a valley, and the score landscape has a
+  deep one.** `filled` is a **step function**: a crew locks `n` members for `n`
+  days, so the bar has to fall a long way before a second crime fits alongside
+  the first, and every rung in between is strictly worse. Measured on 24 members
+  with one four-role crime:
+
+  | rung | filled | score |
+  |---|---|---|
+  | k=1 | 8/30 | 990,741 ← a one-rung-ahead search stops here |
+  | k=4 | 8/30 | 814,815 |
+  | k=5 | **16/30** | **1,611,111** ← 63% better, never reached |
+
+  So the search moves each crime to its **best rung over the whole ladder**, not
+  its next one, iterated to convergence — plus a lockstep move that steps every
+  crime down together, because coordinate descent cannot see an improvement that
+  needs several crimes to concede at once.
+
+  ⚠️ **Still greedy and named as such.** The exact joint optimum is
+  combinatorial over a shared roster. A leader needs a readable answer with a
+  reason for every concession more than the last 1% of throughput.
+
+### Performance
+
+- The inner loop runs on a **12-day horizon** while the reported simulation runs
+  the caller's full one. Ranking is stable well before thirty days, and the
+  simulation is the hot loop — eight crimes over thirty days at two spawns a day
+  is ~15,000 crew matchings per pass. With memoisation on the pick tuple this
+  took the solve from **11.5s to 7.1s** on eight crimes against a 94-member
+  roster.
+
+  ⚠️ Seven seconds is still the heaviest thing in this codebase's UI path, which
+  is why it belongs behind an explicit button — the guidance button froze the
+  browser for 44 seconds once already (v3.107.1), and there is now a regression
+  test with a hard bound.
+
+### Reported, not just computed
+
+- **What each crime gave up, and for what** — `stepsGivenUp`, `pointsGivenUp`,
+  `crewsGained`, and the vector it started from. *"Crime6 gave up 39 points for
+  4 more crews"* is the insight; a table of lower numbers with no reasoning
+  attached will not be trusted or followed.
+- ⚠️ **`no-readings` stays distinct from `not-crewable`** through the whole
+  solve (#351) — a crime we have never observed is skipped for a different
+  reason than one nobody can crew, and a measurement gap must never read as an
+  infeasible crime.
+
+---
+
 ## [3.108.0] - 2026-09-13
 
 ### Added
