@@ -22,6 +22,7 @@
  */
 
 import { buildChainIndex, chainFrom, chainConfident, chainedSuccess, chainedValue, chainedScope } from './ocChains'
+import { maximalCprVector } from './ocMaximalCpr'
 import { makeProbe } from './ocGuidancePipeline'
 import { chainTargetOf } from './ocScenarioPayouts'
 
@@ -42,9 +43,13 @@ export function meanCpr(cprs) {
  * @param categoryOf    `(crimeName) => categoryKey`
  * @param call          `(name, parameters) => CalculateSuccess response`
  * @param known         success/value we already have, so the root is not re-probed
+ * @param vectorFor     optional `(name, scenario) => readings | null` (#725).
+ *                      When it yields readings that can crew the link, that
+ *                      link is priced at ITS OWN maximal CPR vector instead of
+ *                      the flat `assumedCpr`.
  */
 export async function computeChainEconomics({
-  rootName, scenarios = [], chains = [], assumedCpr, categoryOf, call, known = {},
+  rootName, scenarios = [], chains = [], assumedCpr, categoryOf, call, known = {}, vectorFor,
 } = {}) {
   const links = chainFrom(rootName, buildChainIndex(chains))
   // ⚠️ A single link is not a chain. Rendering one would tell a reader that an
@@ -55,6 +60,7 @@ export async function computeChainEconomics({
   const successByName = {}
   const valueByName = {}
   const categoryByName = {}
+  const crewByName = {}
   const missing = []
   let probeCalls = 0
 
@@ -71,11 +77,29 @@ export async function computeChainEconomics({
 
     const probe = makeProbe({ scenario, call })
     const positions = (scenario.roles ?? []).map((r) => r.position_id)
-    // ⚠️ Flat, because the links have different role counts and there is no
-    // honest way to carry per-role sliders across them.
-    const vector = Object.fromEntries(positions.map((p) => [p, assumedCpr]))
+
+    // ⚠️ **Prefer the link's OWN roster (#725).** `assumedCpr` used to be the
+    // mean of the Simulator's sliders, which sit at 50 until somebody drags
+    // them — while tnl has 81-87 readings per role for Ace in the Hole showing
+    // a roster that sustains 70-75. Pricing the terminal link 22 CPR below what
+    // the faction can field made every chain look far worse than it is, and the
+    // scope verdict is REPORTED rather than enforced, so it has to be right and
+    // not merely alarming.
+    //
+    // ⚠️ Falls back to flat, and records WHICH, because a tenant that has never
+    // run the terminal link must not inherit a roster number it does not have.
+    let vector = null
+    if (vectorFor) {
+      const readings = await vectorFor(l.name, scenario)
+      const maximal = readings ? maximalCprVector(readings, positions) : null
+      if (maximal?.crewable) vector = maximal.vector
+    }
+    crewByName[l.name] = vector
+      ? { source: 'roster', vector }
+      : { source: 'assumed', vector: Object.fromEntries(positions.map((p) => [p, assumedCpr])) }
+
     probeCalls += 1
-    const out = await probe(vector)
+    const out = await probe(crewByName[l.name].vector)
     successByName[l.name] = out.successChance
 
     // ⚠️ "Pays nothing" and "we have not priced it" are DIFFERENT, and
@@ -100,6 +124,7 @@ export async function computeChainEconomics({
     scope: chainedScope(links, successByName, categoryByName),
     successByName,
     valueByName,
+    crewByName,
     assumedCpr,
     missing,
     probeCalls,

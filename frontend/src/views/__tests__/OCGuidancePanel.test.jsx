@@ -135,3 +135,29 @@ describe('GuidancePanel — a chain root', () => {
     expect(screen.queryByText(/Valued at the whole chain/)).toBeNull()
   })
 })
+
+// #725 — the downstream crew is named, so the two chain figures are comparable.
+describe('downstream crew', () => {
+  const base = { guidance: guidance(), chainOf: 'Ace in the Hole' }
+
+  it('says when a link was priced from the roster', () => {
+    render(<GuidancePanel {...base} chainCrew={{
+      'Ace in the Hole': { source: 'roster', vector: { P1: 70, P2: 72, P3: 75 } },
+    }} />)
+    expect(screen.getByText(/best crew your roster can field/i)).toBeTruthy()
+    expect(screen.getByText(/70-75 CPR/)).toBeTruthy()
+  })
+
+  it('⚠️ marks an assumed link as an assumption, not a measurement', () => {
+    render(<GuidancePanel {...base} chainCrew={{
+      'Ace in the Hole': { source: 'assumed', vector: { P1: 50, P2: 50 } },
+    }} />)
+    expect(screen.getByText(/no readings/i)).toBeTruthy()
+    expect(screen.getByText(/flat 50 CPR/)).toBeTruthy()
+  })
+
+  it('renders nothing extra when there is no chain', () => {
+    render(<GuidancePanel guidance={guidance()} />)
+    expect(screen.queryByText(/roster can field/i)).toBeNull()
+  })
+})

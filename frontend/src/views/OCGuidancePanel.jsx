@@ -71,8 +71,21 @@ function NotPublishable({ reason, limitingRoles, chainsTo }) {
   )
 }
 
-export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chainOf, onCompute, computing }) {
+
+/** "70-75" for a spread, "72" when every role is the same. */
+function cprRange(vector) {
+  const v = Object.values(vector ?? {}).map(Number).filter(Number.isFinite)
+  if (v.length === 0) return '—'
+  const lo = Math.round(Math.min(...v))
+  const hi = Math.round(Math.max(...v))
+  return lo === hi ? `${lo}` : `${lo}-${hi}`
+}
+
+export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chainOf, chainCrew, onCompute, computing }) {
   const [showWorking, setShowWorking] = useState(false)
+  // Downstream links only — the view drops the root, whose crew the search
+  // overrides per candidate anyway.
+  const downstream = Object.entries(chainCrew ?? {})
 
   if (!guidance) {
     return (
@@ -204,6 +217,25 @@ export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chain
           <strong>{chainOf}</strong>. The thresholds below are for <em>this</em> crew, because
           this is the crime people join.
         </p>
+      )}
+
+      {/* ⚠️ **Which crew ran the downstream links (#725).** Until this existed
+          they were priced at the mean of the Simulator's SLIDERS — 50 until
+          somebody drags them — while the roster sustained 70-75. Two figures
+          on this card both said "worth" and differed by 2.1× with nothing to
+          reconcile them. Naming the crew is what makes them comparable. */}
+      {downstream.length > 0 && (
+        <ul className="text-xs mt-1 text-gray-500 dark:text-gray-400 list-disc pl-4 space-y-0.5">
+          {downstream.map(([name, crew]) => (
+            <li key={name} className={crew.source === 'assumed' ? 'text-amber-600 dark:text-amber-400' : undefined}>
+              <strong>{name}</strong>{' '}
+              {crew.source === 'roster'
+                ? <>priced at the best crew your roster can field — {cprRange(crew.vector)} CPR.</>
+                : <>priced at a flat {cprRange(crew.vector)} CPR: this faction has no readings
+                   for it, so that is an assumption, not a measurement.</>}
+            </li>
+          ))}
+        </ul>
       )}
 
       {/* ⚠️ The single most important caveat on this table, and it has to sit

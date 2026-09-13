@@ -18,6 +18,53 @@ surface it automatically.
 
 ---
 
+## [3.114.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ Suggested CPRs priced downstream chain links at the slider default**
+  (#725). `OCSimulatorView` passed `chainCpr: meanCpr(cprs)` into the guidance
+  run, and the sliders sit at `DEFAULT_CPR = 50` until somebody drags them.
+  There is no apply-guidance-to-sliders path, so the terminal link of every
+  chain was priced at whatever the reader last touched.
+
+  That was never necessary. tnl has **81-87 readings per role** for Ace in the
+  Hole, and the roster sustains **70-75** across all five — ten deep, so not
+  fragile. The link was being priced ~22 CPR below what the faction can field,
+  and everything downstream of it was pessimistic: the completion rate, the
+  per-link average, and the scope verdict.
+
+  Bounded from a real screenshot: re-pricing only the ROOT moved the chain from
+  $21,495,123 to $45,881,074, a 2.13× lift, so at the published floor it
+  completes **~29% rather than the 13.7% shown** — before the downstream link is
+  touched at all. Correcting the link as well lands scope near **−1.5 rather
+  than −4.18**.
+
+  ⚠️ The verdict likely stays negative: break-even is 91.3% per link and the
+  best crew Ace can field is 70-75. But **scope is reported, not enforced**, so
+  the number has to be right rather than merely alarming. −4.18 and −1.5 are
+  different decisions.
+
+  Each link is still probed **once** and reused across every candidate — the
+  call budget against tornprobability does not move.
+
+  ⚠️ **Falls back to the flat CPR when a link has no readings, and says which.**
+  A tenant that has never run the terminal link must not silently inherit a
+  roster number it does not have.
+
+- **Two figures on the same card both said "worth" and differed by 2.1×**
+  (#725). The chain panel's total (root at the sliders) sat directly above the
+  guidance table's (root at the searched vector) with nothing to reconcile them.
+  The guidance table now names the crew each downstream link was priced at, and
+  marks an assumed one amber.
+
+  ⚠️ **The chain panel keeps its sliders, deliberately.** Dragging them to see
+  the effect, and comparing against what the faction actually fields, is a
+  separate and legitimate use — the two are not required to agree. Only the
+  *suggestion* path takes the roster-derived crew.
+
+---
+
 ## [3.113.1] - 2026-09-13
 
 ### Fixed
