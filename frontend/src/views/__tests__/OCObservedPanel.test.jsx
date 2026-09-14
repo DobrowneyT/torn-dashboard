@@ -52,3 +52,31 @@ describe('ObservedPanel', () => {
     expect(container.firstChild).toBeNull()
   })
 })
+
+// #735 — "no failures to compare against" is not "every role hurts".
+describe('lopsided outcomes', () => {
+  const lop = observed({
+    rate: 0.886,
+    roles: [
+      { position: 'Hacker', runs: 44, spread: 12, delta: null, informative: false, reason: 'one-sided' },
+      { position: 'Assassin', runs: 44, spread: 11, delta: null, informative: false, reason: 'one-sided' },
+    ],
+  })
+
+  it('⚠️ explains the gap as a lack of failures, not a bad crime', () => {
+    render(<ObservedPanel observed={lop} predicted={0.8} crewCpr={75} />)
+    expect(screen.getByText(/too few failures to compare/i)).toBeTruthy()
+    expect(screen.getByText(/good problem/i)).toBeTruthy()
+  })
+
+  it('⚠️ never prints a delta for a role it withheld', () => {
+    render(<ObservedPanel observed={lop} predicted={0.8} crewCpr={75} />)
+    expect(screen.queryByText(/success tracked/i)).toBeNull()
+  })
+
+  it('keeps the two reasons apart', () => {
+    render(<ObservedPanel observed={lop} predicted={0.8} crewCpr={75} />)
+    // Not the narrow-range wording — that fix is "vary the crew", this one is not.
+    expect(screen.queryByText(/almost the same CPR every time/i)).toBeNull()
+  })
+})

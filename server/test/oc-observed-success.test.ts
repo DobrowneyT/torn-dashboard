@@ -105,3 +105,100 @@ describe('summariseObserved', () => {
     expect(out.successes).toBe(12)
   })
 })
+
+// #735 — two holes the first version left, both found by looking at the
+// rendered page rather than by any test.
+describe('⚠️ a tiny outcome side is not evidence', () => {
+  // Lock Stock on tnl: 44 runs, 39 successes, 5 failures. Every role reported a
+  // NEGATIVE delta — "success tracked Muscle (-0.7), Smuggler (-0.7), Assassin
+  // (-1.3), Hacker (-2.2)" — which reads as "every role hurts your chances".
+  // The deltas were a 39-run mean against a 5-run mean.
+  //
+  // The original guard only fired when a side was EMPTY. A side of five is
+  // just as uninformative and looks far more authoritative.
+  const lopsided = (okCount: number, failCount: number) => {
+    const rows = []
+    for (let i = 0; i < okCount; i++) {
+      rows.push({ crimeId: `ok${i}`, ok: true, position: 'R1', cpr: 70 + (i % 12) })
+    }
+    for (let i = 0; i < failCount; i++) {
+      rows.push({ crimeId: `no${i}`, ok: false, position: 'R1', cpr: 76 + (i % 12) })
+    }
+    return rows
+  }
+
+  it('withholds the delta when one outcome is too rare to mean anything', () => {
+    const out = summariseObserved(lopsided(39, 5), { minRuns: 10 })
+    const r = out.roles.find((x) => x.position === 'R1')!
+    expect(r.informative).toBe(false)
+    expect(r.reason).toBe('one-sided')
+    expect(r.delta).toBeNull()
+  })
+
+  it('still reports when both outcomes are well represented', () => {
+    const out = summariseObserved(lopsided(40, 30), { minRuns: 10 })
+    const r = out.roles.find((x) => x.position === 'R1')!
+    expect(r.informative).toBe(true)
+    expect(r.delta).not.toBeNull()
+  })
+
+  it('⚠️ the overall rate and buckets survive — only the per-role read is cut', () => {
+    // A crime that nearly always succeeds is exactly the one whose success rate
+    // is worth knowing. Suppressing the whole panel would be the wrong fix.
+    const out = summariseObserved(lopsided(39, 5), { minRuns: 10 })
+    expect(out.enough).toBe(true)
+    expect(out.runs).toBe(44)
+    expect(out.buckets.length).toBeGreaterThan(0)
+  })
+})
+
+describe('⚠️ role labels must name ONE role', () => {
+  // crime_slots.position carries only "Muscle", "Robber", "Thief" for
+  // six-role Break the Bank — so "Muscle (-0.1)" averaged Muscle 1, 2 and 3,
+  // sitting directly above a guidance table that lists them separately. Two
+  // vocabularies for the same roles on one card.
+  const slot = (id: string, ok: boolean, position: string, n: number | null, cpr: number) =>
+    ({ crimeId: id, ok, position, positionNumber: n, cpr })
+
+  const breakTheBank = () => {
+    const rows = []
+    for (let i = 0; i < 30; i++) {
+      const ok = i % 3 !== 0
+      rows.push(slot(`r${i}`, ok, 'Robber', 1, 66 + (i % 9)))
+      rows.push(slot(`r${i}`, ok, 'Muscle', 1, 60 + (i % 11)))
+      rows.push(slot(`r${i}`, ok, 'Muscle', 2, 70 + (i % 9)))
+      rows.push(slot(`r${i}`, ok, 'Muscle', 3, 74 + (i % 8)))
+    }
+    return rows
+  }
+
+  it('numbers a role that appears more than once in the crime', () => {
+    const out = summariseObserved(breakTheBank(), { minRuns: 10 })
+    const names = out.roles.map((r) => r.position).sort()
+    expect(names).toEqual(['Muscle #1', 'Muscle #2', 'Muscle #3', 'Robber'])
+  })
+
+  it('leaves a role that appears once alone', () => {
+    // "Robber #1" would be noise — Torn does not number a unique role either.
+    const out = summariseObserved(breakTheBank(), { minRuns: 10 })
+    expect(out.roles.some((r) => r.position === 'Robber')).toBe(true)
+    expect(out.roles.some((r) => r.position === 'Robber #1')).toBe(false)
+  })
+
+  it('⚠️ keeps the three Muscles apart instead of averaging them', () => {
+    const out = summariseObserved(breakTheBank(), { minRuns: 10 })
+    const m = out.roles.filter((r) => r.position.startsWith('Muscle'))
+    expect(m).toHaveLength(3)
+    // Distinct CPR bands, so distinct rows — the averaging bug would collapse
+    // these into one.
+    expect(new Set(m.map((r) => Math.round(r.spread))).size).toBeGreaterThan(0)
+    expect(m.every((r) => r.runs === 30)).toBe(true)
+  })
+
+  it('falls back to the bare label when the slot has no number', () => {
+    const rows = []
+    for (let i = 0; i < 20; i++) rows.push(slot(`r${i}`, i % 2 === 0, 'Driver', null, 60 + i))
+    const out = summariseObserved(rows, { minRuns: 10 })
+    expect(out.roles[0].position).toBe('Driver')
+  })
+})

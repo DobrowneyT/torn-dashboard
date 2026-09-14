@@ -33,7 +33,13 @@ export function ObservedPanel({ observed, predicted, crewCpr }) {
 
   const fit = compareToObserved({ observed, predicted, crewCpr })
   const informative = (observed.roles ?? []).filter((r) => r.informative)
-  const uninformative = (observed.roles ?? []).filter((r) => !r.informative)
+  // ⚠️ Split by WHY, because the fixes differ (#735). "We always run it at the
+  // same CPR" is a gap in what we have tried; "this crime almost never fails"
+  // is a gap in what we can compare against, and telling a faction to fail more
+  // is not advice.
+  const narrow = (observed.roles ?? []).filter((r) => r.reason === 'narrow-range')
+  const lopsided = (observed.roles ?? []).filter(
+    (r) => r.reason === 'one-sided' || r.reason === 'one-outcome')
 
   return (
     <div className="mt-3 rounded border border-gray-300 dark:border-gray-700 px-3 py-2">
@@ -104,12 +110,25 @@ export function ObservedPanel({ observed, predicted, crewCpr }) {
           CPR in every run has no signal — that is a gap in what we have TRIED,
           not evidence the role is unimportant. Forge's Blast from the Past runs
           Muscle at ~77 every time and it is the heaviest role in the crime. */}
-      {uninformative.length > 0 && (
+      {narrow.length > 0 && (
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           No read on{' '}
-          {uninformative.map((r) => r.position).join(', ')} — we have run{' '}
-          {uninformative.length === 1 ? 'it' : 'them'} at almost the same CPR every time.
-          That says nothing about how much {uninformative.length === 1 ? 'it matters' : 'they matter'}.
+          {narrow.map((r) => r.position).join(', ')} — we have run{' '}
+          {narrow.length === 1 ? 'it' : 'them'} at almost the same CPR every time.
+          That says nothing about how much {narrow.length === 1 ? 'it matters' : 'they matter'}.
+        </p>
+      )}
+
+      {/* ⚠️ #735. Lock Stock: 39 successes against 5 failures produced a
+          negative delta on EVERY role — "success tracked Hacker (-2.2)" — which
+          reads as "lower CPR is better". There is nothing wrong with the crime;
+          there is nothing to compare against. */}
+      {lopsided.length > 0 && (
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          No per-role read here — this crime almost always{' '}
+          {observed.rate >= 0.5 ? 'succeeds' : 'fails'}, so there are too few{' '}
+          {observed.rate >= 0.5 ? 'failures' : 'successes'} to compare crews against.
+          That is a good problem.
         </p>
       )}
     </div>
