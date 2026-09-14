@@ -24,7 +24,7 @@ import { maximalCprVector } from './ocMaximalCpr'
 import { searchThresholds } from './ocThresholdSearch'
 import { publishGuidance } from './ocGuidanceTable'
 import { computeChainEconomics } from './ocChainPipeline'
-import { chainedValue } from './ocChains'
+import { chainedValue, buildChainIndex } from './ocChains'
 
 const num = (v) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
 
@@ -90,7 +90,11 @@ export async function computeGuidance({
 
   const fail = (reason, extra = {}) => ({
     guidance: publishGuidance({ scenarioName: scenario?.name, positionIds, chosen: null }),
-    reason, probeCalls: 0, ceiling: null, chosen: null, ...extra,
+    // ⚠️ `chainSource` defaults to null on EVERY refusal, so a caller reading
+    // it never sees `undefined` and cannot mistake "not a chain" for "we did
+    // not look" (#738).
+    reason, probeCalls: 0, ceiling: null, chosen: null, chainContext: null,
+    chainSource: null, ...extra,
   })
 
   if (positionIds.length === 0) return fail('no-roles')
@@ -103,10 +107,38 @@ export async function computeGuidance({
   const goodEndings = (scenario?.endings ?? []).filter((e) => e?.kind === 'good' && !e?.alias_of)
   // The API ships the model's published reward whole, so `chainsTo` arrives
   // nested under it rather than as a top-level field.
-  const chainsTo = goodEndings.map((e) => e?.reward?.chainsTo).find(Boolean) ?? null
+  const modelChainsTo = goodEndings.map((e) => e?.reward?.chainsTo).find(Boolean) ?? null
   const paysSomething = goodEndings.some(
     (e) => num(e?.money_avg) !== null || num(e?.item_value_avg) !== null
   )
+
+  // ⚠️ **The per-ending model mapping is not the only source of a chain (#738).**
+  //
+  // Lock Stock carries no `reward.chainsTo` and its good endings are unpriced,
+  // so this refused with "payouts are not fully priced" and published nothing —
+  // for a crime that is tnl's most-spawned at 21% of decisions. Meanwhile
+  // `ocChains.js` has known the edge all along, in KNOWN_CHAINS, and tnl's own
+  // history confirms it: **34 of 34** Hostile Takeover runs came from a Lock
+  // Stock parent, and Lock Stock paid **$0 across 44 runs**. The terminal
+  // link's model is complete and carries $572M-$828M per good ending, so the
+  // value was sitting right there the whole time.
+  //
+  // The gate was the only thing missing. `crimeshub-facts.json` covers 26
+  // crimes and predates Torn's newest, so reading the chain only from there
+  // leaves a crime unguided for as long as a third party takes.
+  //
+  // ⚠️ **Only when the crime pays nothing itself.** A crime can both pay and
+  // spawn something; valuing that at the chain would double-count its payout.
+  const indexEdge = paysSomething || modelChainsTo
+    ? null
+    : buildChainIndex(chains)?.edge?.(scenario.name) ?? null
+
+  const chainsTo = modelChainsTo ?? indexEdge?.child ?? null
+  // ⚠️ Provenance survives to the caller, and it is the INDEX's own label
+  // rather than one invented here: `observed` means our history showed it,
+  // `known` means the fixed-mechanics table did. Those are different strengths
+  // of claim and a reader is entitled to know which they are looking at.
+  const chainSource = modelChainsTo ? 'model' : indexEdge?.source ?? null
   // ⚠️ A chain root used to be REFUSED here, and that was wrong. Ace in the
   // Hole cannot be spawned on its own (#585: 128 of 128 runs came from a
   // parent), so telling a leader to "set thresholds on Ace in the Hole" asks
@@ -141,7 +173,7 @@ export async function computeGuidance({
       categoryOf, call,
     })
     if (!chainContext || chainContext.missing.length > 0) {
-      return fail('chains', { chainsTo, chainContext })
+      return fail('chains', { chainsTo, chainContext, chainSource })
     }
   }
 
@@ -214,5 +246,5 @@ export async function computeGuidance({
     },
   })
 
-  return { guidance, ceiling, chosen: search.chosen, search, probeCalls, chainContext, reason: null }
+  return { guidance, ceiling, chosen: search.chosen, search, probeCalls, chainContext, chainSource, reason: null }
 }

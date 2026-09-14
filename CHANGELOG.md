@@ -18,6 +18,63 @@ surface it automatically.
 
 ---
 
+## [3.118.0] - 2026-09-13
+
+### Fixed
+
+- **⚠️ A chain root the crime's own model had not mapped got no guidance**
+  (#738). Lock Stock showed *"No CPR guidance: this crime's payouts are not
+  fully priced"* — for the crime tnl spawns more than any other, at 21% of all
+  decisions (#715).
+
+  The gate read the crime's own per-ending mapping:
+
+  ```js
+  const chainsTo = goodEndings.map((e) => e?.reward?.chainsTo).find(Boolean)
+  ```
+
+  Lock Stock's is `null`, because that mapping is authored in
+  `crimeshub-facts.json`, which covers 26 crimes and predates Torn's newest.
+
+  ⚠️ **The edge was never actually missing.** `ocChains.js` has carried
+  `'Lock Stock': 'Hostile Takeover'` in `KNOWN_CHAINS` all along, tnl's history
+  confirms it independently — **34 of 34** Hostile Takeover runs came from a
+  Lock Stock parent, and Lock Stock paid **$0 across 44 runs** — and
+  `hostiletakeover.json` is complete at **$572M–$828M** per good ending.
+  `computeChainEconomics` already walked that index. The machinery, the mapping
+  and the value were all present; only the gate was looking in the wrong place.
+
+  ⚠️ **Only when the crime pays nothing itself.** A crime can both pay and spawn
+  something, and valuing that at the chain would double-count its own payout.
+
+- **A known zero recorded as unmeasured** (#738). `paysOnlyByChaining` read the
+  model's per-ending `chainsTo`, so a link with a child and unpriced good
+  endings recorded `null` rather than `0`. `chainedValue` uses `== null` to mean
+  "unmeasured", so that marked the whole chain incomplete and hid a genuine gap
+  in the terminal link behind the noise.
+
+### Added
+
+- **Where a chain link came from, at the index's own strength** (#738).
+  `chainSource` is `model`, `observed` or `known`, and the card says so:
+  *"The link is from our own history, not this crime's model"* against *"from
+  Torn's fixed chain mechanics — we have not watched it ourselves."*
+
+  ⚠️ Those are different strengths of claim and must not be flattened into one.
+  The label is the chain index's own, not one invented at the call site.
+
+### Notes
+
+⚠️ Lock Stock's model is `isComplete: false` — 180 observed paths. The chain's
+**value** is solid because the terminal link is complete, but the root's
+**success chance** is provisional and will move as the model fills in. The card
+already carries "Model still in progress".
+
+**Cleared for Takeoff is not fixed by this** and cannot be: it has no model file
+at all, and waits on tornprobability publishing one.
+
+---
+
 ## [3.117.1] - 2026-09-13
 
 ### Fixed
