@@ -18,6 +18,62 @@ surface it automatically.
 
 ---
 
+## [3.117.1] - 2026-09-13
+
+### Fixed
+
+- **⚠️ A tiny outcome side was reported as a measurement** (#735). Lock Stock on
+  tnl — 44 runs, 39 successes, **5 failures** — rendered:
+
+  > success tracked Muscle (−0.7), Smuggler (−0.7), Assassin (−1.3), Hacker (−2.2)
+
+  **Every role negative**, which invites the reader to conclude lower CPR is
+  better. Those deltas were a 39-run mean against a 5-run mean.
+
+  The #728 guard fired only when a side was **empty**. A side of five is just as
+  uninformative and looks considerably more authoritative, so the module built
+  to prevent exactly this misreading had a hole in it. `MIN_OUTCOME_RUNS` now
+  applies to **both** outcomes, under its own reason `one-sided`.
+
+  The overall rate and buckets survive — a crime that nearly always succeeds is
+  exactly the one whose rate is worth knowing — and the panel explains the gap
+  as *"too few failures to compare crews against. That is a good problem."*
+  rather than as a fault in the crime.
+
+- **⚠️ One label covered three different roles** (#735). `crime_slots.position`
+  carries only Muscle, Robber and Thief for six-role Break the Bank, so
+  `Muscle (−0.1)` averaged Muscle 1, 2 and 3 — directly above a guidance table
+  listing them separately. Two vocabularies for the same roles on one card.
+
+  `position_number` is populated and distinct, so a label is numbered when the
+  crime has more than one slot carrying it. **Derived from the data, not
+  declared** — a crime gaining a second Muscle numbers itself. A unique role
+  stays bare: "Robber #1" is noise, and Torn does not number a unique role
+  either.
+
+### Notes
+
+⚠️ **A correction to #728's headline claim.** It stated that Break the Bank
+showed "no measurable gain across the range Forge operates in". That was an
+artifact of coarse bucketing — lumping 65–70 into one bin of 145 runs hid the
+gradient inside it. The feature's own equal-count buckets found the error:
+
+```
+crew CPR 62-67    85 runs    69.4%
+crew CPR 67-71    85 runs    78.8%
+```
+
+**+9.4 points.** Break the Bank responds to crew CPR, less steeply than Clinical
+Precision or Window of Opportunity but not flat. The related claim that it
+"cannot field a crew at 75" was also about a UNIFORM bar: at the published
+non-uniform vector (72/72/70/69/67/0) the roster fields **8 crews**, because the
+carry at 18 costs nothing and the high-impact roles at 72 are affordable.
+
+⚠️ A backtick inside a SQL template literal closed the string and broke every
+server test — the same hazard that once broke a userscript's stylesheet.
+
+---
+
 ## [3.117.0] - 2026-09-13
 
 ### Added

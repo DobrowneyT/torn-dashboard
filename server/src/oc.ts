@@ -717,6 +717,12 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
         `SELECT c.crime_id,
                 lower(c.status) = 'successful' AS ok,
                 s.position,
+                -- ⚠️ #735: position is the GENERIC label — Break the Bank's
+                -- six slots carry only Muscle/Robber/Thief — so without the
+                -- ordinal the three Muscles average into one row. No backticks
+                -- in here: this is a template literal and one closes it.
+
+                s.position_number,
                 s.checkpoint_pass_rate AS cpr
            FROM crimes c
            JOIN crime_slots s ON s.crime_id = c.crime_id
@@ -731,6 +737,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
           crimeId: String(r.crime_id),
           ok: Boolean(r.ok),
           position: String(r.position),
+          positionNumber: r.position_number === null ? null : Number(r.position_number),
           cpr: r.cpr === null ? null : Number(r.cpr),
         }))
       )
