@@ -89,7 +89,7 @@ function nameOf(guidance, positionIds) {
   return names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
 }
 
-export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chainOf, chainCrew, onCompute, computing }) {
+export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chainOf, chainCrew, chainSource, onCompute, computing }) {
   const [showWorking, setShowWorking] = useState(false)
   // Downstream links only — the view drops the root, whose crew the search
   // overrides per candidate anyway.
@@ -224,6 +224,17 @@ export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chain
           Valued at the whole chain — this crime pays nothing itself, and success spawns{' '}
           <strong>{chainOf}</strong>. The thresholds below are for <em>this</em> crew, because
           this is the crime people join.
+          {/* ⚠️ #738. A chain the upstream model has not mapped still gets
+              guidance, but the reader must know the link came from somewhere
+              else — our own runs, or the fixed-mechanics table — rather than
+              from the crime's own published model. */}
+          {chainSource === 'observed' && (
+            <> The link is from <strong>our own history</strong>, not this crime's model.</>
+          )}
+          {chainSource === 'known' && (
+            <> The link is from Torn's fixed chain mechanics, not this crime's model —
+              we have not watched it ourselves.</>
+          )}
         </p>
       )}
 

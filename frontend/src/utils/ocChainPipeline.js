@@ -111,7 +111,21 @@ export async function computeChainEconomics({
     // null would mark every chain incomplete and hide a real terminal-link gap
     // behind the noise.
     const good = (scenario.endings ?? []).filter((e) => e?.kind === 'good' && !e?.alias_of)
-    const paysOnlyByChaining = good.length > 0 && good.every((e) => chainTargetOf(e) !== null)
+    // ⚠️ Two ways to know a link pays only by chaining (#738). The model may
+    // say so per ending (`chainsTo`), OR the link may have an OBSERVED child
+    // while carrying no money on any good ending — which is Lock Stock: no
+    // model mapping, unpriced endings, and $0 across 44 real runs.
+    //
+    // Getting this wrong matters in a specific way: `chainedValue` uses
+    // `== null` to mean "unmeasured", so a known zero recorded as null marks
+    // the whole chain incomplete and hides a genuine gap in the terminal link
+    // behind the noise.
+    const unpricedGood = good.length > 0 && good.every(
+      (e) => num(e?.money_avg) === null && num(e?.item_value_avg) === null
+    )
+    const paysOnlyByChaining =
+      (good.length > 0 && good.every((e) => chainTargetOf(e) !== null)) ||
+      (l.child != null && unpricedGood)
     valueByName[l.name] =
       out.expectedValue !== null ? out.expectedValue : paysOnlyByChaining ? 0 : null
   }
