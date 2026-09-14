@@ -195,3 +195,25 @@ describe('crew depth', () => {
     expect(screen.queryByText(/Nobody can crew/)).toBeNull()
   })
 })
+
+// #738 — where the chain link came from, when not from the crime's own model.
+describe('chain provenance', () => {
+  const base = { guidance: guidance(), chainOf: 'Hostile Takeover' }
+
+  it('says when the link is our own history', () => {
+    render(<GuidancePanel {...base} chainSource="observed" />)
+    expect(screen.getByText(/our own history/i)).toBeTruthy()
+  })
+
+  it('⚠️ does not pass the fixed-mechanics table off as observation', () => {
+    render(<GuidancePanel {...base} chainSource="known" />)
+    expect(screen.getByText(/fixed chain mechanics/i)).toBeTruthy()
+    expect(screen.getByText(/not watched it ourselves|have not watched it ourselves/i)).toBeTruthy()
+  })
+
+  it('says nothing extra when the model itself mapped the chain', () => {
+    render(<GuidancePanel {...base} chainSource="model" />)
+    expect(screen.queryByText(/our own history/i)).toBeNull()
+    expect(screen.queryByText(/fixed chain mechanics/i)).toBeNull()
+  })
+})

@@ -299,3 +299,119 @@ describe('computeGuidance — a chain root gets real guidance', () => {
     expect(out.guidance.publishable).toBe(false)
   })
 })
+
+// #738 — a chain root we have OBSERVED but the model has not mapped.
+//
+// Lock Stock on tnl: the model carries no `chainsTo` on its good endings and
+// they are unpriced, so the pipeline refused with "payouts are not fully
+// priced" and published nothing. But we have both missing facts from our own
+// data — 34 of 34 Hostile Takeover runs came from a Lock Stock parent, and Lock
+// Stock paid $0 across 44 runs — and the terminal link's model is COMPLETE,
+// carrying $572M-$828M per good ending. The machinery worked; the gate never
+// opened, because it read the model's mapping instead of the observed one.
+describe('a chain root the model has not mapped', () => {
+  const unmappedRoot = {
+    name: 'Lock Stock', parameter_count: 2,
+    roles: [{ position_id: 'P1', role_name: 'A', weight: 60 }, { position_id: 'P2', role_name: 'B', weight: 40 }],
+    // ⚠️ Good endings with NO money and NO chainsTo — exactly Lock Stock's shape.
+    endings: [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'S1' },
+      { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F1' },
+    ],
+  }
+  const terminal = {
+    name: 'Hostile Takeover', parameter_count: 2,
+    roles: [{ position_id: 'P1', role_name: 'A', weight: 60 }, { position_id: 'P2', role_name: 'B', weight: 40 }],
+    endings: [
+      { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'S1', money_avg: 700_000_000,
+        reward: { money: 700_000_000 } },
+      { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F1' },
+    ],
+  }
+  const readings = {
+    P1: Array.from({ length: 8 }, (_, i) => ({ member_id: `a${i}`, cpr: 75 })),
+    P2: Array.from({ length: 8 }, (_, i) => ({ member_id: `b${i}`, cpr: 75 })),
+  }
+  const call = async () => ({
+    result: { successChance: 0.85, failureChance: 0.15, goodEnding1: 0.85, badEnding1: 0.15 },
+  })
+  const OBSERVED = [{ parent: 'Lock Stock', child: 'Hostile Takeover', observations: 34 }]
+
+  const run = (over = {}) => computeGuidance({
+    scenario: unmappedRoot,
+    rosterCpr: { readings, roster_size: 80 },
+    category: { scopeCost: 5, scopeReward: 6 },
+    call, scenarios: [unmappedRoot, terminal], chains: OBSERVED,
+    categoryOf: () => ({ scopeCost: 5, scopeReward: 6 }),
+    ...over,
+  })
+
+  it('⚠️ publishes guidance instead of refusing as unpriced', async () => {
+    const out = await run()
+    expect(out.reason).toBeNull()
+    expect(out.guidance.publishable).toBe(true)
+  })
+
+  it('values it at the chain, not at its own zero', async () => {
+    const out = await run()
+    expect(out.guidance.value.floor).toBeGreaterThan(0)
+    expect(out.chainContext.links.map((l) => l.name))
+      .toEqual(['Lock Stock', 'Hostile Takeover'])
+  })
+
+  it('⚠️ records WHERE the chain came from, at the index\'s own strength', async () => {
+    // Our own history beats the fixed-mechanics table, so 34 observed runs
+    // report as `observed`, not `known`. The distinction is the point: they are
+    // different strengths of claim.
+    const out = await run()
+    expect(out.chainSource).toBe('observed')
+  })
+
+  it('reports the fixed-mechanics table as `known`, not as observation', async () => {
+    // ocChains.KNOWN_CHAINS already carries Lock Stock -> Hostile Takeover. With
+    // no history of our own it still resolves, and must say so honestly.
+    const out = await run({ chains: [] })
+    expect(out.chainSource).toBe('known')
+    expect(out.guidance.publishable).toBe(true)
+  })
+
+  it('still prefers the model when the model does have a mapping', async () => {
+    const mapped = {
+      ...unmappedRoot,
+      endings: [
+        { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'S1',
+          reward: { chainsTo: 'Hostile Takeover' } },
+        { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F1' },
+      ],
+    }
+    const out = await run({ scenario: mapped, scenarios: [mapped, terminal] })
+    expect(out.chainSource).toBe('model')
+    expect(out.guidance.publishable).toBe(true)
+  })
+
+  it('⚠️ does NOT invent a chain for a crime nothing links onward', async () => {
+    // An ordinary unpriced crime must still refuse. Absent beats confidently
+    // wrong — inventing a chain here would attach a number to nothing. Uses a
+    // name absent from both our edges and KNOWN_CHAINS.
+    const orphan = { ...unmappedRoot, name: 'Nowhere Crime' }
+    const out = await run({ scenario: orphan, scenarios: [orphan, terminal], chains: [] })
+    expect(out.chainSource).toBeNull()
+    expect(out.chainContext).toBeNull()
+  })
+
+  it('⚠️ does not treat a crime that PAYS as a chain root', async () => {
+    // A crime can both pay and spawn something. Valuing it at the chain would
+    // double-count its own payout.
+    const pays = {
+      ...unmappedRoot,
+      endings: [
+        { ending_key: 'goodEnding1', kind: 'good', resolved: true, node_id: 'S1', money_avg: 50_000_000,
+          reward: { money: 50_000_000 } },
+        { ending_key: 'badEnding1', kind: 'bad', resolved: true, node_id: 'F1' },
+      ],
+    }
+    const out = await run({ scenario: pays, scenarios: [pays, terminal] })
+    expect(out.chainSource).toBeNull()
+    expect(out.chainContext).toBeNull()
+  })
+})

@@ -415,6 +415,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
       setGuidanceMeta({
         reason: out.reason, limitingRoles: out.limitingRoles,
         chainsTo: out.chainsTo, chainContext: out.chainContext,
+        chainSource: out.chainSource,
       })
     } catch {
       // ⚠️ A failure leaves the panel in its idle state rather than showing a
@@ -546,6 +547,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
             limitingRoles={guidanceMeta?.limitingRoles}
             chainsTo={guidanceMeta?.chainsTo}
             chainOf={guidanceMeta?.chainContext ? guidanceMeta.chainContext.links[guidanceMeta.chainContext.links.length - 1].name : null}
+            chainSource={guidanceMeta?.chainSource ?? null}
             chainCrew={guidanceMeta?.chainContext
               ? Object.fromEntries(Object.entries(guidanceMeta.chainContext.crewByName)
                   .filter(([n]) => n !== scenario.name))
