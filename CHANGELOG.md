@@ -18,6 +18,42 @@ surface it automatically.
 
 ---
 
+## [3.118.1] - 2026-09-14
+
+### Added
+
+- **`docs/oc-cpr-mechanics.md`** — what Torn actually uses to compute CPR, collated
+  from the community's reverse-engineering and cross-checked against our own tenant
+  databases. Sources cited; provenance marked throughout, because Torn publishes no
+  formula and most of this is inference rather than fact.
+
+  ⚠️ **It records a mistake we made from our own data.** Measuring one member's CPR
+  spread across the roles *within* a crime gave `Break the Bank 1.82` against
+  `Ace in the Hole 10.67`, which reads as "CPR is a property of the crime". It is not —
+  Break the Bank's roles are all battlestat roles so they move together, while Ace in
+  the Hole contains **Driver**, which runs on **Racing**, a skill nothing else in the
+  game uses. The apparent per-crime behaviour was *same stat family*, on a donor faction
+  whose members happen to be evenly developed.
+
+  ⚠️ **Crime Experience acts as a MULTIPLIER**, which is why a CPR mapped from one crime
+  to another needs a slope rather than an offset. Measured: 0.93–1.04 between adjacent
+  difficulties, **~2.0** across a large gap.
+
+  Independently confirms three things this repo had already derived: chains pay only at
+  the terminal link, scope is `cost = tier, reward = tier + 1` with a cap of 100, and
+  weak members belong in lenient/low-weight roles — the carry-role rule from #692/#694.
+
+  ⚠️ And one warning against the Advanced-only plan: the community expects level-8+
+  factions to cycle back to cheap crimes to farm scope. Our own measurement put forge's
+  floor at ~75% average success funded by regeneration alone; both are recorded.
+
+### Notes
+
+`oc-cpr-algorithm.md` now points at it: that file decides what bar to publish and takes
+a member's CPR as given; this one explains where the number comes from.
+
+---
+
 ## [3.118.0] - 2026-09-13
 
 ### Fixed
