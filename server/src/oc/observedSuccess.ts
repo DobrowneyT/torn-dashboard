@@ -30,6 +30,16 @@ export interface ObservedSlot {
   crimeId: string
   ok: boolean
   position: string
+  /**
+   * Torn's ordinal for this slot within its position label (#735).
+   *
+   * ⚠️ `crime_slots.position` is the GENERIC label: Break the Bank's six slots
+   * carry only "Muscle", "Robber" and "Thief", so a per-role figure keyed on it
+   * averaged Muscle 1, 2 and 3 into one number — sitting directly above a
+   * guidance table that lists them separately. Two vocabularies for the same
+   * roles on one card.
+   */
+  positionNumber?: number | null
   cpr: number | null
 }
 
@@ -50,7 +60,7 @@ export interface ObservedRole {
   cprWhenFail: number | null
   delta: number | null
   informative: boolean
-  reason: 'ok' | 'narrow-range' | 'too-few-runs' | 'one-outcome'
+  reason: 'ok' | 'narrow-range' | 'too-few-runs' | 'one-outcome' | 'one-sided'
 }
 
 export interface ObservedSummary {
@@ -72,6 +82,22 @@ export const MIN_INFORMATIVE_SPREAD = 5
 
 /** Runs needed before any of this is worth showing at all. */
 export const DEFAULT_MIN_RUNS = 15
+
+/**
+ * ⚠️ **Runs needed on BOTH outcomes before a per-role delta is reported (#735).**
+ *
+ * Lock Stock on tnl: 44 runs, 39 successes, **5 failures**. Every role came
+ * back negative — "success tracked Muscle (-0.7), Smuggler (-0.7), Assassin
+ * (-1.3), Hacker (-2.2)" — which reads as "every role hurts your chances". The
+ * deltas were a 39-run mean against a 5-run mean.
+ *
+ * The original guard only fired on an EMPTY side. A side of five is just as
+ * uninformative and looks considerably more authoritative. Withholding the
+ * delta is the point; the crime's overall rate and buckets still stand, because
+ * a crime that nearly always succeeds is exactly the one whose rate is worth
+ * knowing.
+ */
+export const MIN_OUTCOME_RUNS = 10
 
 /** Runs needed inside one bucket before its rate means anything. */
 export const DEFAULT_MIN_BUCKET_RUNS = 8
@@ -100,6 +126,7 @@ export function summariseObserved(
     minBucketRuns = DEFAULT_MIN_BUCKET_RUNS,
     maxBuckets = DEFAULT_MAX_BUCKETS,
     minInformativeSpread = MIN_INFORMATIVE_SPREAD,
+    minOutcomeRuns = MIN_OUTCOME_RUNS,
   } = {}
 ): ObservedSummary {
   // ⚠️ Grouped by RUN, not by slot. A six-role crime contributes one
@@ -107,6 +134,23 @@ export function summariseObserved(
   // sixfold and make noise look like evidence.
   const byRun = new Map<string, { ok: boolean; cprs: number[] }>()
   const byRole = new Map<string, { ok: number[]; fail: number[] }>()
+
+  // ⚠️ Number a label only when the crime actually has more than one slot
+  // carrying it. "Robber #1" would be noise — Torn does not number a unique
+  // role either — and the count is DERIVED from the data rather than declared,
+  // so a crime gaining a second Muscle tomorrow numbers itself.
+  const ordinals = new Map<string, Set<number>>()
+  for (const s of slots ?? []) {
+    const n = num(s?.positionNumber)
+    if (n === null) continue
+    if (!ordinals.has(s.position)) ordinals.set(s.position, new Set())
+    ordinals.get(s.position)!.add(n)
+  }
+  const label = (s: ObservedSlot) => {
+    const n = num(s?.positionNumber)
+    if (n === null) return s.position
+    return (ordinals.get(s.position)?.size ?? 0) > 1 ? `${s.position} #${n}` : s.position
+  }
 
   for (const s of slots ?? []) {
     const cpr = num(s?.cpr)
@@ -117,8 +161,9 @@ export function summariseObserved(
     if (!byRun.has(id)) byRun.set(id, { ok: Boolean(s.ok), cprs: [] })
     byRun.get(id)!.cprs.push(cpr)
 
-    if (!byRole.has(s.position)) byRole.set(s.position, { ok: [], fail: [] })
-    byRole.get(s.position)![s.ok ? 'ok' : 'fail'].push(cpr)
+    const key = label(s)
+    if (!byRole.has(key)) byRole.set(key, { ok: [], fail: [] })
+    byRole.get(key)![s.ok ? 'ok' : 'fail'].push(cpr)
   }
 
   const runs = [...byRun.values()]
@@ -181,8 +226,10 @@ export function summariseObserved(
       const reason: ObservedRole['reason'] =
         all.length < minRuns ? 'too-few-runs'
           : cprWhenOk === null || cprWhenFail === null ? 'one-outcome'
-            : spread < minInformativeSpread ? 'narrow-range'
-              : 'ok'
+            // ⚠️ #735. A 39-run mean against a 5-run mean is not a measurement.
+            : r.ok.length < minOutcomeRuns || r.fail.length < minOutcomeRuns ? 'one-sided'
+              : spread < minInformativeSpread ? 'narrow-range'
+                : 'ok'
       const informative = reason === 'ok'
 
       return {
