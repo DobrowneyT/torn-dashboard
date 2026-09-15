@@ -9,6 +9,12 @@ sitting, by both of us, and one of them shipped a plausible-looking formula that
 was 21% wrong in a direction that biased the whole hierarchy. If this file only
 held conclusions we would re-derive the same errors.
 
+**See also `oc-cpr-mechanics.md`** — what Torn actually uses to compute CPR, as
+far as the community has established it, cross-checked against our own databases.
+This file takes a member's CPR as given and decides what bar to publish; that one
+explains where the number comes from, which roles share a stat, and why a CPR
+mapped from one crime to another needs a slope rather than an offset.
+
 ---
 
 ## Part 1 — the source document, verbatim
