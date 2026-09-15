@@ -18,6 +18,71 @@ surface it automatically.
 
 ---
 
+## [3.120.0] - 2026-09-15
+
+### Added
+
+- **The join gap is measured per tenant, not assumed** (#687). `g` is the only
+  free parameter in `personDays(n, g) = n(n+1)/2 + (n-1)·g`, which is the
+  denominator of every per-person-per-day figure the OC model produces — so every
+  published minimum-CPR threshold inherited a guess.
+
+  ⚠️ **The guess was wrong, and wrong differently per faction.** Median gap over
+  180 days, measured 2026-09-15:
+
+  ```
+                n=4     n=5     n=6     p10-p90 at n=6
+    tnl        12.4h   12.9h   14.3h     7.6 - 24.2
+    forge      24.4h   26.0h   24.4h    12.9 - 44.7
+    capacityx  34.1h   40.6h   48.2h    29.0 - 65.0
+  ```
+
+  So tnl was close to the assumed 12h, **forge runs at twice it**, and
+  **capacityx at four times**. For a 6-role crime that is `personDays` of 23.98,
+  26.08 and **31.04** against the assumed 23.50 — capacityx's $/person-day
+  figures were **32% optimistic**, forge's 11%.
+
+  `GET /api/oc-simulator/join-gap` returns the median, p10, p90 and spread per
+  role count, plus one weighted figure. Per tenant, never shared: this is a
+  measurement of *a faction's* filling behaviour.
+
+  ⚠️ **`g` is FITTED, not observed.** Rather than timing intervals between joins,
+  it solves for the value that reconciles the formula with the person-days
+  actually consumed: `g = (measuredPersonDays − n(n+1)/2) / (n−1)`. The formula is
+  what consumes `g`, so the useful number is whichever makes it match reality —
+  it absorbs late joins, re-fills and whatever else Torn does that we have not
+  modelled.
+
+  ⚠️ **Absent, not the assumption, below `MIN_CRIMES_FOR_GAP`** — "we measured
+  12h" and "we assumed 12h" are different claims, and the guidance table already
+  says which it had.
+
+  ⚠️ The **distribution** is reported, not just the median. forge spans 12.9h at
+  p10 to 44.7h at p90; a gap that bimodal is a different planning problem from a
+  consistent one, and a median alone would hide it.
+
+### Fixed
+
+- **⚠️ A near-repeat of the v3.97.0 page crash, in the same file.** The first
+  version of this declared `joinGap` inside `CrimeCard` and referenced it from
+  `OCSimulatorView`'s joint-solve callback — an undefined reference that builds
+  cleanly and throws on render, which is exactly how v3.97.0 replaced the whole
+  OC Simulator with an error boundary.
+
+  The state now lives in the outer component, **above every use**, and the card
+  receives it as a prop. `OCSimulatorCrimeCard.test.jsx` mounts the card with a
+  measured gap, an unmeasured one and none at all.
+
+### Notes
+
+⚠️ **This corrects figures reported earlier in this session.** forge's Advanced
+economics were quoted at `$6,694,467` per person-day over 180 days using the
+assumed gap; measured, it is **`$6,013,704`**, and occupancy is **65%** rather
+than 58%. tnl moves from `$8,663,828` to `$8,289,604` and 97% to 98%. The
+`$/member/week` figures are unaffected — they never used `g`.
+
+---
+
 ## [3.119.0] - 2026-09-14
 
 ### Added

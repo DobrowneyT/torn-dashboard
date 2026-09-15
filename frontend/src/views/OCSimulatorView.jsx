@@ -70,6 +70,11 @@ export default function OCSimulatorView() {
   const [chains, setChains] = useState([])
   // #715: what this faction actually spawns, so the planner stops assuming.
   const [spawns, setSpawns] = useState(null)
+  // #687: the faction's measured join gap, fetched once for the page. ⚠️
+  // Declared HERE, in the outer component and above every use — both the joint
+  // solve below and each CrimeCard need it, and the card gets it as a PROP
+  // rather than fetching its own copy per crime.
+  const [joinGap, setJoinGap] = useState(null)
   // #609 slice 7: whether the item catalogue behind every dollar figure below
   // is fresh enough to use. The server withholds prices rather than serving
   // stale ones, so without this the page would show a fleet of "unpriced"
@@ -108,6 +113,14 @@ export default function OCSimulatorView() {
     setSelected([scenarios[0].name])
   }, [scenarios, selected, setSelected])
 
+  useEffect(() => {
+    let cancelled = false
+    apiGet('/api/oc-simulator/join-gap')
+      .then((res) => { if (!cancelled) setJoinGap(res) })
+      .catch(() => { if (!cancelled) setJoinGap(null) })
+    return () => { cancelled = true }
+  }, [])
+
   const chosen = useMemo(() => selectedScenarios(scenarios, selected), [scenarios, selected])
 
   // ⚠️ Declared BELOW `chosen`, and that placement is load-bearing: a hook's
@@ -136,7 +149,8 @@ export default function OCSimulatorView() {
         categoryOf: (name) => (config.ocCategories || {})[resolveCategory(name, null)] ?? null,
         call: (name, parameters) =>
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
-        days: 30, spawnsPerDay: 4, gap: 0.5,
+        days: 30, spawnsPerDay: 4,
+        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
         spawns,
       }))
     } catch {
@@ -144,7 +158,7 @@ export default function OCSimulatorView() {
     } finally {
       setSolvingJoint(false)
     }
-  }, [chosen, spawns])
+  }, [chosen, spawns, joinGap])
   const stale = useMemo(() => staleSelections(scenarios, selected), [scenarios, selected])
   const totalScope = useMemo(() => selectionScopeCost(scenarios, selected), [scenarios, selected])
 
@@ -244,6 +258,7 @@ export default function OCSimulatorView() {
           scenario={scenario}
           scenarios={scenarios}
           chainEdges={chains}
+          joinGap={joinGap}
           onRemove={() => setSelected(toggleSelection(selected, scenario.name))}
         />
       ))}
@@ -280,7 +295,7 @@ export default function OCSimulatorView() {
  * that crime — six crimes on screen must not mean six requests per adjustment
  * against a small third-party server.
  */
-export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove }) {
+export function CrimeCard({ scenario, scenarios = [], chainEdges = [], joinGap = null, onRemove }) {
   const [cprs, setCprs] = useState(
     () => Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR)
   )
@@ -398,8 +413,11 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
         category: (config.ocCategories || {})[categoryKey] ?? null,
         call: (name, parameters) =>
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
-        gap: 0.5,
-        gapIsAssumed: true,
+        // ⚠️ Measured where we have the history, assumed where we do not — and
+        // the table says which, because "we measured 12h" and "we assumed 12h"
+        // are different claims (#687).
+        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
+        gapIsAssumed: !joinGap?.measured,
         // #713: a chain ROOT pays nothing itself, so it is valued at the whole
         // chain. Without these it would be refused — and it is the crime
         // members actually join.
@@ -426,7 +444,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
     } finally {
       setComputingGuidance(false)
     }
-  }, [scenario, rosterCpr, scenarios, chainEdges, cprs])
+  }, [scenario, rosterCpr, scenarios, chainEdges, cprs, joinGap])
 
   useEffect(() => { setChain(null) }, [scenario.name])
 
