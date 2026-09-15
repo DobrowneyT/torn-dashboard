@@ -30,6 +30,7 @@ import { AlertTriangle, FlaskConical, Info, LoaderCircle, ListPlus, Trophy, X } 
 import { apiGet, apiPost } from '../utils/apiClient'
 import { useViewState } from '../contexts/ViewStateContext'
 import { expectedValue } from '../utils/ocExpectedValue'
+import { personDays } from '../utils/ocPersonDays'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
   withoutEndingPadding, collapseAliasedEndings, endingValueBreakdown,
@@ -955,7 +956,7 @@ export function ResultPanel({ scenario, result, calculating, error }) {
 
           <ExpectedValue ev={ev} priced={priced} quality={quality} spread={spread}
             expectedRespect={expectedRespect} itemsOnly={itemsOnly} chainedOnly={chainedOnly}
-          chainOut={chainOut}
+          chainOut={chainOut} roleCount={scenario.roles?.length ?? scenario.parameter_count}
         />
 
           <div className="mt-4">
@@ -1094,7 +1095,14 @@ export function ResultPanel({ scenario, result, calculating, error }) {
  * say yet". Rendering a partial sum as the expected value is the failure this
  * whole module was written to avoid.
  */
-function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly, chainedOnly, chainOut = [] }) {
+function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly, chainedOnly, chainOut = [], roleCount }) {
+  // ⚠️ Absent rather than zero when the crime is unpriced — a chain root pays
+  // nothing itself, and $0 per person-day would read as worthless (#351).
+  const perPersonDay =
+    ev?.complete && Number.isFinite(ev.expected) && ev.expected > 0 && roleCount >= 1
+      ? ev.expected / personDays(roleCount)
+      : null
+
   if (!ev) return null
   const anyPriced = priced && Object.values(priced).some((v) => v != null)
 
@@ -1131,6 +1139,24 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
       <div className="mt-0.5 text-xl font-semibold tabular-nums">
         {ev.complete ? '' : 'at least '}{formatCurrency(Math.round(ev.expected))}
       </div>
+
+      {/* ⚠️ **$ per person-day (#602).** This is the metric the whole model
+          optimises — `perPersonPerDay` has existed since #690 and was consulted
+          only inside `ocThresholdSearch`'s scoring, so the number that makes two
+          crimes comparable was absent from the page built to compare crimes.
+
+          A 4-role crime and a 6-role crime cannot be compared on E(x): the
+          6-role one locks 23.5 person-days against the other's 11.5. Forge's
+          Break the Bank pays 2.8x Clinical Precision per run and only 1.4x per
+          person-day, which is the figure that decides what to spawn. */}
+      {perPersonDay !== null && (
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+          <strong className="tabular-nums">{formatCurrency(Math.round(perPersonDay))}</strong>{' '}
+          per person-day — {roleCount} roles hold{' '}
+          <span className="tabular-nums">{personDays(roleCount).toFixed(1)}</span> person-days
+          per run. This is what compares one crime against another.
+        </p>
+      )}
 
       {/* ⚠️ $0 across every ending does not mean worthless — several crimes
           reward items, which the feed does not price. Saying "pays nothing"

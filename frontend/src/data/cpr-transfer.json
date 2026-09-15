@@ -1,0 +1,311 @@
+{
+ "_generated": "2026-09-14",
+ "_method": "target = slope*source + intercept; donor chosen per ROLE by held-out MAE (200 shuffles, 50/50 split). Donors with n<25 are used only when nothing better bridges the role, are marked low_confidence, and are chosen by STAT FAMILY (docs/oc-cpr-mechanics.md) rather than by a holdout that cannot separate them.",
+ "_dropped": [],
+ "targets": {
+  "Ace in the Hole||Driver": {
+   "donor": "capacityx",
+   "source": "Bidding War||Driver",
+   "slope": 2.0122,
+   "intercept": -115.143,
+   "n": 7,
+   "mae": 1.638,
+   "p90": 4.576,
+   "source_range": [
+    75,
+    85
+   ],
+   "trusted": false,
+   "same_family": true,
+   "low_confidence": true,
+   "tiebreak": "stat-family"
+  },
+  "Ace in the Hole||Hacker": {
+   "donor": "tnl",
+   "source": "Cleared for Takeoff||Techie",
+   "slope": 0.9454,
+   "intercept": -11.887,
+   "n": 73,
+   "mae": 0.823,
+   "p90": 1.729,
+   "source_range": [
+    30,
+    86
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Ace in the Hole||Imitator": {
+   "donor": "tnl",
+   "source": "Clinical Precision||Imitator",
+   "slope": 0.9022,
+   "intercept": -3.771,
+   "n": 85,
+   "mae": 0.747,
+   "p90": 1.623,
+   "source_range": [
+    28,
+    83
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Ace in the Hole||Muscle #1": {
+   "donor": "tnl",
+   "source": "Break the Bank||Muscle #2",
+   "slope": 0.9338,
+   "intercept": -0.095,
+   "n": 80,
+   "mae": 0.369,
+   "p90": 0.898,
+   "source_range": [
+    36,
+    77
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Ace in the Hole||Muscle #2": {
+   "donor": "tnl",
+   "source": "Break the Bank||Muscle #3",
+   "slope": 0.9339,
+   "intercept": -0.088,
+   "n": 85,
+   "mae": 0.381,
+   "p90": 0.919,
+   "source_range": [
+    36,
+    77
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Hostile Takeover||Cat Burglar": {
+   "donor": "tnl",
+   "source": "Clinical Precision||Cat Burglar",
+   "slope": 0.8634,
+   "intercept": -1.025,
+   "n": 85,
+   "mae": 0.587,
+   "p90": 1.046,
+   "source_range": [
+    30,
+    83
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Hostile Takeover||Engineer": {
+   "donor": "tnl",
+   "source": "Break the Bank||Thief #2",
+   "slope": 1.0494,
+   "intercept": -11.997,
+   "n": 86,
+   "mae": 0.852,
+   "p90": 1.675,
+   "source_range": [
+    33,
+    78
+   ],
+   "trusted": true,
+   "same_family": false
+  },
+  "Hostile Takeover||Hacker": {
+   "donor": "tnl",
+   "source": "Cleared for Takeoff||Techie",
+   "slope": 0.9347,
+   "intercept": -11.536,
+   "n": 73,
+   "mae": 0.798,
+   "p90": 2.033,
+   "source_range": [
+    30,
+    86
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Hostile Takeover||Kidnapper": {
+   "donor": "tnl",
+   "source": "Break the Bank||Muscle #2",
+   "slope": 0.9309,
+   "intercept": -2.061,
+   "n": 85,
+   "mae": 0.941,
+   "p90": 2.075,
+   "source_range": [
+    36,
+    77
+   ],
+   "trusted": true,
+   "same_family": false
+  },
+  "Hostile Takeover||Muscle": {
+   "donor": "tnl",
+   "source": "Break the Bank||Muscle #1",
+   "slope": 0.9216,
+   "intercept": 0.222,
+   "n": 85,
+   "mae": 0.509,
+   "p90": 0.846,
+   "source_range": [
+    36,
+    77
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Hostile Takeover||Negotiator": {
+   "donor": "tnl",
+   "source": "Clinical Precision||Imitator",
+   "slope": 1.1201,
+   "intercept": -20.269,
+   "n": 85,
+   "mae": 1.363,
+   "p90": 3.918,
+   "source_range": [
+    28,
+    83
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Lock Stock||Assassin": {
+   "donor": "tnl",
+   "source": "Clinical Precision||Assassin",
+   "slope": 0.9913,
+   "intercept": -1.596,
+   "n": 85,
+   "mae": 0.423,
+   "p90": 0.843,
+   "source_range": [
+    35,
+    82
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Lock Stock||Hacker": {
+   "donor": "tnl",
+   "source": "Cleared for Takeoff||Techie",
+   "slope": 1.0433,
+   "intercept": -10.755,
+   "n": 73,
+   "mae": 0.555,
+   "p90": 1.122,
+   "source_range": [
+    30,
+    86
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Lock Stock||Muscle #1": {
+   "donor": "tnl",
+   "source": "Break the Bank||Muscle #2",
+   "slope": 1.0446,
+   "intercept": 1.201,
+   "n": 86,
+   "mae": 0.537,
+   "p90": 0.86,
+   "source_range": [
+    36,
+    77
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Lock Stock||Muscle #2": {
+   "donor": "tnl",
+   "source": "Break the Bank||Muscle #3",
+   "slope": 1.042,
+   "intercept": 1.378,
+   "n": 87,
+   "mae": 0.528,
+   "p90": 0.807,
+   "source_range": [
+    36,
+    77
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Lock Stock||Smuggler": {
+   "donor": "tnl",
+   "source": "Break the Bank||Thief #2",
+   "slope": 1.2069,
+   "intercept": -13.211,
+   "n": 87,
+   "mae": 0.778,
+   "p90": 1.583,
+   "source_range": [
+    33,
+    78
+   ],
+   "trusted": true,
+   "same_family": false
+  },
+  "Stacking the Deck||Cat Burglar": {
+   "donor": "tnl",
+   "source": "Clinical Precision||Cat Burglar",
+   "slope": 0.977,
+   "intercept": -1.151,
+   "n": 83,
+   "mae": 0.279,
+   "p90": 0.957,
+   "source_range": [
+    30,
+    83
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Stacking the Deck||Driver": {
+   "donor": "capacityx",
+   "source": "Blast from the Past||Picklock #1",
+   "slope": 1.6348,
+   "intercept": -74.556,
+   "n": 7,
+   "mae": 0.544,
+   "p90": 1.195,
+   "source_range": [
+    74,
+    87
+   ],
+   "trusted": false,
+   "same_family": false,
+   "low_confidence": true,
+   "tiebreak": "none available"
+  },
+  "Stacking the Deck||Hacker": {
+   "donor": "tnl",
+   "source": "Cleared for Takeoff||Techie",
+   "slope": 1.0396,
+   "intercept": -11.421,
+   "n": 73,
+   "mae": 0.548,
+   "p90": 1.095,
+   "source_range": [
+    30,
+    86
+   ],
+   "trusted": true,
+   "same_family": true
+  },
+  "Stacking the Deck||Imitator": {
+   "donor": "tnl",
+   "source": "Clinical Precision||Imitator",
+   "slope": 0.9909,
+   "intercept": -2.267,
+   "n": 84,
+   "mae": 0.311,
+   "p90": 1.05,
+   "source_range": [
+    28,
+    83
+   ],
+   "trusted": true,
+   "same_family": true
+  }
+ }
+}
