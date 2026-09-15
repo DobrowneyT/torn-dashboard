@@ -145,3 +145,25 @@ describe('ResultPanel — chained crimes', () => {
     expect(screen.getByText(/unpriced, covering/i)).toBeTruthy()
   })
 })
+
+// #602 — $ per person-day, the figure that makes two crimes comparable.
+describe('per person-day', () => {
+  it('shows it beside E(x), with the crime\'s role count', () => {
+    render(<ResultPanel scenario={SCENARIO} result={RESULT} />)
+    const line = screen.getByText(/per person-day/)
+    expect(line).toBeTruthy()
+    // 6 roles -> personDays(6, 0.5) = 21 + 2.5 = 23.5
+    expect(line.textContent).toMatch(/6 roles hold 23\.5 person-days/)
+  })
+
+  it('⚠️ is absent, not zero, when the crime reports no cash', () => {
+    // A chain root's own E(x) is zero by design, and several crimes pay only in
+    // items. "$0 per person-day" reads as worthless rather than unpriced (#351).
+    const noCash = {
+      ...SCENARIO,
+      endings: SCENARIO.endings.map((e) => ({ ...e, money_avg: 0, money_min: 0, money_max: 0 })),
+    }
+    render(<ResultPanel scenario={noCash} result={RESULT} />)
+    expect(screen.queryByText(/per person-day/)).toBeNull()
+  })
+})

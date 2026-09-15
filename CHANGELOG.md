@@ -18,6 +18,81 @@ surface it automatically.
 
 ---
 
+## [3.119.0] - 2026-09-14
+
+### Added
+
+- **Estimating a role's CPR for a crime the faction has never run** (#602).
+  `ocCprTransfer.js` plus a fitted coefficient table for all 20 Elaborate roles.
+
+  ⚠️ **What crosses the tenant boundary is the COEFFICIENT TABLE, not member
+  rows.** The original plan needed a classifier matching members across factions —
+  the one thing this architecture prevents, and why #602 sat in triage for months.
+  It was never necessary: CPR is deterministic given the member, so a fit of
+  `target = slope × source + intercept` on a faction running **both** crimes,
+  applied to the subject's own readings, lands at the rounding floor.
+
+  Donor chosen **per role** by held-out MAE — 200 shuffles, 50/50 split. 18 roles
+  land at **0.28–1.36** from tnl (n = 73–87). CPR is integer-valued (7,464
+  readings, zero fractions), so that *is* the floor.
+
+  ⚠️ **A slope, not an offset** — Crime Experience multiplies the other factors
+  (`oc-cpr-mechanics.md`): 0.86–1.2 between nearby difficulties, **2.0** across a
+  large gap.
+
+  ⚠️ **The two Driver roles are weak and always will be.** Driver runs on
+  **Racing**, the only stat no other role uses, and tnl runs no crime containing a
+  Driver — it cannot donate one at any sample size. capacityx can, with seven
+  members. Below n=25 the **stat family** breaks the tie, because a holdout over
+  n=7 fits on 3–4 points and cannot separate candidates. Both flagged
+  `low_confidence`.
+
+  Guards, all tested: a member with no source reading is **absent, never zero**; a
+  member outside the fitted range is flagged; a steep slope mapping below zero is
+  **dropped rather than clamped** (Driver's slope of 2.0 sends CPR 20 to −75 —
+  the model failing, not a weak member); a role with no coefficient is **unmapped**,
+  not empty.
+
+- **`$ per person-day` beside E(x) on every crime card** (#602). `perPersonPerDay`
+  has existed since #690 with **no call site in any view** — consulted only inside
+  `ocThresholdSearch`'s scoring, so the metric the whole model optimises was absent
+  from the page built to compare crimes.
+
+  A 4-role crime and a 6-role crime are not comparable on E(x): the 6-role one
+  locks 23.5 person-days against 11.5. Forge's Break the Bank pays 2.8× Clinical
+  Precision per run and **1.4×** per person-day.
+
+  ⚠️ Absent rather than zero where the crime reports no cash — a chain root pays
+  nothing itself, and `$0 per person-day` reads as worthless (#351/#713).
+
+- **`docs/oc-elaborate-audit.md`** — the decision record, including a section on
+  the six things that were wrong along the way.
+
+### Notes
+
+**The verdict: yes, but crewing was never the gate.** Forge can crew the Elaborate
+roots at close to tnl's quality — 13 crews on Stacking the Deck at a uniform 65,
+10 on Lock Stock. What it cannot afford is the **scope**:
+
+```
+                                    Advanced  Elaborate   regen    net /180d
+tnl (runs both)                         +274       -160    +180         +293
+forge today, Advanced only               -16          0    +180         +164
+forge + Elaborate at tnl's volume        -16       -208    +180          -44
+```
+
+⚠️ **tnl's Advanced generates +274 scope; forge's generates −16**, and the whole
+difference is success rate — 89.7% and 97.0% on Blast from the Past and Window of
+Opportunity against forge's 79.0% and 86.7%. tnl pays for Elaborate out of a
+surplus forge does not have, so dropping the cheap crimes, unlocking Elaborate and
+running it at volume are **mutually exclusive** at current rates.
+
+⚠️ And Elaborate is an **occupancy** play more than a rate play: tnl stripped of
+Elaborate sits at **73% occupancy — exactly forge's**. Decomposing tnl's 2.06×
+advantage per member per week: rate 1.55× × occupancy 1.32×.
+
+---
+
 ## [3.118.1] - 2026-09-14
 
 ### Added
@@ -51,9 +126,6 @@ surface it automatically.
 
 `oc-cpr-algorithm.md` now points at it: that file decides what bar to publish and takes
 a member's CPR as given; this one explains where the number comes from.
-
----
-
 ## [3.118.0] - 2026-09-13
 
 ### Fixed
