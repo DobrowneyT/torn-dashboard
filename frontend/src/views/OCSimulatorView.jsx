@@ -30,6 +30,7 @@ import { AlertTriangle, FlaskConical, Info, LoaderCircle, ListPlus, Trophy, X } 
 import { apiGet, apiPost } from '../utils/apiClient'
 import { useViewState } from '../contexts/ViewStateContext'
 import { expectedValue } from '../utils/ocExpectedValue'
+import { personDays } from '../utils/ocPersonDays'
 import {
   payoutsFromEndings, respectFromEndings, pricingQuality, payoutSpread, paysInItems,
   withoutEndingPadding, collapseAliasedEndings, endingValueBreakdown,
@@ -69,6 +70,11 @@ export default function OCSimulatorView() {
   const [chains, setChains] = useState([])
   // #715: what this faction actually spawns, so the planner stops assuming.
   const [spawns, setSpawns] = useState(null)
+  // #687: the faction's measured join gap, fetched once for the page. ⚠️
+  // Declared HERE, in the outer component and above every use — both the joint
+  // solve below and each CrimeCard need it, and the card gets it as a PROP
+  // rather than fetching its own copy per crime.
+  const [joinGap, setJoinGap] = useState(null)
   // #609 slice 7: whether the item catalogue behind every dollar figure below
   // is fresh enough to use. The server withholds prices rather than serving
   // stale ones, so without this the page would show a fleet of "unpriced"
@@ -107,6 +113,14 @@ export default function OCSimulatorView() {
     setSelected([scenarios[0].name])
   }, [scenarios, selected, setSelected])
 
+  useEffect(() => {
+    let cancelled = false
+    apiGet('/api/oc-simulator/join-gap')
+      .then((res) => { if (!cancelled) setJoinGap(res) })
+      .catch(() => { if (!cancelled) setJoinGap(null) })
+    return () => { cancelled = true }
+  }, [])
+
   const chosen = useMemo(() => selectedScenarios(scenarios, selected), [scenarios, selected])
 
   // ⚠️ Declared BELOW `chosen`, and that placement is load-bearing: a hook's
@@ -135,7 +149,8 @@ export default function OCSimulatorView() {
         categoryOf: (name) => (config.ocCategories || {})[resolveCategory(name, null)] ?? null,
         call: (name, parameters) =>
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
-        days: 30, spawnsPerDay: 4, gap: 0.5,
+        days: 30, spawnsPerDay: 4,
+        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
         spawns,
       }))
     } catch {
@@ -143,7 +158,7 @@ export default function OCSimulatorView() {
     } finally {
       setSolvingJoint(false)
     }
-  }, [chosen, spawns])
+  }, [chosen, spawns, joinGap])
   const stale = useMemo(() => staleSelections(scenarios, selected), [scenarios, selected])
   const totalScope = useMemo(() => selectionScopeCost(scenarios, selected), [scenarios, selected])
 
@@ -243,6 +258,7 @@ export default function OCSimulatorView() {
           scenario={scenario}
           scenarios={scenarios}
           chainEdges={chains}
+          joinGap={joinGap}
           onRemove={() => setSelected(toggleSelection(selected, scenario.name))}
         />
       ))}
@@ -279,7 +295,7 @@ export default function OCSimulatorView() {
  * that crime — six crimes on screen must not mean six requests per adjustment
  * against a small third-party server.
  */
-export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove }) {
+export function CrimeCard({ scenario, scenarios = [], chainEdges = [], joinGap = null, onRemove }) {
   const [cprs, setCprs] = useState(
     () => Array.from({ length: scenario.parameter_count }, () => DEFAULT_CPR)
   )
@@ -397,8 +413,11 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
         category: (config.ocCategories || {})[categoryKey] ?? null,
         call: (name, parameters) =>
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
-        gap: 0.5,
-        gapIsAssumed: true,
+        // ⚠️ Measured where we have the history, assumed where we do not — and
+        // the table says which, because "we measured 12h" and "we assumed 12h"
+        // are different claims (#687).
+        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
+        gapIsAssumed: !joinGap?.measured,
         // #713: a chain ROOT pays nothing itself, so it is valued at the whole
         // chain. Without these it would be refused — and it is the crime
         // members actually join.
@@ -425,7 +444,7 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], onRemove 
     } finally {
       setComputingGuidance(false)
     }
-  }, [scenario, rosterCpr, scenarios, chainEdges, cprs])
+  }, [scenario, rosterCpr, scenarios, chainEdges, cprs, joinGap])
 
   useEffect(() => { setChain(null) }, [scenario.name])
 
@@ -955,7 +974,7 @@ export function ResultPanel({ scenario, result, calculating, error }) {
 
           <ExpectedValue ev={ev} priced={priced} quality={quality} spread={spread}
             expectedRespect={expectedRespect} itemsOnly={itemsOnly} chainedOnly={chainedOnly}
-          chainOut={chainOut}
+          chainOut={chainOut} roleCount={scenario.roles?.length ?? scenario.parameter_count}
         />
 
           <div className="mt-4">
@@ -1094,7 +1113,14 @@ export function ResultPanel({ scenario, result, calculating, error }) {
  * say yet". Rendering a partial sum as the expected value is the failure this
  * whole module was written to avoid.
  */
-function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly, chainedOnly, chainOut = [] }) {
+function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly, chainedOnly, chainOut = [], roleCount }) {
+  // ⚠️ Absent rather than zero when the crime is unpriced — a chain root pays
+  // nothing itself, and $0 per person-day would read as worthless (#351).
+  const perPersonDay =
+    ev?.complete && Number.isFinite(ev.expected) && ev.expected > 0 && roleCount >= 1
+      ? ev.expected / personDays(roleCount)
+      : null
+
   if (!ev) return null
   const anyPriced = priced && Object.values(priced).some((v) => v != null)
 
@@ -1131,6 +1157,24 @@ function ExpectedValue({ ev, priced, quality, spread, expectedRespect, itemsOnly
       <div className="mt-0.5 text-xl font-semibold tabular-nums">
         {ev.complete ? '' : 'at least '}{formatCurrency(Math.round(ev.expected))}
       </div>
+
+      {/* ⚠️ **$ per person-day (#602).** This is the metric the whole model
+          optimises — `perPersonPerDay` has existed since #690 and was consulted
+          only inside `ocThresholdSearch`'s scoring, so the number that makes two
+          crimes comparable was absent from the page built to compare crimes.
+
+          A 4-role crime and a 6-role crime cannot be compared on E(x): the
+          6-role one locks 23.5 person-days against the other's 11.5. Forge's
+          Break the Bank pays 2.8x Clinical Precision per run and only 1.4x per
+          person-day, which is the figure that decides what to spawn. */}
+      {perPersonDay !== null && (
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+          <strong className="tabular-nums">{formatCurrency(Math.round(perPersonDay))}</strong>{' '}
+          per person-day — {roleCount} roles hold{' '}
+          <span className="tabular-nums">{personDays(roleCount).toFixed(1)}</span> person-days
+          per run. This is what compares one crime against another.
+        </p>
+      )}
 
       {/* ⚠️ $0 across every ending does not mean worthless — several crimes
           reward items, which the feed does not price. Saying "pays nothing"

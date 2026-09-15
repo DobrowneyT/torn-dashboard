@@ -55,3 +55,27 @@ describe('CrimeCard', () => {
     await waitFor(() => expect(screen.getByText(/Blast from the Past/)).toBeTruthy())
   })
 })
+
+// #687 — the measured join gap arrives as a PROP, not a per-card fetch.
+//
+// ⚠️ This test exists because the first attempt declared `joinGap` inside
+// CrimeCard and referenced it from OCSimulatorView's joint-solve callback — an
+// undefined reference that builds cleanly and throws on render. That is the
+// v3.97.0 regression, in the same file, reached by a different route.
+describe('join gap prop', () => {
+  it('renders with a measured gap', () => {
+    expect(() => render(
+      <CrimeCard scenario={SCENARIO} joinGap={{ measured: true, gapHours: 28.3 }} />
+    )).not.toThrow()
+  })
+
+  it('renders with no gap data at all', () => {
+    expect(() => render(<CrimeCard scenario={SCENARIO} joinGap={null} />)).not.toThrow()
+  })
+
+  it('renders when the gap came back unmeasured', () => {
+    expect(() => render(
+      <CrimeCard scenario={SCENARIO} joinGap={{ measured: false, gapHours: 12 }} />
+    )).not.toThrow()
+  })
+})

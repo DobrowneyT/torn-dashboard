@@ -19,9 +19,14 @@ const SPAWN_WINDOW_DAYS = 30
 // faction is doing NOW; a success rate needs enough runs to separate signal
 // from a run of bad luck, and 30 days of one crime is often under 20 runs.
 const OBSERVED_WINDOW_DAYS = 240
+
+// ⚠️ Long enough that a quiet fortnight does not move the number, short enough
+// that a faction whose filling habits change is reflected within a season.
+const JOIN_GAP_WINDOW_DAYS = 180
 import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js'
 import { matchRolesToPositions } from './oc/roleMatch.js'
 import { summariseObserved } from './oc/observedSuccess.js'
+import { summariseJoinGap } from './oc/joinGap.js'
 import {
   buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG,
   type ItemDropInput, type NodeItemDrop,
@@ -690,6 +695,51 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
         unmatched_roles: matched.unmatched,
         conflicts: matched.conflicts,
         roster_size: currentMembers.rows[0]?.n ?? 0,
+      }
+    }
+  )
+
+  // The faction's measured join gap (#687).
+  //
+  // ⚠️ `g` is the only free parameter in personDays(n, g) = n(n+1)/2 + (n-1)·g,
+  // and every published minimum-CPR threshold inherits it. 12h was an
+  // assumption; measured on 2026-09-14 tnl runs 13-16h and **forge 25-28h**, so
+  // forge's $/person-day was ~14% optimistic. This is faction behaviour, so it
+  // is computed per tenant and never shared across them.
+  //
+  // ⚠️ Solved from person-days actually consumed rather than from intervals
+  // between joins — the formula is what uses `g`, so the useful value is the one
+  // that reconciles it with reality.
+  app.get(
+    '/api/oc-simulator/join-gap',
+    { preHandler: requireRole(...SIM_ROLES) },
+    async (req) => {
+      const days = Number((req.query as { days?: string })?.days ?? JOIN_GAP_WINDOW_DAYS)
+      const window = Number.isFinite(days) && days > 0 ? days : JOIN_GAP_WINDOW_DAYS
+
+      const rows = await deps.db.query(
+        `SELECT c.crime_id,
+                count(s.*)::int AS roles,
+                sum((c.executed_at - s.joined_at) / 86400.0) AS person_days
+           FROM crimes c
+           JOIN crime_slots s ON s.crime_id = c.crime_id
+          WHERE c.executed_at IS NOT NULL
+            AND s.joined_at IS NOT NULL
+            AND c.executed_at > s.joined_at
+            AND to_timestamp(c.executed_at) > now() - ($1 || ' days')::interval
+          GROUP BY c.crime_id`,
+        [String(window)]
+      )
+
+      return {
+        window_days: window,
+        ...summariseJoinGap(
+          rows.rows.map((r) => ({
+            crimeId: String(r.crime_id),
+            roles: Number(r.roles),
+            personDays: Number(r.person_days),
+          }))
+        ),
       }
     }
   )

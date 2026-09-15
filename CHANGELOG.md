@@ -18,6 +18,179 @@ surface it automatically.
 
 ---
 
+## [3.120.0] - 2026-09-15
+
+### Added
+
+- **The join gap is measured per tenant, not assumed** (#687). `g` is the only
+  free parameter in `personDays(n, g) = n(n+1)/2 + (n-1)·g`, which is the
+  denominator of every per-person-per-day figure the OC model produces — so every
+  published minimum-CPR threshold inherited a guess.
+
+  ⚠️ **The guess was wrong, and wrong differently per faction.** Median gap over
+  180 days, measured 2026-09-15:
+
+  ```
+                n=4     n=5     n=6     p10-p90 at n=6
+    tnl        12.4h   12.9h   14.3h     7.6 - 24.2
+    forge      24.4h   26.0h   24.4h    12.9 - 44.7
+    capacityx  34.1h   40.6h   48.2h    29.0 - 65.0
+  ```
+
+  So tnl was close to the assumed 12h, **forge runs at twice it**, and
+  **capacityx at four times**. For a 6-role crime that is `personDays` of 23.98,
+  26.08 and **31.04** against the assumed 23.50 — capacityx's $/person-day
+  figures were **32% optimistic**, forge's 11%.
+
+  `GET /api/oc-simulator/join-gap` returns the median, p10, p90 and spread per
+  role count, plus one weighted figure. Per tenant, never shared: this is a
+  measurement of *a faction's* filling behaviour.
+
+  ⚠️ **`g` is FITTED, not observed.** Rather than timing intervals between joins,
+  it solves for the value that reconciles the formula with the person-days
+  actually consumed: `g = (measuredPersonDays − n(n+1)/2) / (n−1)`. The formula is
+  what consumes `g`, so the useful number is whichever makes it match reality —
+  it absorbs late joins, re-fills and whatever else Torn does that we have not
+  modelled.
+
+  ⚠️ **Absent, not the assumption, below `MIN_CRIMES_FOR_GAP`** — "we measured
+  12h" and "we assumed 12h" are different claims, and the guidance table already
+  says which it had.
+
+  ⚠️ The **distribution** is reported, not just the median. forge spans 12.9h at
+  p10 to 44.7h at p90; a gap that bimodal is a different planning problem from a
+  consistent one, and a median alone would hide it.
+
+### Fixed
+
+- **⚠️ A near-repeat of the v3.97.0 page crash, in the same file.** The first
+  version of this declared `joinGap` inside `CrimeCard` and referenced it from
+  `OCSimulatorView`'s joint-solve callback — an undefined reference that builds
+  cleanly and throws on render, which is exactly how v3.97.0 replaced the whole
+  OC Simulator with an error boundary.
+
+  The state now lives in the outer component, **above every use**, and the card
+  receives it as a prop. `OCSimulatorCrimeCard.test.jsx` mounts the card with a
+  measured gap, an unmeasured one and none at all.
+
+### Notes
+
+⚠️ **This corrects figures reported earlier in this session.** forge's Advanced
+economics were quoted at `$6,694,467` per person-day over 180 days using the
+assumed gap; measured, it is **`$6,013,704`**, and occupancy is **65%** rather
+than 58%. tnl moves from `$8,663,828` to `$8,289,604` and 97% to 98%. The
+`$/member/week` figures are unaffected — they never used `g`.
+
+---
+
+## [3.119.0] - 2026-09-14
+
+### Added
+
+- **Estimating a role's CPR for a crime the faction has never run** (#602).
+  `ocCprTransfer.js` plus a fitted coefficient table for all 20 Elaborate roles.
+
+  ⚠️ **What crosses the tenant boundary is the COEFFICIENT TABLE, not member
+  rows.** The original plan needed a classifier matching members across factions —
+  the one thing this architecture prevents, and why #602 sat in triage for months.
+  It was never necessary: CPR is deterministic given the member, so a fit of
+  `target = slope × source + intercept` on a faction running **both** crimes,
+  applied to the subject's own readings, lands at the rounding floor.
+
+  Donor chosen **per role** by held-out MAE — 200 shuffles, 50/50 split. 18 roles
+  land at **0.28–1.36** from tnl (n = 73–87). CPR is integer-valued (7,464
+  readings, zero fractions), so that *is* the floor.
+
+  ⚠️ **A slope, not an offset** — Crime Experience multiplies the other factors
+  (`oc-cpr-mechanics.md`): 0.86–1.2 between nearby difficulties, **2.0** across a
+  large gap.
+
+  ⚠️ **The two Driver roles are weak and always will be.** Driver runs on
+  **Racing**, the only stat no other role uses, and tnl runs no crime containing a
+  Driver — it cannot donate one at any sample size. capacityx can, with seven
+  members. Below n=25 the **stat family** breaks the tie, because a holdout over
+  n=7 fits on 3–4 points and cannot separate candidates. Both flagged
+  `low_confidence`.
+
+  Guards, all tested: a member with no source reading is **absent, never zero**; a
+  member outside the fitted range is flagged; a steep slope mapping below zero is
+  **dropped rather than clamped** (Driver's slope of 2.0 sends CPR 20 to −75 —
+  the model failing, not a weak member); a role with no coefficient is **unmapped**,
+  not empty.
+
+- **`$ per person-day` beside E(x) on every crime card** (#602). `perPersonPerDay`
+  has existed since #690 with **no call site in any view** — consulted only inside
+  `ocThresholdSearch`'s scoring, so the metric the whole model optimises was absent
+  from the page built to compare crimes.
+
+  A 4-role crime and a 6-role crime are not comparable on E(x): the 6-role one
+  locks 23.5 person-days against 11.5. Forge's Break the Bank pays 2.8× Clinical
+  Precision per run and **1.4×** per person-day.
+
+  ⚠️ Absent rather than zero where the crime reports no cash — a chain root pays
+  nothing itself, and `$0 per person-day` reads as worthless (#351/#713).
+
+- **`docs/oc-elaborate-audit.md`** — the decision record, including a section on
+  the six things that were wrong along the way.
+
+### Notes
+
+**The verdict: yes, but crewing was never the gate.** Forge can crew the Elaborate
+roots at close to tnl's quality — 13 crews on Stacking the Deck at a uniform 65,
+10 on Lock Stock. What it cannot afford is the **scope**:
+
+```
+                                    Advanced  Elaborate   regen    net /180d
+tnl (runs both)                         +274       -160    +180         +293
+forge today, Advanced only               -16          0    +180         +164
+forge + Elaborate at tnl's volume        -16       -208    +180          -44
+```
+
+⚠️ **tnl's Advanced generates +274 scope; forge's generates −16**, and the whole
+difference is success rate — 89.7% and 97.0% on Blast from the Past and Window of
+Opportunity against forge's 79.0% and 86.7%. tnl pays for Elaborate out of a
+surplus forge does not have, so dropping the cheap crimes, unlocking Elaborate and
+running it at volume are **mutually exclusive** at current rates.
+
+⚠️ And Elaborate is an **occupancy** play more than a rate play: tnl stripped of
+Elaborate sits at **73% occupancy — exactly forge's**. Decomposing tnl's 2.06×
+advantage per member per week: rate 1.55× × occupancy 1.32×.
+
+---
+
+## [3.118.1] - 2026-09-14
+
+### Added
+
+- **`docs/oc-cpr-mechanics.md`** — what Torn actually uses to compute CPR, collated
+  from the community's reverse-engineering and cross-checked against our own tenant
+  databases. Sources cited; provenance marked throughout, because Torn publishes no
+  formula and most of this is inference rather than fact.
+
+  ⚠️ **It records a mistake we made from our own data.** Measuring one member's CPR
+  spread across the roles *within* a crime gave `Break the Bank 1.82` against
+  `Ace in the Hole 10.67`, which reads as "CPR is a property of the crime". It is not —
+  Break the Bank's roles are all battlestat roles so they move together, while Ace in
+  the Hole contains **Driver**, which runs on **Racing**, a skill nothing else in the
+  game uses. The apparent per-crime behaviour was *same stat family*, on a donor faction
+  whose members happen to be evenly developed.
+
+  ⚠️ **Crime Experience acts as a MULTIPLIER**, which is why a CPR mapped from one crime
+  to another needs a slope rather than an offset. Measured: 0.93–1.04 between adjacent
+  difficulties, **~2.0** across a large gap.
+
+  Independently confirms three things this repo had already derived: chains pay only at
+  the terminal link, scope is `cost = tier, reward = tier + 1` with a cap of 100, and
+  weak members belong in lenient/low-weight roles — the carry-role rule from #692/#694.
+
+  ⚠️ And one warning against the Advanced-only plan: the community expects level-8+
+  factions to cycle back to cheap crimes to farm scope. Our own measurement put forge's
+  floor at ~75% average success funded by regeneration alone; both are recorded.
+
+### Notes
+
+`oc-cpr-algorithm.md` now points at it: that file decides what bar to publish and takes
+a member's CPR as given; this one explains where the number comes from.
 ## [3.118.0] - 2026-09-13
 
 ### Fixed
