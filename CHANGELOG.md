@@ -18,6 +18,28 @@ surface it automatically.
 
 ---
 
+## [3.121.0] - 2026-09-16
+
+### Changed
+- **InfoTooltip gained the trigger shapes the native-tooltip sweep needs (#612).**
+  The component could only render a `<button>` trigger with a fixed dotted
+  underline, which covers a label and nothing else. Three additions:
+  - a `decoration` prop, so a caller replaces the affordance instead of fighting
+    it. Passing `underline decoration-solid` through `className` put two
+    text-decoration utilities of equal specificity in one class list and let
+    Tailwind's generated order decide the winner — the War Room's flag glyphs
+    were relying on exactly that coin flip and now pass `decoration="no-underline"`.
+  - `wrap` mode, a `<span>` trigger that goes AROUND a control which has to stay
+    itself — a link, an input, a disabled button. Nesting a button in a button is
+    invalid and swallows the control's own click. ⚠️ A disabled control
+    dispatches no pointer events at all, so a wrapper around one never sees the
+    tap either; `.tip-wrap > :disabled { pointer-events: none }` hands those
+    events to the wrapper, which is the only reason a disabled-reason
+    explanation is readable on a phone.
+  - `InfoDot`, a small ⓘ that sits BESIDE an enabled control. Wrapping one would
+    force a single tap to choose between opening the panel and pressing the
+    button, and it has to press the button.
+
 ## [3.120.0] - 2026-09-15
 
 ### Added

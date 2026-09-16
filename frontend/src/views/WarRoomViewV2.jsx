@@ -3277,7 +3277,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                   <InfoTooltip
                                     key={f.key}
                                     label={f.glyph}
-                                    className={`text-base leading-none no-underline ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
+                                    decoration="no-underline"
+                                    className={`text-base leading-none ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
                                   >
                                     {f.title}
                                   </InfoTooltip>

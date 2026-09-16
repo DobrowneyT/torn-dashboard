@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import InfoTooltip, { tooltipPosition } from '../InfoTooltip'
+import InfoTooltip, { InfoDot, tooltipPosition } from '../InfoTooltip'
 
 // The placement maths is the half worth pinning hardest: it is what makes the
 // panel readable on a 320px phone and what stops a row near the foot of a long
@@ -103,5 +103,81 @@ describe('InfoTooltip', () => {
     expect(trigger.getAttribute('aria-describedby')).toBeNull()
     fireEvent.click(trigger)
     expect(trigger.getAttribute('aria-describedby')).toBe(screen.getByRole('tooltip').id)
+  })
+})
+
+// #612 — the three trigger shapes. The sweep off native `title` runs into
+// controls a button trigger cannot legally or safely wrap, and getting that
+// wrong is silent: invalid nesting still renders, and a stolen tap just looks
+// like a button that does not work.
+describe('InfoTooltip trigger shapes', () => {
+  it('lets a caller replace the dotted affordance rather than fight it', () => {
+    // ⚠️ BattleStatsCell marks an EXACT reading with a solid emerald underline
+    // and an estimate with the dotted one — the distinction the component
+    // exists to protect. Passing `underline decoration-solid` through
+    // className would put two text-decoration utilities of equal specificity
+    // in the same class list, and which one wins is decided by Tailwind's
+    // generated order, not by the caller.
+    const { container } = render(
+      <InfoTooltip label="2.4b" decoration="underline decoration-solid decoration-emerald-500/70">
+        Body
+      </InfoTooltip>,
+    )
+    const cls = container.querySelector('button').className
+    expect(cls).toContain('decoration-solid')
+    expect(cls).not.toContain('decoration-dotted')
+  })
+
+  it('wrap mode renders a span, not a button inside a button', () => {
+    const { container } = render(
+      <InfoTooltip wrap label={<button type="button">Enable</button>}>Why it is off</InfoTooltip>,
+    )
+    expect(container.querySelector('button button')).toBeNull()
+    expect(container.querySelector('span.tip-wrap')).toBeTruthy()
+  })
+
+  it('wrap mode opens on hover and on a tap on its own space', () => {
+    const { container } = render(
+      <InfoTooltip wrap label={<button type="button" disabled>Enable</button>}>
+        Set an opponent faction ID first
+      </InfoTooltip>,
+    )
+    const span = container.querySelector('span.tip-wrap')
+    fireEvent.mouseEnter(span)
+    expect(screen.getByRole('tooltip').textContent).toContain('opponent faction ID')
+    fireEvent.mouseLeave(span)
+    fireEvent.pointerDown(span)
+    expect(screen.getByRole('tooltip')).toBeTruthy()
+  })
+
+  it('⚠️ wrap mode does NOT steal a tap aimed at a live control', () => {
+    // A tooltip that eats the press turns a working button into a broken one,
+    // and on a touchscreen there is no second gesture to recover with.
+    const onClick = vi.fn()
+    render(
+      <InfoTooltip wrap label={<button type="button" onClick={onClick}>Save</button>}>
+        What saving does
+      </InfoTooltip>,
+    )
+    const btn = screen.getByRole('button', { name: 'Save' })
+    fireEvent.pointerDown(btn)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    fireEvent.click(btn)
+    expect(onClick).toHaveBeenCalled()
+  })
+
+  it('wrap mode leaves the control completely alone when there is nothing to say', () => {
+    const { container } = render(<InfoTooltip wrap label={<input readOnly value="x" />}>{null}</InfoTooltip>)
+    expect(container.querySelector('.tip-wrap')).toBeNull()
+    expect(container.querySelector('input')).toBeTruthy()
+  })
+
+  it('InfoDot is a separate tap target with a name of its own', () => {
+    // It sits beside a live control precisely so the control keeps its tap —
+    // which only works if the dot is reachable in its own right.
+    render(<InfoDot label="About fair fight">Your respect multiplier.</InfoDot>)
+    const dot = screen.getByRole('button', { name: 'About fair fight' })
+    fireEvent.click(dot)
+    expect(screen.getByRole('tooltip').textContent).toContain('respect multiplier')
   })
 })
