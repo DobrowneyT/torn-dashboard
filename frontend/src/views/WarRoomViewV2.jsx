@@ -39,7 +39,7 @@ import {
   overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat, cooldownHue,
 } from '../utils/warRoomMemberStats'
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
-import InfoTooltip from '../components/InfoTooltip'
+import InfoTooltip, { InfoDot, tipLines } from '../components/InfoTooltip'
 import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
 import {
   SCORE_DECAY_SEC, countsTowardScore, reviveScore, bestCaseChance,
@@ -265,18 +265,18 @@ function TravelEtaCell({ member }) {
   })
   if (eta.state === 'unknown') {
     return (
-      <span
-        title="No arrival estimate — we did not see this member take off, so there is nothing to count from."
-        className="text-gray-300 dark:text-gray-700 text-xs"
-      >—</span>
+      <InfoTooltip label="—" className="text-gray-300 dark:text-gray-700 text-xs">
+        No arrival estimate — we did not see this member take off, so there is
+        nothing to count from.
+      </InfoTooltip>
     )
   }
   if (eta.state === 'overdue') {
     return (
-      <span
-        title="Past every expected landing time. Either they are about to land, or their flight was extended (a Detective Agency Watchlist can do that)."
-        className="text-xs font-mono italic text-blue-500 dark:text-blue-400"
-      >landing</span>
+      <InfoTooltip label="landing" className="text-xs font-mono italic text-blue-500 dark:text-blue-400">
+        Past every expected landing time. Either they are about to land, or their
+        flight was extended (a Detective Agency Watchlist can do that).
+      </InfoTooltip>
     )
   }
 
@@ -285,9 +285,9 @@ function TravelEtaCell({ member }) {
     ? `Estimated arrival — ${label}, ±3% flight-time variance`
     : `Estimated arrival — still could be ${eta.methods.map((m) => TRAVEL_METHOD_LABELS[m] ?? m).join(' / ')}`
   return (
-    <span title={title} className="text-xs font-mono italic text-blue-600 dark:text-blue-400">
-      {formatTravelEta(eta)}
-    </span>
+    <InfoTooltip label={formatTravelEta(eta)} className="text-xs font-mono italic text-blue-600 dark:text-blue-400">
+      {title}
+    </InfoTooltip>
   )
 }
 
@@ -820,16 +820,19 @@ function MemberEnergyCell({ stats }) {
   // Grey, not red, when there is no reading (#351): colouring a member we
   // couldn't ask as "empty" would get them written off for a push.
   if (hue == null) {
-    return <span title={title} className="text-xs font-mono text-gray-300 dark:text-gray-700">{label}</span>
+    return (
+      <InfoTooltip label={label} className="text-xs font-mono text-gray-300 dark:text-gray-700">
+        {tipLines(title)}
+      </InfoTooltip>
+    )
   }
   return (
-    <span
-      title={title}
-      style={{ '--grad-hue': hue }}
-      className={`hue-grad text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
+    <InfoTooltip
+      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{label}</span>}
+      className={`text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
     >
-      {label}
-    </span>
+      {tipLines(title)}
+    </InfoTooltip>
   )
 }
 
@@ -851,10 +854,12 @@ function MemberCooldownCell({ stats, field, label }) {
   // saying the same thing in a slightly different colour.
   if (overdosed) {
     return (
-      <span title={title} className="text-xs font-mono text-red-600 dark:text-red-400 font-semibold">
-        {formatCooldown(remaining)}
-        <span className="ml-1 not-italic" aria-label="overdosed">OD</span>
-      </span>
+      <InfoTooltip
+        label={<>{formatCooldown(remaining)}<span className="ml-1 not-italic" aria-label="overdosed">OD</span></>}
+        className="text-xs font-mono text-red-600 dark:text-red-400 font-semibold"
+      >
+        {tipLines(title)}
+      </InfoTooltip>
     )
   }
 
@@ -863,15 +868,18 @@ function MemberCooldownCell({ stats, field, label }) {
   if (hue == null) {
     // Grey, never green: a member whose key failed must not read as "ready".
     return (
-      <span title={title} className="text-xs font-mono text-gray-300 dark:text-gray-700">
-        {formatCooldown(remaining)}
-      </span>
+      <InfoTooltip label={formatCooldown(remaining)} className="text-xs font-mono text-gray-300 dark:text-gray-700">
+        {tipLines(title)}
+      </InfoTooltip>
     )
   }
   return (
-    <span title={title} style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
-      {formatCooldown(remaining)}
-    </span>
+    <InfoTooltip
+      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{formatCooldown(remaining)}</span>}
+      className="text-xs font-mono"
+    >
+      {tipLines(title)}
+    </InfoTooltip>
   )
 }
 
@@ -896,7 +904,11 @@ function MemberReviveChanceCell({ revives, loaded }) {
   }, [])
 
   if (!loaded) {
-    return <span title="Revive chance — history not loaded yet" className="text-xs font-mono text-gray-300 dark:text-gray-700">—</span>
+    return (
+      <InfoTooltip label="—" className="text-xs font-mono text-gray-300 dark:text-gray-700">
+        Revive chance — history not loaded yet.
+      </InfoTooltip>
+    )
   }
 
   const history = revives ?? []
@@ -916,9 +928,12 @@ function MemberReviveChanceCell({ revives, loaded }) {
 
   const hue = reviveChanceHue(chance)
   return (
-    <span title={title} style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
-      {formatReviveChance(chance)}
-    </span>
+    <InfoTooltip
+      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{formatReviveChance(chance)}</span>}
+      className="text-xs font-mono"
+    >
+      {tipLines(title)}
+    </InfoTooltip>
   )
 }
 
@@ -940,10 +955,9 @@ function FairFightCell({ mine, target }) {
 
   if (ff === null) {
     return (
-      <span
-        className="text-xs text-gray-300 dark:text-gray-600"
-        title={mine ? 'No battle stats for this target yet.' : 'No battle stats on record for you yet.'}
-      >—</span>
+      <InfoTooltip label="—" className="text-xs text-gray-300 dark:text-gray-600">
+        {mine ? 'No battle stats for this target yet.' : 'No battle stats on record for you yet.'}
+      </InfoTooltip>
     )
   }
 
@@ -956,19 +970,22 @@ function FairFightCell({ mine, target }) {
   // 0 → red (0deg), 1 → green (120deg).
   const hue = Math.round(120 * ffGradientPosition(ff))
   return (
-    <span
-      style={{ '--grad-hue': hue }}
-      className={`hue-grad text-xs font-mono ${estimated ? 'underline decoration-dotted decoration-from-font' : ''}`}
-      title={[
-        `Fair Fight ${formatFF(ff)} — your respect multiplier against this target.`,
-        isMaxFF(ff) ? 'At the 3.00 cap: full respect.' : '',
-        estimated
-          ? 'Estimated: only a stat TOTAL is known for one side, so an even split was assumed. That overstates lopsided builds, so the real FF may be lower.'
-          : 'Computed from a full stat breakdown on both sides.',
-      ].filter(Boolean).join('\n')}
+    <InfoTooltip
+      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{formatFF(ff)}</span>}
+      // The dotted underline is the "this is an estimate" marker, so it must
+      // stay off a solid reading — it is not the generic tooltip affordance
+      // here, it carries meaning of its own.
+      decoration={estimated ? 'underline decoration-dotted decoration-from-font' : 'no-underline'}
+      className="text-xs font-mono"
     >
-      {formatFF(ff)}
-    </span>
+      <div>Fair Fight {formatFF(ff)} — your respect multiplier against this target.</div>
+      {isMaxFF(ff) && <div className="mt-1.5">At the 3.00 cap: full respect.</div>}
+      <div className="mt-1.5">
+        {estimated
+          ? 'Estimated: only a stat TOTAL is known for one side, so an even split was assumed. That overstates lopsided builds, so the real FF may be lower.'
+          : 'Computed from a full stat breakdown on both sides.'}
+      </div>
+    </InfoTooltip>
   )
 }
 
@@ -976,12 +993,19 @@ function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title
   const active = sortCol === col
   return (
     <th
-      title={title}
       onClick={() => onSort(col)}
       className={`py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap ${className}`}
     >
       <span className="flex items-center gap-1">
         {children}
+        {title && (
+          // ⚠️ stopPropagation, not decoration: the whole <th> sorts on click,
+          // so without it reading the column's explanation would also re-sort
+          // the board out from under whoever was reading it.
+          <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+            <InfoDot label={`About this column`}>{tipLines(title)}</InfoDot>
+          </span>
+        )}
         <span className={`text-xs ${active ? 'text-blue-500 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`}>
           {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
         </span>
@@ -3223,7 +3247,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             </a>
                             <span className="text-xs text-gray-400 dark:text-gray-600">Lv{m.level}</span>
                             {isOverdosed(m) && (
-                              <span title="Overdosed" className="px-1 py-0.5 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold">OD</span>
+                              <InfoTooltip
+                                label="OD"
+                                decoration="no-underline"
+                                className="px-1 py-0.5 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold"
+                              >Overdosed</InfoTooltip>
                             )}
                             <LoadoutShieldIcon loadoutRow={loadout[m.member_id]} />
                             <MemberNoteButton
