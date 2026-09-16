@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { apiGet } from '../utils/apiClient'
 import { config } from '../config'
+import InfoTooltip from '../components/InfoTooltip'
 import { RefreshCw, ChevronRight } from 'lucide-react'
 import {
   HORIZONS,
@@ -319,11 +320,18 @@ export default function OCPlannerView() {
                       const secs = c.pausesAt != null ? c.pausesAt - now : null
                       const status = c.isEmpty ? 'empty' : c.paused ? 'paused' : `pauses ${formatCountdown(secs)}`
                       return (
-                        <span key={c.id} className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800" title={`${c.openCount} open seats — needs 1 to un-pause`}>
+                        <InfoTooltip
+                          key={c.id}
+                          decoration="no-underline"
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                          label={<>
                           <CatPill category={c.category} />
                           <span className="font-medium text-gray-700 dark:text-gray-300">{c.name}</span>
                           <span className={`font-mono ${c.isEmpty || c.paused ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-gray-500 dark:text-gray-400'}`}>{status}</span>
-                        </span>
+                          </>}
+                        >
+                          {c.openCount} open seats — needs 1 to un-pause.
+                        </InfoTooltip>
                       )
                     })}
                   </div>
@@ -357,13 +365,20 @@ export default function OCPlannerView() {
                         {list.map((m) => {
                           const secs = m.source === 'coming' ? m.readyAt - now : null
                           return (
-                            <span key={m.id} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800" title={m.source === 'coming' ? `out of ${m.crimeName}` : 'free now'}>
+                            <InfoTooltip
+                              key={m.id}
+                              decoration="no-underline"
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800"
+                              label={<>
                               <span className="font-medium text-gray-700 dark:text-gray-300">{m.name}</span>
                               <TierPill tier={m.tier} />
                               {m.source === 'coming'
                                 ? <span className="font-mono text-gray-500 dark:text-gray-400">{secs <= 0 ? 'ready' : formatCountdown(secs)}</span>
                                 : <span className="text-emerald-600 dark:text-emerald-400">free</span>}
-                            </span>
+                              </>}
+                            >
+                              {m.source === 'coming' ? `Out of ${m.crimeName}` : 'Free now'}
+                            </InfoTooltip>
                           )
                         })}
                       </div>

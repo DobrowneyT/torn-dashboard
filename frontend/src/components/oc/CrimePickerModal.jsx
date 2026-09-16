@@ -16,6 +16,7 @@ import {
   groupByCategory, toggleSelection, selectionIndex, selectionScopeCost,
   toggleCategory, categoryFullySelected,
 } from '../../utils/ocCrimeSelection'
+import InfoTooltip from '../InfoTooltip'
 
 export default function CrimePickerModal({ scenarios, selected, onApply, onClose }) {
   // Edited locally and applied on close, so an accidental untick is
@@ -113,11 +114,16 @@ export default function CrimePickerModal({ scenarios, selected, onApply, onClose
                         {index ?? ''}
                       </span>
                       <span className="truncate">{crime.name}</span>
+                      {/* wrap: this sits inside the crime-row button, so the
+                          trigger cannot be a button of its own, and a tap has
+                          to keep selecting the crime. */}
                       {crime.is_complete === false && (
-                        <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400 shrink-0"
-                          title="The upstream probability model for this crime is still in progress">
-                          wip
-                        </span>
+                        <InfoTooltip wrap className="ml-auto shrink-0" label={
+                          <span className="text-[10px] text-amber-600 dark:text-amber-400">wip</span>
+                        }>
+                          The upstream probability model for this crime is still in
+                          progress.
+                        </InfoTooltip>
                       )}
                     </button>
                   )

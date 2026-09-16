@@ -18,6 +18,28 @@ surface it automatically.
 
 ---
 
+## [3.123.0] - 2026-09-16
+
+### Changed
+- **OC pages: the reward story is no longer hidden in a `title` (#612).**
+  Slice 3 of the native-tooltip sweep — the Simulator, the crime ranking table,
+  the Planner's feed queue, the Crimes page and the crime picker. 23 sites, and
+  the Simulator's endings list was the densest: the drop-by-drop item
+  breakdown, the observed payout range, the `n=` sample size, and the reasons an
+  ending is contested, starved or unmapped all lived in `title` text.
+  - ⚠️ The item breakdown keeps `whitespace-pre-wrap` rather than being folded
+    into paragraphs. `rewardTooltip` lays the drops out with indentation and
+    blank-line separators, and reflowing it would throw away structure that was
+    written deliberately — including the "could not price" line, which is what
+    stops the total reading as an estimate rather than a floor.
+  - "What matters?" gets a separate ⓘ instead of a wrapped tooltip: the button
+    is live, and one tap cannot both explain it and press it.
+  - ⚠️ `TierTag` had to become a wrap rather than a button trigger. It renders
+    inside the Crimes page's "coming out in 24h" pill, which is an `<a>` — a
+    button inside an anchor is invalid markup that still renders, and it would
+    have swallowed the link's tap. Same for the crime picker's "wip" tag, which
+    sits inside the row's select button.
+
 ## [3.122.0] - 2026-09-16
 
 ### Changed
