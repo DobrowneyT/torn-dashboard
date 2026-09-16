@@ -183,6 +183,11 @@ export default function InfoTooltip({
   className = '',
   decoration = DOTTED,
   ariaLabel,
+  // ⚠️ Inline styles on the TRIGGER, not the panel. A wrapped element that is
+  // positioned by its parent — a grid band placed with gridColumn/gridRow — has
+  // to hand that placement to the wrapper, or the wrapper becomes the grid item
+  // and the child lands in the wrong cell.
+  style,
   wrap = false,
 }) {
   const { open, setOpen, triggerRef, panel, id } = useTooltip(children)
@@ -203,6 +208,7 @@ export default function InfoTooltip({
           // pointer events at all, so the wrapper never sees the tap either,
           // and "why is this greyed out?" has no answer on the device.
           className={`tip-wrap inline-flex ${className}`}
+          style={style}
           aria-describedby={open ? id : undefined}
           onPointerDown={(e) => { if (!isLiveControl(e.target)) setOpen((v) => !v) }}
           onMouseEnter={() => setOpen(true)}
@@ -225,6 +231,7 @@ export default function InfoTooltip({
         ref={triggerRef}
         type="button"
         aria-label={ariaLabel}
+        style={style}
         aria-describedby={open ? id : undefined}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}

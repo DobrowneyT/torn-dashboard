@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import InfoTooltip from './InfoTooltip'
 
 /**
  * Modal for managing the list of preset revive services that appear in the
@@ -120,45 +121,48 @@ export default function ReviveServicesModal({ services, activeName, onSave, onCl
                   placeholder="https://…"
                   className="flex-1 min-w-[12rem] px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <InfoTooltip wrap label={
                 <select
                   value={preset}
                   onChange={e => updateService(idx, 'preset', e.target.value)}
-                  title="Payload shape — JSON for UHC/WTF/etc, Nuke for Central Hospital"
+                  aria-label="Payload shape"
                   className="w-24 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="json">JSON</option>
                   <option value="nuke">Nuke</option>
                 </select>
+                }>Payload shape — JSON for UHC/WTF/etc, Nuke for Central Hospital.</InfoTooltip>
+                <InfoTooltip wrap className="min-w-0" label={
                 <input
                   type="text"
                   value={s.source ?? ''}
                   onChange={e => updateService(idx, 'source', e.target.value)}
                   placeholder={isNuke ? 'app_info value' : 'source value'}
-                  title={isNuke
-                    ? 'Sent as the app_info field in the Nuke payload.'
-                    : 'The identifier sent to the service (e.g. UHC Script, WTF Revive Button Script)'}
                   className="w-40 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                }>{isNuke
+                  ? 'Sent as the app_info field in the Nuke payload.'
+                  : 'The identifier sent to the service (e.g. UHC Script, WTF Revive Button Script).'}</InfoTooltip>
+                <InfoTooltip wrap className="min-w-0" label={
                 <input
                   type="text"
                   value={s.sourceKey ?? 'source'}
                   onChange={e => updateService(idx, 'sourceKey', e.target.value)}
                   placeholder="key"
                   disabled={isNuke}
-                  title={isNuke
-                    ? 'Not used for Nuke — Nuke has a fixed payload shape.'
-                    : "JSON key for the source value — UHC uses 'source', WTF uses 'requestChannel'"}
                   className={`w-28 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono ${isNuke ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
+                }>{isNuke
+                  ? 'Not used for Nuke — Nuke has a fixed payload shape.'
+                  : "JSON key for the source value — UHC uses 'source', WTF uses 'requestChannel'."}</InfoTooltip>
                 {isActive && (
-                  <span className="text-xs text-blue-600 dark:text-blue-400 font-medium shrink-0" title="Currently selected">
-                    active
-                  </span>
+                  <InfoTooltip label="active" className="text-xs text-blue-600 dark:text-blue-400 font-medium shrink-0">
+                    Currently selected
+                  </InfoTooltip>
                 )}
                 <button
                   onClick={() => removeService(idx)}
                   className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 hover:underline shrink-0"
-                  title="Remove"
                 >
                   Remove
                 </button>
@@ -181,7 +185,7 @@ export default function ReviveServicesModal({ services, activeName, onSave, onCl
             <select
               value={newPreset}
               onChange={e => handlePresetPick(e.target.value)}
-              title="Payload shape"
+              aria-label="Payload shape"
               className="w-48 px-2 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               {Object.entries(PRESETS).map(([key, p]) => (
@@ -195,25 +199,27 @@ export default function ReviveServicesModal({ services, activeName, onSave, onCl
               placeholder="https://… service endpoint URL"
               className="flex-1 min-w-[12rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <InfoTooltip wrap className="min-w-0" label={
             <input
               type="text"
               value={newSource}
               onChange={e => setNewSource(e.target.value)}
               placeholder={newPreset === 'nuke' ? 'app_info value' : 'source value (e.g. UHC Script)'}
-              title="The identifier sent in the POST payload. Defaults to the service name if blank."
               className="w-44 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            }>The identifier sent in the POST payload. Defaults to the service name if blank.</InfoTooltip>
+            <InfoTooltip wrap className="min-w-0" label={
             <input
               type="text"
               value={newSourceKey}
               onChange={e => setNewSourceKey(e.target.value)}
               placeholder="key"
               disabled={newPreset === 'nuke'}
-              title={newPreset === 'nuke'
-                ? 'Not used for Nuke — its payload shape is fixed.'
-                : "JSON key for the source value — UHC uses 'source', WTF uses 'requestChannel'"}
               className={`w-28 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono ${newPreset === 'nuke' ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
+            }>{newPreset === 'nuke'
+              ? 'Not used for Nuke — its payload shape is fixed.'
+              : "JSON key for the source value — UHC uses 'source', WTF uses 'requestChannel'."}</InfoTooltip>
             <button
               onClick={addService}
               className="px-3 py-1.5 text-sm bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"

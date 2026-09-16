@@ -27,6 +27,7 @@ import { aggregate, byDay, monthGrid, dayKey, layoutWeek, EVENT_KINDS } from '..
 import { useAuth } from '../../contexts/AuthContext'
 import BirthdayCard from './BirthdayCard'
 import EventWindowPanel from './EventWindowPanel'
+import InfoTooltip from '../InfoTooltip'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -146,7 +147,7 @@ export default function CalendarSection({ isLeadership }) {
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={load} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700" title="Refresh" aria-label="Refresh">
+            <button onClick={load} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-slate-700" aria-label="Refresh">
               <RefreshCw className="w-4 h-4" />
             </button>
             {canEdit && (
@@ -287,13 +288,12 @@ function WeekRow({ cells, events, todayKey, onSelectDay }) {
               <div style={{ height: reserved }} />
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((e) => (
-                  <div
+                  <InfoTooltip
                     key={e.id}
-                    className={`truncate text-[10px] leading-tight px-1 py-0.5 rounded ${TONE[EVENT_KINDS[e.kind]?.tone ?? 'slate']}`}
-                    title={e.title}
-                  >
-                    {e.title}
-                  </div>
+                    decoration="no-underline"
+                    className={`block w-full min-w-0 text-[10px] leading-tight px-1 py-0.5 rounded ${TONE[EVENT_KINDS[e.kind]?.tone ?? 'slate']}`}
+                    label={<span className="block truncate">{e.title}</span>}
+                  >{e.title}</InfoTooltip>
                 ))}
                 {/* Counts only what is actually hidden in THIS cell. The old
                     per-day rendering counted a five-day war five times. */}
@@ -311,23 +311,34 @@ function WeekRow({ cells, events, todayKey, onSelectDay }) {
         style={{ top: DAY_NUM_H }}
       >
         {bands.map((b) => (
-          <button
+          // ⚠️ The grid placement moves to the WRAPPER: it is the grid item
+          // now, and leaving gridColumn on the button would drop every band
+          // into the first cell.
+          <InfoTooltip
             key={b.event.id}
-            onClick={() => onSelectDay(cells[b.startCol].key)}
-            title={b.event.note ? `${b.event.title} — ${b.event.note}` : b.event.title}
-            className={`pointer-events-auto truncate text-[10px] leading-tight px-1.5 py-0.5 text-left ${
-              TONE[EVENT_KINDS[b.event.kind]?.tone ?? 'slate']
-            } ${b.continuesLeft ? '' : 'rounded-l'} ${b.continuesRight ? '' : 'rounded-r'}`}
+            wrap
+            className="pointer-events-auto min-w-0"
             style={{
               gridColumn: `${b.startCol + 1} / span ${b.endCol - b.startCol + 1}`,
               gridRow: b.lane + 1,
               height: BAND_H - 2,
             }}
+            label={
+              <button
+                onClick={() => onSelectDay(cells[b.startCol].key)}
+                className={`pointer-events-auto w-full h-full truncate text-[10px] leading-tight px-1.5 py-0.5 text-left ${
+                  TONE[EVENT_KINDS[b.event.kind]?.tone ?? 'slate']
+                } ${b.continuesLeft ? '' : 'rounded-l'} ${b.continuesRight ? '' : 'rounded-r'}`}
+              >
+                {/* A clipped band repeats its title on the next row, so a war
+                    running Thu–Tue is still readable in the second week. */}
+                {b.continuesLeft && '‹ '}{b.event.title}
+              </button>
+            }
           >
-            {/* A clipped band repeats its title on the next row, so a war
-                running Thu–Tue is still readable in the second week. */}
-            {b.continuesLeft && '‹ '}{b.event.title}
-          </button>
+            <div className="font-medium">{b.event.title}</div>
+            {b.event.note && <div className="mt-1.5">{b.event.note}</div>}
+          </InfoTooltip>
         ))}
       </div>
     </div>

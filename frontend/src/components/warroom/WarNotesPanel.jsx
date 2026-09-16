@@ -5,6 +5,7 @@ import WarNotesArchive from './WarNotesArchive'
 import OpponentHistoryPanel from './OpponentHistoryPanel'
 import { notePointsFromText, notePointsToText, rollCallTally } from '../../utils/rollCall'
 import { fmtAgo } from '../../utils/time'
+import InfoTooltip from '../InfoTooltip'
 
 // War Leaders only. War type / agreed scores / strategy notes + the embedded
 // roll-call results table and a "not yet responded" list. Edited responses
@@ -106,9 +107,13 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
       <div className="flex items-center justify-between mb-3 gap-2">
         <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
           War Notes &amp; Roll Call
-          <span className="inline-flex items-center gap-1 text-[10px] font-normal text-green-600 dark:text-green-400" title="Live — edits by other war leads refresh automatically while this panel is open">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> live
-          </span>
+          <InfoTooltip
+            decoration="no-underline"
+            className="inline-flex items-center gap-1 text-[10px] font-normal text-green-600 dark:text-green-400"
+            label={<><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> live</>}
+          >
+            Live — edits by other war leads refresh automatically.
+          </InfoTooltip>
         </h4>
         {notes?.updated_at && (
           <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">
@@ -192,15 +197,15 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
                 {!readOnly && (
                   <div className="flex items-center shrink-0">
                     <button type="button" onClick={() => movePoint(i, -1)} disabled={i === 0}
-                      className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" title="Move up" aria-label="Move up">
+                      className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Move up">
                       <ChevronUp className="w-4 h-4" />
                     </button>
                     <button type="button" onClick={() => movePoint(i, 1)} disabled={i === points.length - 1}
-                      className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" title="Move down" aria-label="Move down">
+                      className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Move down">
                       <ChevronDown className="w-4 h-4" />
                     </button>
                     <button type="button" onClick={() => removePoint(i)}
-                      className="p-1 text-gray-400 hover:text-red-500" title="Remove point" aria-label="Remove point">
+                      className="p-1 text-gray-400 hover:text-red-500" aria-label="Remove point">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
