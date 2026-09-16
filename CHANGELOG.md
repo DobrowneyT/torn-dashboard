@@ -18,6 +18,34 @@ surface it automatically.
 
 ---
 
+## [3.122.0] - 2026-09-16
+
+### Changed
+- **War Room: every explanation in the rows is now readable on a phone (#612).**
+  Slice 2 of the native-tooltip sweep — the table cells and the target cards,
+  where the `title` attribute failed hardest: mobile browsers show one on
+  neither tap nor long press, so on the mobile board *every* explanation was
+  unreachable on the only device that screen exists for.
+  - Desktop columns converted: travel ETA (all three states), Energy, the three
+    cooldowns, Revive %, Fair Fight, the OD badge, and the sortable column
+    headers. ⚠️ A column header's explanation gets its own ⓘ with
+    `stopPropagation` — the whole `<th>` sorts on click, so without it reading
+    the explanation would re-sort the board out from under the reader.
+  - Mobile cards converted: flag pills (each now also named for a screen
+    reader), the Fair Fight badge, the OD badge, and the disabled reasons on the
+    dibs button and the filter chips.
+  - ⚠️ On the Fair Fight cells the dotted underline is **not** the tooltip
+    affordance — it means "this is an estimate, only a stat total was known for
+    one side". Those pass `decoration` explicitly so the component's own dotted
+    mark cannot claim a second meaning for it.
+  - `BattleStatsCell` and `LoadoutShieldIcon` moved off CSS-only `group-hover`
+    onto the same component. The shield was the worse of the two: it still
+    rendered on mobile, advertising that a target's gear was known, with no way
+    to read it.
+  - Deleted rather than converted: `title`s that only repeated an existing
+    `aria-label` or the control's own visible label ("Back to desktop",
+    "tap to assist", the revive tile's state echo).
+
 ## [3.121.0] - 2026-09-16
 
 ### Changed

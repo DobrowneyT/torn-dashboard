@@ -73,6 +73,21 @@ export function tooltipPosition(rect, viewport, size) {
 }
 
 /**
+ * Render a "\n"-joined explanation as separate lines.
+ *
+ * Half the native tooltips being replaced built their text by joining an array
+ * with newlines, because that is all a `title` can do. A panel can lay the same
+ * sentences out properly, and squashing them back into one paragraph would lose
+ * the structure the author already decided on.
+ */
+export function tipLines(text) {
+  if (text == null) return null
+  const parts = String(text).split('\n').map((t) => t.trim()).filter(Boolean)
+  if (parts.length === 0) return null
+  return parts.map((t, i) => <div key={i} className={i === 0 ? '' : 'mt-1.5'}>{t}</div>)
+}
+
+/**
  * The open/close/placement machinery, shared by every trigger shape.
  *
  * Returns refs to attach and the panel to render, so a caller only decides what

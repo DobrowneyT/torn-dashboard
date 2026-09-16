@@ -1,3 +1,4 @@
+import InfoTooltip from './InfoTooltip'
 import { fmtAgo } from '../utils/time'
 import { formatStats } from '../utils/statInput'
 import { statsSourceLabel, isExactStatsSource } from '../utils/warRoomBattleStats'
@@ -14,10 +15,15 @@ import { statsSourceLabel, isExactStatsSource } from '../utils/warRoomBattleStat
 // "+00"/"-05" offset Postgres emits and JS Date rejects — the #140 trap that
 // made this very cell show a dash next to a real ts_spy_at.
 
-// Hover tooltip on a member's BSP total — shows the per-stat breakdown
+// Tooltip on a member's BSP total — shows the per-stat breakdown
 // (str/dex/spd/def), total, and "{relative age} ({TS|BSP})" so leadership
-// can see at a glance how trustworthy the number is. CSS-only show/hide via
-// the `group-hover` Tailwind variant (no JS state, no portal).
+// can see at a glance how trustworthy the number is.
+//
+// ⚠️ This was CSS-only `group-hover` until #612, which meant it did not exist
+// on a phone: there is no hover to trigger it, and nothing on screen said the
+// breakdown was there to miss. Leadership sizing up a target on mobile saw a
+// bare total with no way to learn whether it was measured or guessed — which is
+// the one distinction this cell exists to make. InfoTooltip opens on tap too.
 //
 // Behaviour by row state:
 //   - `m.bsp_total == null` → render dim "???", no tooltip.
@@ -55,27 +61,31 @@ export default function BattleStatsCell({ member: m }) {
     ['DEX', m.bsp_dex],
   ].filter(([, v]) => v !== null && v !== undefined)
 
-  // `relative` is required: the breakdown below is `absolute right-0 top-full`,
-  // and without a positioned ancestor it anchors to whatever is positioned
-  // further up and lands nowhere near its cell. It is not what made the number
-  // overlap the header (#331) — that was the sticky <th> having no z-index,
-  // which let every positioned row element paint over it.
+  // The panel is painted at fixed viewport coordinates by InfoTooltip, so it no
+  // longer needs a positioned ancestor and can no longer be clipped by one. The
+  // old `absolute` panel also had to be kept clear of the sticky <th>, which is
+  // what made the number overlap the header in #331 (the <th> had no z-index).
+  //
+  // ⚠️ The underline is NOT decoration here: solid emerald means the reading was
+  // measured from the member's own key, dotted means it is an estimate. It goes
+  // through `decoration` rather than `className` so it replaces the component's
+  // default instead of racing it in the cascade.
   return (
-    <span className="relative group inline-block">
-      <span
-        title={isExact ? 'Exact — read from this member\'s own key' : undefined}
-        className={`font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold cursor-help underline underline-offset-2 ${
-          isExact
-            ? 'decoration-solid decoration-emerald-500/70'
-            : 'decoration-dotted decoration-gray-400 dark:decoration-slate-600'
-        }`}
-      >
-        {formatStats(m.bsp_total)}
-      </span>
-      <span
-        role="tooltip"
-        className="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute right-0 top-full mt-1 z-30 min-w-[150px] rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg text-left p-2.5 text-[11px]"
-      >
+    <InfoTooltip
+      label={formatStats(m.bsp_total)}
+      decoration={`underline underline-offset-2 ${
+        isExact
+          ? 'decoration-solid decoration-emerald-500/70'
+          : 'decoration-dotted decoration-gray-400 dark:decoration-slate-600'
+      }`}
+      className="font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold"
+    >
+      <div className="min-w-[150px]">
+        {isExact && (
+          <div className="mb-1.5 text-emerald-600 dark:text-emerald-400">
+            Exact — read from this member&apos;s own key.
+          </div>
+        )}
         {rows.length > 0 ? (
           <table className="font-mono w-full">
             <tbody>
@@ -100,7 +110,7 @@ export default function BattleStatsCell({ member: m }) {
         <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 text-[10px] text-right whitespace-nowrap">
           {ageLabel} ({sourceLabel})
         </div>
-      </span>
-    </span>
+      </div>
+    </InfoTooltip>
   )
 }

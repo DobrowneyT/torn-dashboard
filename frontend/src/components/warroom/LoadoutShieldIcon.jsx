@@ -1,7 +1,11 @@
-// Loadout shield (#528 Part 2 follow-up): a small icon on the Name cell,
-// hover-only, in the exact CSS-only group-hover style BattleStatsCell already
-// uses — same border/shadow/font treatment, so a lead reading the row does
-// not have to learn a second tooltip language for battle stats vs gear.
+// Loadout shield (#528 Part 2 follow-up): a small icon on the Name cell, in
+// the same tooltip language BattleStatsCell uses — so a lead reading the row
+// does not have to learn a second one for battle stats vs gear.
+//
+// ⚠️ That shared language was CSS-only `group-hover` until #612, which meant
+// neither panel existed on a phone. Here it was worse than a missing tooltip:
+// the shield still renders, advertising that gear is known, with no way to
+// read it. Both are on InfoTooltip now, which opens on tap.
 //
 // Renders nothing when there is no observation for this member — the flag is
 // "we know this", and most of a roster has never been fought yet (#528's own
@@ -9,6 +13,7 @@
 // carries the same information in the scan-the-flags reading of the row;
 // this is the same fact placed where a lead is already looking at the name.
 import { Shield } from 'lucide-react'
+import InfoTooltip from '../InfoTooltip'
 import { loadoutEntries, loadoutFreshness } from '../../utils/warRoomLoadout'
 import { fmtAgo } from '../../utils/time'
 
@@ -29,12 +34,13 @@ export default function LoadoutShieldIcon({ loadoutRow }) {
   const AGE_NOTE = { fresh: '', aging: ' — over 2h old', stale: ' — over a day old' }
 
   return (
-    <span className="relative group inline-flex shrink-0">
-      <Shield size={13} className={`${SHIELD_TONE[freshness]} cursor-help`} />
-      <span
-        role="tooltip"
-        className="invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity absolute left-0 top-full mt-1 z-30 min-w-[160px] rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg text-left p-2.5 text-[11px]"
-      >
+    <InfoTooltip
+      label={<Shield size={13} className={SHIELD_TONE[freshness]} aria-hidden="true" />}
+      ariaLabel="Observed gear"
+      decoration="no-underline"
+      className="inline-flex shrink-0"
+    >
+      <div className="min-w-[160px]">
         <table className="font-mono w-full">
           <tbody>
             {entries.map((e) => (
@@ -49,7 +55,7 @@ export default function LoadoutShieldIcon({ loadoutRow }) {
           {ageLabel}
           {AGE_NOTE[freshness]}
         </div>
-      </span>
-    </span>
+      </div>
+    </InfoTooltip>
   )
 }
