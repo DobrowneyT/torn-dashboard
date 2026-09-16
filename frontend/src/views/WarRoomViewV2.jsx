@@ -42,7 +42,7 @@ import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warR
 import InfoTooltip, { InfoDot, tipLines } from '../components/InfoTooltip'
 import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
 import {
-  SCORE_DECAY_SEC, countsTowardScore, reviveScore, bestCaseChance,
+  SCORE_DECAY_SEC, bestCaseChance,
   indexRevivesByTarget, reviveChanceHue, formatReviveChance, modelError,
 } from '../utils/reviveChance'
 import { indexBattleStats, withBattleStats } from '../utils/warRoomBattleStats'
@@ -81,7 +81,7 @@ import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 import { parseStatInput, formatStats } from '../utils/statInput'
 import BattleStatsCell from '../components/BattleStatsCell'
 import {
-  fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
+  fairFight, formatFF, ffGradientPosition, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
 import { clampCadence } from '../utils/warRoomCadence.js'
 import { assistBadgeState } from '../utils/assistBadge.js'
@@ -828,18 +828,21 @@ function MemberEnergyCell({ stats }) {
   const band = energyBand(stats)
   const age = statsAgeSeconds(stats)
   const errored = hasStatsError(stats)
+  // Only what the header cannot say about THIS row: how stale the reading is,
+  // and whose key failed. "Energy (stacked) — green is ready" in all 100 rows
+  // was noise the column heading already covers.
   const title = errored
-    ? `Energy unavailable — this member's key failed: ${stats.last_error}`
+    ? `Key failed: ${stats.last_error}`
     : age == null
-      ? 'Energy — no reading yet'
-      : `Energy (${band}) as of ${age}s ago`
+      ? 'No reading yet'
+      : `As of ${age}s ago`
 
   // Grey, not red, when there is no reading (#351): colouring a member we
   // couldn't ask as "empty" would get them written off for a push.
   if (hue == null) {
     return (
       <InfoTooltip label={label} className="text-xs font-mono text-gray-300 dark:text-gray-700">
-        {tipLines(title)}
+        {title}
       </InfoTooltip>
     )
   }
@@ -848,7 +851,7 @@ function MemberEnergyCell({ stats }) {
       label={<span style={{ '--grad-hue': hue }} className="hue-grad">{label}</span>}
       className={`text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
     >
-      {tipLines(title)}
+      {title}
     </InfoTooltip>
   )
 }
@@ -860,11 +863,14 @@ function MemberCooldownCell({ stats, field, label }) {
   const errored = hasStatsError(stats)
   const overdosed = field === 'cooldown_drug' && overdosedByDrugCooldown(stats)
 
+  const age = statsAgeSeconds(stats)
   const title = errored
-    ? `${label} cooldown unavailable — this member's key failed: ${stats.last_error}`
+    ? `Key failed: ${stats.last_error}`
     : overdosed
-      ? `${label} cooldown over 10h — this member has OVERDOSED`
-      : `${label} cooldown — green is ready, red is capped`
+      ? 'Over 10h — overdosed'
+      : age == null
+        ? 'No reading yet'
+        : `As of ${age}s ago`
 
   // Overdose wins outright (#356): it already has its own red-and-bold
   // treatment from #351, and a gradient underneath would be a second way of
@@ -875,7 +881,7 @@ function MemberCooldownCell({ stats, field, label }) {
         label={<>{formatCooldown(remaining)}<span className="ml-1 not-italic" aria-label="overdosed">OD</span></>}
         className="text-xs font-mono text-red-600 dark:text-red-400 font-semibold"
       >
-        {tipLines(title)}
+        {title}
       </InfoTooltip>
     )
   }
@@ -886,7 +892,7 @@ function MemberCooldownCell({ stats, field, label }) {
     // Grey, never green: a member whose key failed must not read as "ready".
     return (
       <InfoTooltip label={formatCooldown(remaining)} className="text-xs font-mono text-gray-300 dark:text-gray-700">
-        {tipLines(title)}
+        {title}
       </InfoTooltip>
     )
   }
@@ -895,7 +901,7 @@ function MemberCooldownCell({ stats, field, label }) {
       label={<span style={{ '--grad-hue': hue }} className="hue-grad">{formatCooldown(remaining)}</span>}
       className="text-xs font-mono"
     >
-      {tipLines(title)}
+      {title}
     </InfoTooltip>
   )
 }
@@ -920,37 +926,14 @@ function MemberReviveChanceCell({ revives, loaded }) {
     return () => clearInterval(id)
   }, [])
 
-  if (!loaded) {
-    return (
-      <InfoTooltip label="—" className="text-xs font-mono text-gray-300 dark:text-gray-700">
-        Revive chance — history not loaded yet.
-      </InfoTooltip>
-    )
-  }
+  if (!loaded) return <span className="text-xs font-mono text-gray-300 dark:text-gray-700">—</span>
 
-  const history = revives ?? []
-  const score = reviveScore(history, nowSec)
-  const chance = bestCaseChance(history, nowSec)
-  const counted = history.filter((r) => countsTowardScore(r) && nowSec - Number(r.timestamp) < SCORE_DECAY_SEC)
-  const last = counted[0]
-  const lastAgo = last ? Math.max(0, Math.round((nowSec - Number(last.timestamp)) / 60)) : null
-
-  const title = [
-    `Best-case revive chance: what a skill-100 reviver would see right now.`,
-    counted.length === 0
-      ? 'No revives in the last 24h — fully rested.'
-      : `${counted.length} revive${counted.length === 1 ? '' : 's'} in the last 24h (score ${score.toFixed(2)}); most recent ${lastAgo}m ago.`,
-    'Computed from our own revive history — accurate as long as that history is complete.',
-  ].join('\n')
-
+  const chance = bestCaseChance(revives ?? [], nowSec)
   const hue = reviveChanceHue(chance)
   return (
-    <InfoTooltip
-      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{formatReviveChance(chance)}</span>}
-      className="text-xs font-mono"
-    >
-      {tipLines(title)}
-    </InfoTooltip>
+    <span style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
+      {formatReviveChance(chance)}
+    </span>
   )
 }
 
@@ -970,13 +953,7 @@ function FairFightCell({ mine, target }) {
   const targetStats = targetBattleStats(target)
   const ff = fairFight(mine, targetStats)
 
-  if (ff === null) {
-    return (
-      <InfoTooltip label="—" className="text-xs text-gray-300 dark:text-gray-600">
-        {mine ? 'No battle stats for this target yet.' : 'No battle stats on record for you yet.'}
-      </InfoTooltip>
-    )
-  }
+  if (ff === null) return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
 
   // An estimate on EITHER side makes the result an estimate. The even-split
   // assumption overstates lopsided builds, and on the target side that inflates
@@ -986,23 +963,15 @@ function FairFightCell({ mine, target }) {
 
   // 0 → red (0deg), 1 → green (120deg).
   const hue = Math.round(120 * ffGradientPosition(ff))
+  // The dotted underline still means "estimate" — that mark is the one thing
+  // the header cannot say about an individual row.
   return (
-    <InfoTooltip
-      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{formatFF(ff)}</span>}
-      // The dotted underline is the "this is an estimate" marker, so it must
-      // stay off a solid reading — it is not the generic tooltip affordance
-      // here, it carries meaning of its own.
-      decoration={estimated ? 'underline decoration-dotted decoration-from-font' : 'no-underline'}
-      className="text-xs font-mono"
+    <span
+      style={{ '--grad-hue': hue }}
+      className={`hue-grad text-xs font-mono ${estimated ? 'underline decoration-dotted decoration-from-font' : ''}`}
     >
-      <div>Fair Fight {formatFF(ff)} — your respect multiplier against this target.</div>
-      {isMaxFF(ff) && <div className="mt-1.5">At the 3.00 cap: full respect.</div>}
-      <div className="mt-1.5">
-        {estimated
-          ? 'Estimated: only a stat TOTAL is known for one side, so an even split was assumed. That overstates lopsided builds, so the real FF may be lower.'
-          : 'Computed from a full stat breakdown on both sides.'}
-      </div>
-    </InfoTooltip>
+      {formatFF(ff)}
+    </span>
   )
 }
 
@@ -3191,8 +3160,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           'Fair Fight — the respect multiplier YOU would get hitting this target.',
                           'FF = min(3, 1 + 8/3 × (their BS score / your BS score)),',
                           'BS score = √str + √spd + √def + √dex.',
-                          'This column is personal: it is computed from your own battle stats,',
-                          'so it reads differently for every viewer.',
+                          'It saturates at the 3.00 cap, so a lot of a healthy roster sits flat there.',
+                          'A dotted underline on a value means it is an ESTIMATE: only a stat total',
+                          'was known for one side, so an even split was assumed and the real FF may be lower.',
+                          'This column is personal — computed from your own battle stats, so it reads',
+                          'differently for every viewer.',
                           myBattleStats
                             ? ''
                             : 'No battle stats on record for you yet — the column cannot be computed.',
@@ -3268,13 +3240,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             so row height stays uniform down a 100-row board. */}
                         <td className="py-2.5 px-2 whitespace-nowrap max-w-[13rem]">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <InfoTooltip wrap className="min-w-0" label={
-                              <a href={`https://www.torn.com/profiles.php?XID=${m.member_id}`}
-                                target="_blank" rel="noopener noreferrer"
-                                className="font-medium text-blue-600 dark:text-blue-400 hover:underline truncate min-w-0">
-                                {m.member_name}
-                              </a>
-                            }>{m.member_name}</InfoTooltip>
+                            <a href={`https://www.torn.com/profiles.php?XID=${m.member_id}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="font-medium text-blue-600 dark:text-blue-400 hover:underline truncate">
+                              {m.member_name}
+                            </a>
                             <span className="text-xs text-gray-400 dark:text-gray-600">Lv{m.level}</span>
                             {isOverdosed(m) && (
                               <InfoTooltip

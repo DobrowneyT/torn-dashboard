@@ -41,7 +41,7 @@ import { Info } from 'lucide-react'
  *                                not have to choose.
  */
 
-/** Roughly the reading width of the longest job description at 11px. */
+/** The panel never grows past this; short content stays narrower. */
 const PANEL_MAX = 340
 const MARGIN = 8
 const GAP = 6
@@ -59,7 +59,15 @@ export const DOTTED =
  * opening a panel nobody can read.
  */
 export function tooltipPosition(rect, viewport, size) {
-  const width = Math.min(size?.w || PANEL_MAX, Math.max(0, viewport.w - MARGIN * 2))
+  // ⚠️ A CAP, not a width. The panel used to be painted at PANEL_MAX every
+  // time, which made a four-word tooltip 340px of mostly empty box — the
+  // battle-stats breakdown in particular went from a tidy ~150px table to a
+  // banner. `position: fixed` shrink-wraps to its content, so handing it only a
+  // maxWidth gets the old widths back without hardcoding one per caller.
+  const maxWidth = Math.max(0, Math.min(PANEL_MAX, viewport.w - MARGIN * 2))
+  // `size.w` is the MEASURED width once the panel has painted; before that we
+  // have to assume the cap, which is what the second placement pass fixes.
+  const width = Math.min(size?.w || maxWidth, maxWidth)
   const height = size?.h || 0
   const maxLeft = Math.max(MARGIN, viewport.w - width - MARGIN)
   const left = Math.min(Math.max(MARGIN, rect.left), maxLeft)
@@ -69,7 +77,7 @@ export function tooltipPosition(rect, viewport, size) {
   const roomAbove = rect.top - GAP
   const flip = height > 0 && roomBelow < height && roomAbove > roomBelow
   const top = flip ? Math.max(MARGIN, rect.top - GAP - height) : below
-  return { left, top, width, placement: flip ? 'above' : 'below' }
+  return { left, top, width, maxWidth, placement: flip ? 'above' : 'below' }
 }
 
 /**
@@ -156,9 +164,17 @@ function useTooltip(children) {
         position: 'fixed',
         left: pos ? `${pos.left}px` : '-9999px',
         top: pos ? `${pos.top}px` : '-9999px',
-        width: pos ? `${pos.width}px` : `${PANEL_MAX}px`,
+        // No `width`: a fixed-position box shrink-wraps its content, so the
+        // panel is exactly as wide as it needs to be, up to the cap.
+        maxWidth: `${pos ? pos.maxWidth : PANEL_MAX}px`,
       }}
-      className="z-50 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg text-left p-2.5 text-[11px] leading-relaxed text-gray-700 dark:text-gray-200"
+      // ⚠️ The typography resets are not cosmetic. The panel is a DOM
+      // descendant of its trigger even though it paints at fixed coordinates,
+      // so it INHERITS from whatever it sits in. In the War Room that meant a
+      // header's `uppercase tracking-wide whitespace-nowrap`: the Fair Fight
+      // explanation rendered in caps and could not wrap, so it ran straight out
+      // of its own rounded box. Table cells carry `whitespace-nowrap` too.
+      className="z-50 w-max rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg p-2.5 text-[11px] leading-relaxed text-gray-700 dark:text-gray-200 text-left font-normal normal-case not-italic tracking-normal whitespace-normal break-words"
     >
       {children}
     </div>
