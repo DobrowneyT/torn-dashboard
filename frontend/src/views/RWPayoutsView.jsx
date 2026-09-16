@@ -126,7 +126,6 @@ export default function RWPayoutsView() {
             onClick={() => setShowInfo(true)}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
             aria-label="How RW payouts work"
-            title="How RW payouts work"
           >
             <Info className="w-4 h-4" />
           </button>

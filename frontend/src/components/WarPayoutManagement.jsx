@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { loadWars, loadWarsCount, loadWarContributions, loadLiveContributionsFromAttacks, loadFactionAttacksByWindow, loadWarPayouts, loadRecentWarPayouts, loadFactionsByIds } from '../utils/warDataLoader'
 import { apiGet, apiPost, apiDelete } from '../utils/apiClient'
 import WarPayoutHistory from './WarPayoutHistory'
+import InfoTooltip, { InfoDot } from './InfoTooltip'
 import {
   restoredWarPayoutSettings,
   restoredEligibilityOverrides,
@@ -1147,7 +1148,7 @@ export default function WarPayoutManagement() {
     })
   }
 
-  function SortHeader({ col, label, className = '' }) {
+  function SortHeader({ col, label, className = '', title }) {
     const active = sortCol === col
     const hasStickyLeft = className.includes('left-0')
     const stickyTop = hasStickyLeft
@@ -1159,6 +1160,13 @@ export default function WarPayoutManagement() {
         onClick={() => handleSortCol(col)}
       >
         {label}
+        {title && (
+          // ⚠️ stopPropagation: the whole <th> sorts on click, so reading a
+          // column's meaning must not also re-sort the sheet.
+          <span onClick={(e) => e.stopPropagation()} className="inline-flex ml-1 align-middle">
+            <InfoDot label={`About the ${label} column`} size={11}>{title}</InfoDot>
+          </span>
+        )}
         <span className="ml-1 text-gray-400 text-xs">
           {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
         </span>
@@ -1313,20 +1321,30 @@ export default function WarPayoutManagement() {
             War Mug = warMugs (war wins that are mugs)
             Assist  / Loss = war-only
             Outside = regularHits (all non-war wins, type-agnostic) */}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700"
-            title={`${w.warNonMugHits ?? Math.max(0, (w.warHits ?? 0) - (w.warMugs ?? 0))} war hits × ${(w.effWarHitMult ?? globalMults.warHit) ?? 0}`}>{(w.warHitScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400 border-l border-gray-200 dark:border-slate-700">
+          {/* The arithmetic behind the number, which a `title` kept off every phone (#612). */}
+          <InfoTooltip label={(w.warHitScore ?? 0).toFixed(2)} className="tabular-nums">{`${w.warNonMugHits ?? Math.max(0, (w.warHits ?? 0) - (w.warMugs ?? 0))} war hits × ${(w.effWarHitMult ?? globalMults.warHit) ?? 0}`}</InfoTooltip>
+        </td>
         {viewMode === 'leader' && multInput('effWarHitMult', 'warHitMultiplier', globalMults.warHit)}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
-            title={`${w.warAssists ?? 0} war assists × ${(w.effAssistMult ?? globalMults.assist) ?? 0}`}>{(w.assistScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">
+          {/* The arithmetic behind the number, which a `title` kept off every phone (#612). */}
+          <InfoTooltip label={(w.assistScore ?? 0).toFixed(2)} className="tabular-nums">{`${w.warAssists ?? 0} war assists × ${(w.effAssistMult ?? globalMults.assist) ?? 0}`}</InfoTooltip>
+        </td>
         {viewMode === 'leader' && multInput('effAssistMult', 'assistMultiplier', globalMults.assist)}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
-            title={`${w.warLosses ?? 0} war losses × ${(w.effLossMult ?? globalMults.loss) ?? 0}`}>{(w.lossScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">
+          {/* The arithmetic behind the number, which a `title` kept off every phone (#612). */}
+          <InfoTooltip label={(w.lossScore ?? 0).toFixed(2)} className="tabular-nums">{`${w.warLosses ?? 0} war losses × ${(w.effLossMult ?? globalMults.loss) ?? 0}`}</InfoTooltip>
+        </td>
         {viewMode === 'leader' && multInput('effLossMult', 'lossMultiplier', globalMults.loss)}
-        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400"
-            title={`${w.warMugs ?? 0} war mugs × ${(w.effMugMult ?? globalMults.mug) ?? 0}`}>{(w.mugScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-red-600 dark:text-red-400">
+          {/* The arithmetic behind the number, which a `title` kept off every phone (#612). */}
+          <InfoTooltip label={(w.mugScore ?? 0).toFixed(2)} className="tabular-nums">{`${w.warMugs ?? 0} war mugs × ${(w.effMugMult ?? globalMults.mug) ?? 0}`}</InfoTooltip>
+        </td>
         {viewMode === 'leader' && multInput('effMugMult', 'mugMultiplier', globalMults.mug)}
-        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400"
-            title={`${w.regularHits ?? 0} outside hits × ${(w.effRegularMult ?? globalMults.regular) ?? 0}`}>{(w.regularHitScore ?? 0).toFixed(2)}</td>
+        <td className="px-2 py-1 text-right text-gray-600 dark:text-gray-400">
+          {/* The arithmetic behind the number, which a `title` kept off every phone (#612). */}
+          <InfoTooltip label={(w.regularHitScore ?? 0).toFixed(2)} className="tabular-nums">{`${w.regularHits ?? 0} outside hits × ${(w.effRegularMult ?? globalMults.regular) ?? 0}`}</InfoTooltip>
+        </td>
         {viewMode === 'leader' && multInput('effRegularMult', 'regularHitMultiplier', globalMults.regular)}
         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300">{(w.participationScore ?? 0).toFixed(2)}</td>
         <td className="px-2 py-1 text-right font-medium text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-slate-700">{((w.participationShare ?? 0) * 100).toFixed(2)}%</td>
@@ -2267,20 +2285,23 @@ export default function WarPayoutManagement() {
                 ✓ Saved
               </span>
             ) : (
+              // wrap: the button face already says WHICH state disabled it,
+              // but not why. The reason has to be reachable without a hover.
+              <InfoTooltip wrap label={
               <button
                 onClick={handleSave}
                 disabled={isSaving || contributionSource === 'live' || isVisitor}
-                title={
-                  isVisitor ? 'Visitor mode is read-only — saving is disabled.'
-                  : contributionSource === 'live' ? 'Saving is disabled for live estimates — wait for the official war report.'
-                  : undefined
-                }
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isSaving ? 'Saving...'
                   : isVisitor ? 'Save disabled (visitor)'
                   : (contributionSource === 'live' ? 'Save disabled (live)' : 'Save to Database')}
               </button>
+              }>
+                {isVisitor ? 'Visitor mode is read-only — saving is disabled.'
+                  : contributionSource === 'live' ? 'Saving is disabled for live estimates — wait for the official war report.'
+                  : null}
+              </InfoTooltip>
             )}
 
             {saveError && (

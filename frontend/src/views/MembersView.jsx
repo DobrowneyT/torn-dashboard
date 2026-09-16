@@ -6,6 +6,7 @@ import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
 import { config } from '../config'
+import InfoTooltip from '../components/InfoTooltip'
 export default function MembersView({ isLeadership }) {
   const [persistedState, setPersistedState] = useViewState('members')
   // Tiered factions get the tier badge/filter/distribution; non-tiered
@@ -389,7 +390,7 @@ export default function MembersView({ isLeadership }) {
                     <td className="py-3 px-4">
                       <button
                         onClick={() => handleViewCpr(member.id, member.name)}
-                        title="View CPR data"
+                        aria-label="View CPR data"
                         className="cursor-pointer hover:opacity-80 transition-opacity"
                       >
                         {usesTiers
@@ -500,7 +501,9 @@ function TierBadge({ tier, override }) {
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-white font-semibold text-xs ${colors[tier] ?? 'bg-tier-review'}`}>
       {label}
-      {override && <span title="Tier Override">*</span>}
+      {override && (
+        <InfoTooltip wrap label={<span>*</span>}>Tier override</InfoTooltip>
+      )}
     </span>
   )
 }
@@ -842,9 +845,11 @@ function CprModal({ member, cprData, loading, onClose }) {
                           : (val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                         return (
                           <div key={row.position_label} className="flex items-center gap-3 py-1.5">
-                            <span className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0 truncate" title={row.position_label}>
-                              {row.position_label}
-                            </span>
+                            <InfoTooltip
+                              label={<span className="block truncate">{row.position_label}</span>}
+                              decoration="no-underline"
+                              className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0"
+                            >{row.position_label}</InfoTooltip>
                             <div className="flex-1 bg-gray-100 dark:bg-slate-600 rounded-full h-2">
                               <div
                                 className={`h-2 rounded-full ${barColor}`}
