@@ -172,6 +172,18 @@ describe('InfoTooltip trigger shapes', () => {
     expect(container.querySelector('input')).toBeTruthy()
   })
 
+  it('⚠️ hands inline styles to the TRIGGER, not the panel', () => {
+    // The calendar's multi-day band is placed by inline gridColumn/gridRow. Once
+    // it is wrapped, the WRAPPER is the grid item — leaving the placement on the
+    // child would drop every band into the first cell of the row.
+    const { container } = render(
+      <InfoTooltip wrap style={{ gridColumn: '2 / span 3' }} label={<button type="button">War</button>}>
+        Ends Tuesday
+      </InfoTooltip>,
+    )
+    expect(container.querySelector('span.tip-wrap').style.gridColumn).toBe('2 / span 3')
+  })
+
   it('InfoDot is a separate tap target with a name of its own', () => {
     // It sits beside a live control precisely so the control keeps its tap —
     // which only works if the dot is reachable in its own right.

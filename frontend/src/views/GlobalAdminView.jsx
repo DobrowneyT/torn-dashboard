@@ -49,11 +49,16 @@ function ScheduleCell({ job, onSave, disabled }) {
     <span className="inline-flex flex-wrap items-center gap-1">
       <input value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled}
         spellCheck={false} placeholder={job.effective_schedule ?? ''}
-        title={override ? 'This faction overrides the default' : `Following the ${source.label}: ${job.effective_schedule ?? ''}`}
         className="font-mono text-xs px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-slate-500 w-36" />
-      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${source.className}`}>
-        {source.label}
-      </span>
+      <InfoTooltip
+        label={source.label}
+        decoration="no-underline"
+        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${source.className}`}
+      >
+        {override
+          ? 'This faction overrides the default.'
+          : `Following the ${source.label}: ${job.effective_schedule ?? ''}`}
+      </InfoTooltip>
       {dirty && (
         <button onClick={save} disabled={disabled}
           className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs">
@@ -61,9 +66,11 @@ function ScheduleCell({ job, onSave, disabled }) {
         </button>
       )}
       {job.rejected_schedule != null && (
-        <span className="text-[10px] text-red-600 dark:text-red-400" title={`Ignored: ${job.rejected_schedule}`}>
+        <InfoTooltip className="text-[10px] text-red-600 dark:text-red-400" label={<>
           invalid — using {job.effective_schedule}
-        </span>
+        </>}>
+          Ignored: {job.rejected_schedule}
+        </InfoTooltip>
       )}
     </span>
   )
@@ -271,7 +278,7 @@ export default function GlobalAdminView() {
   }
 
   const refreshBtn = (
-    <button onClick={load} title="Refresh"
+    <button onClick={load} aria-label="Refresh"
       className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
       <RefreshCw className="w-4 h-4" />
     </button>
@@ -362,7 +369,11 @@ export default function GlobalAdminView() {
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDbTime(run.started_at)}</td>
                   <td className="py-2 pr-4"><StatusBadge status={run.status} /></td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{run.rows_written}</td>
-                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md truncate" title={run.error || ''}>{run.error || ''}</td>
+                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md">
+                    {run.error
+                      ? <InfoTooltip label={<span className="block truncate">{run.error}</span>} decoration="no-underline" className="block min-w-0">{run.error}</InfoTooltip>
+                      : ''}
+                  </td>
                 </tr>
               ))}
               {runs.length === 0 && (
@@ -422,7 +433,11 @@ export default function GlobalAdminView() {
                     <StatusBadge status={keyPoolStatus(k)} />
                   </td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{k.last_claimed_at ? fmtDbTime(k.last_claimed_at) : '—'}</td>
-                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md truncate" title={k.last_error || ''}>{k.last_error || ''}</td>
+                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md">
+                    {k.last_error
+                      ? <InfoTooltip label={<span className="block truncate">{k.last_error}</span>} decoration="no-underline" className="block min-w-0">{k.last_error}</InfoTooltip>
+                      : ''}
+                  </td>
                 </tr>
               ))}
               {keys.length === 0 && (

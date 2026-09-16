@@ -5,6 +5,7 @@ import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { parseDbTime } from '../utils/time'
+import InfoTooltip from './InfoTooltip'
 
 export default function InventoryManagement() {
   const { user } = useAuth()
@@ -533,7 +534,9 @@ export default function InventoryManagement() {
                       <td className="py-2 px-2 text-xs">
                         {item.name}
                         {item.isCrimeItem && (
-                          <span className="ml-1 text-red-500" title="Crime Item">🎯</span>
+                          <InfoTooltip label="🎯" decoration="no-underline" className="ml-1 text-red-500">
+                            Crime item
+                          </InfoTooltip>
                         )}
                       </td>
                       <td className="py-2 px-2 text-xs">
@@ -630,7 +633,7 @@ export default function InventoryManagement() {
                             <button
                               onClick={() => handleSetPrice(item.item_id)}
                               className="px-2 py-1 bg-purple-600 text-white rounded text-xs hover:bg-purple-700"
-                              title="Set price for all items of this type"
+                              aria-label="Set price for all items of this type"
                             >
                               Set Price
                             </button>

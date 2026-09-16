@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { ChevronRight, Download } from 'lucide-react'
 import { apiGet } from '../../utils/apiClient'
+import InfoTooltip from '../InfoTooltip'
 
 function toCsv(rows) {
   const header = ['Member', 'Energy', 'Max Energy', 'Reading', 'OD before war', 'Said online', 'Availability', 'Revised']
@@ -109,7 +110,9 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
                       <td className="py-1 pr-2 font-medium">{r.member_name ?? `#${r.member_id}`}</td>
                       <td className="py-1 pr-2 text-right tabular-nums">
                         {r.has_reading ? `${r.energy_current}/${r.energy_maximum}` : (
-                          <span className="text-gray-400" title="No pooled key gave a reading">unknown</span>
+                          <InfoTooltip label="unknown" className="text-gray-400">
+                            No pooled key gave a reading.
+                          </InfoTooltip>
                         )}
                       </td>
                       <td className="py-1 pr-2">

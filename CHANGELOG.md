@@ -18,6 +18,26 @@ surface it automatically.
 
 ---
 
+## [3.126.0] - 2026-09-16
+
+### Changed
+- **The last of the native tooltips are gone (#612).** Slice 6 — Competitions,
+  Inventory, the revive-services modal, the version chip, the calendar, the four
+  small `warroom/` widgets, Faction Settings, Global Admin and War History.
+  **There is now no `title` attribute on a DOM element anywhere in the app.**
+  - The revive-services modal was the densest remaining case: all six of its
+    field explanations sat on an `<input>` or `<select>`, including which JSON
+    key each service expects — the thing you actually need when wiring one up.
+  - Global Admin's schedule provenance ("this faction overrides the default")
+    moves onto the source pill, where it is visible rather than buried on the
+    input; the two truncated error columns now open their full text.
+  - Resolving a competition gets its own ⓘ, because the action is irreversible
+    and what it is about to do has to be readable *before* pressing it.
+  - ⚠️ `InfoTooltip` gained a `style` passthrough for the calendar's multi-day
+    band: the band is placed by inline `gridColumn`/`gridRow`, and once wrapped,
+    the **wrapper** is the grid item — leaving the placement on the child would
+    drop every band into the first cell of its row.
+
 ## [3.125.0] - 2026-09-16
 
 ### Changed

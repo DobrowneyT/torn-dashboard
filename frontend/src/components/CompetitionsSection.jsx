@@ -6,6 +6,7 @@ import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { Trophy, Plus, X, Award, Pin } from 'lucide-react'
 import { boundaryValue, windowLabel } from '../utils/competitionWindow'
 import { buildPrizes, buildPrizePayload, prizeTableRows, formatPrize, ordinal } from '../utils/competitionPrizes'
+import InfoTooltip, { InfoDot } from './InfoTooltip'
 
 function fmtDate(d) {
   if (!d) return ''
@@ -131,7 +132,7 @@ export default function CompetitionsSection({ isLeadership }) {
                 {isLeadership && (
                   <button
                     onClick={() => togglePin(c)}
-                    title={c.pinned ? 'Unpin from dashboard' : 'Pin to dashboard'}
+                    aria-label={c.pinned ? 'Unpin from dashboard' : 'Pin to dashboard'}
                     className={`px-3 py-2 ${c.pinned ? 'text-blue-600 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600 hover:text-gray-500'}`}
                   >
                     <Pin className="w-4 h-4" fill={c.pinned ? 'currentColor' : 'none'} />
@@ -151,17 +152,24 @@ export default function CompetitionsSection({ isLeadership }) {
                             {c.type === 'lottery' ? 'Qualified pool' : 'Live standings'}
                           </span>
                           {isLeadership && (
+                            <span className="inline-flex items-center gap-1.5">
                             <button
                               onClick={() => resolveCompetition(c.id)}
                               disabled={resolving || (detail?.standings || []).length === 0}
                               className="flex items-center gap-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium disabled:opacity-50"
-                              title={c.type === 'lottery'
-                                ? 'Draw a winner at random from the qualified pool and record it'
-                                : 'Freeze the current standings into history and crown the winner'}
                             >
                               <Award className="w-3.5 h-3.5" />
                               {resolving ? 'Recording…' : c.type === 'lottery' ? 'Draw winner' : 'Close & record result'}
                             </button>
+                            {/* Its own tap target — resolving a competition is
+                                irreversible, so what the button is about to do
+                                must be readable BEFORE pressing it. */}
+                            <InfoDot label="What resolving does" size={12}>
+                              {c.type === 'lottery'
+                                ? 'Draws a winner at random from the qualified pool and records it.'
+                                : 'Freezes the current standings into history and crowns the winner.'}
+                            </InfoDot>
+                            </span>
                           )}
                         </div>
                         <Leaderboard standings={detail?.standings || []} lottery={c.type === 'lottery'} />
@@ -207,7 +215,7 @@ function ItemPrizeInput({ slot, onChange, field }) {
   return (
     <div className="flex items-center gap-2 grow">
       <input type="number" min="1" step="1" className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white text-sm w-16 shrink-0"
-        value={slot.qty ?? 1} onChange={(e) => onChange({ qty: e.target.value })} title="Quantity" />
+        value={slot.qty ?? 1} onChange={(e) => onChange({ qty: e.target.value })} aria-label="Quantity" />
       <div className="relative grow">
         <input type="text" className={field}
           placeholder={slot.item_id ? `${slot.name}` : 'search item…'}
@@ -308,13 +316,15 @@ function Leaderboard({ standings, lottery = false }) {
               <td className="py-1 px-2 text-gray-900 dark:text-white">
                 {r.member_name} <span className="text-gray-400">[{r.member_id}]</span>
                 {r.partial && (
-                  <span
-                    className="ml-1 text-amber-500 cursor-help"
-                    title="Partial — first snapshot is after the window opened, so this isn't a full-window figure"
-                  >⚑</span>
+                  <InfoTooltip label="⚑" decoration="no-underline" className="ml-1 text-amber-500">
+                    Partial — the first snapshot is after the window opened, so this
+                    isn&apos;t a full-window figure.
+                  </InfoTooltip>
                 )}
                 {lottery && r.qualified && (
-                  <span className="ml-1 text-green-600 dark:text-green-400" title="Qualifies for the draw">✓</span>
+                  <InfoTooltip label="✓" decoration="no-underline" className="ml-1 text-green-600 dark:text-green-400">
+                    Qualifies for the draw
+                  </InfoTooltip>
                 )}
               </td>
               <td className="py-1 px-2 text-right font-medium text-gray-900 dark:text-white">
@@ -466,7 +476,7 @@ function CreateCompetitionForm({ onCreated }) {
               <div className="flex gap-2">
                 <input type="date" className={field} value={windowStart} onChange={(e) => setWindowStart(e.target.value)} required />
                 <input type="time" className={field} value={windowStartTime} onChange={(e) => setWindowStartTime(e.target.value)}
-                  title="Optional start time (TCT). Blank = start of day." />
+                  aria-label="Optional start time (TCT)" />
               </div>
             </label>
             <label className="block">
@@ -474,7 +484,7 @@ function CreateCompetitionForm({ onCreated }) {
               <div className="flex gap-2">
                 <input type="date" className={field} value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} required />
                 <input type="time" className={field} value={windowEndTime} onChange={(e) => setWindowEndTime(e.target.value)}
-                  title="Optional end time (TCT). Blank = end of day." />
+                  aria-label="Optional end time (TCT)" />
               </div>
             </label>
             <p className="sm:col-span-2 text-[11px] text-gray-500 dark:text-gray-400 -mt-1">
@@ -529,7 +539,7 @@ function CreateCompetitionForm({ onCreated }) {
                 value={p.text} onChange={(e) => updatePrize(i, { text: e.target.value })} />
             )}
             {!isFlat && (
-              <button type="button" onClick={() => removePrize(i)} className="text-gray-400 hover:text-red-500 shrink-0" title="Remove prize">
+              <button type="button" onClick={() => removePrize(i)} className="text-gray-400 hover:text-red-500 shrink-0" aria-label="Remove prize">
                 <X className="w-4 h-4" />
               </button>
             )}
