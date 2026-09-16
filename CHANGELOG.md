@@ -18,6 +18,30 @@ surface it automatically.
 
 ---
 
+## [3.125.0] - 2026-09-16
+
+### Changed
+- **War Room controls off native tooltips (#612).** Slice 5 — the toolbar, the
+  leadership config panel and the row action buttons, 30 sites. The desktop
+  table cells went in 3.122.0; this is everything around them.
+  - ⚠️ The seven leadership cadence settings had their explanation on the
+    `<input>` itself — the least useful place in the app for one. An `<input
+    title>` is unreachable on a touchscreen *and* invisible to a screen reader,
+    so text describing a control that costs real Torn API calls ("one call per
+    enrolled member per cycle") was effectively unwritten. Each now has a ⓘ on
+    its own label.
+  - Disabled reasons that are now tappable: Enable War Room and Update Spies
+    with no opponent faction ID set, the 3x FF filter with no stats on record,
+    the Revives button with no service configured, and an inert dibs badge.
+  - Find Target and Farm mode get their own ⓘ, since both buttons are live and a
+    single tap cannot both explain and activate.
+  - ⚠️ A disabled quick link was carrying its name in `aria-label` on a bare
+    `<span>`, which is not exposed to a screen reader at all — it had no
+    accessible name. It is now a wrapped tooltip with a real one.
+  - Deleted: seven `title`s duplicating an `aria-label`, the assist link's
+    "click to assist" (the button face reads "⚔ Assist {name}"), and the stats
+    filter's disabled reason, which already renders as visible text beside it.
+
 ## [3.124.0] - 2026-09-16
 
 ### Fixed
