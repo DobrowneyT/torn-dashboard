@@ -218,7 +218,7 @@ export default function TierManagement() {
             <button
               onClick={loadData}
               className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              title="Refresh data"
+              aria-label="Refresh data"
             >
               Refresh
             </button>

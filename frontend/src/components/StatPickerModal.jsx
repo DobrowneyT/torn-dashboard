@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { STAT_PATHS_BY_CATEGORY } from '../utils/statPaths'
+import InfoTooltip from './InfoTooltip'
 
 // Modal for picking which columns to show in the Member Overview.
 // Caller supplies the identity columns (since they live next to the view, not
@@ -274,7 +275,7 @@ function CategorySection({ label, items, selection, onToggle, onToggleAll }) {
               onChange={() => onToggle(item.key)}
               className="rounded"
             />
-            <span className="truncate" title={item.label}>{item.label}</span>
+            <InfoTooltip wrap className="min-w-0" label={<span className="truncate">{item.label}</span>}>{item.label}</InfoTooltip>
           </label>
         ))}
       </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
+import InfoTooltip, { InfoDot } from '../components/InfoTooltip'
 import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../utils/apiClient'
 import BattleStatsCell from '../components/BattleStatsCell'
@@ -71,7 +72,10 @@ const IDENTITY_COLUMNS = {
     label: 'Name',
     sortValue: r => r.member_name?.toLowerCase() ?? '',
     render: r => (
-      <span className={r.data_partial ? 'underline decoration-amber-400 decoration-2 underline-offset-2' : ''} title={r.data_partial ? r.data_partial_reason : undefined}>
+      <InfoTooltip
+        wrap
+        className={r.data_partial ? 'underline decoration-amber-400 decoration-2 underline-offset-2' : ''}
+        label={<>
         <a
           href={`https://www.torn.com/profiles.php?XID=${r.member_id}`}
           target="_blank" rel="noopener noreferrer"
@@ -80,7 +84,10 @@ const IDENTITY_COLUMNS = {
           {r.member_name ?? `[${r.member_id}]`}
         </a>
         <span className="ml-2 text-xs text-gray-400 dark:text-gray-600">[{r.member_id}]</span>
-      </span>
+        </>}
+      >
+        {r.data_partial ? r.data_partial_reason : null}
+      </InfoTooltip>
     ),
   },
   level: {
@@ -416,6 +423,7 @@ export default function MemberOverview() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <InfoTooltip wrap label={
             <button
               onClick={() => { setShowWarningsOnly(v => !v); setShowInconclusiveOnly(false) }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -423,11 +431,12 @@ export default function MemberOverview() {
                   ? 'bg-red-600 text-white'
                   : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30'
               }`}
-              title="Show only members failing one or more requirements"
             >
               ⚠ {compliance.flagged} / {compliance.total} flagged
               {showWarningsOnly ? ' · showing' : ''}
             </button>
+            }>Show only members failing one or more requirements.</InfoTooltip>
+            <InfoTooltip wrap label={
             <button
               onClick={() => { setShowInconclusiveOnly(v => !v); setShowWarningsOnly(false) }}
               disabled={compliance.inconclusive === 0}
@@ -436,11 +445,11 @@ export default function MemberOverview() {
                   ? 'bg-amber-500 text-white'
                   : 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30'
               }`}
-              title="Show only members we can't fully assess (missing data)"
             >
               🟡 {compliance.inconclusive} inconclusive
               {showInconclusiveOnly ? ' · showing' : ''}
             </button>
+            }>Show only members we can&apos;t fully assess (missing data).</InfoTooltip>
           </div>
         </div>
 
@@ -449,24 +458,24 @@ export default function MemberOverview() {
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-1">View:</span>
             {allViews.map(v => (
+              <InfoTooltip key={v.id} wrap label={
               <button
-                key={v.id}
                 onClick={() => setActiveViewId(v.id)}
                 className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${
                   activeViewId === v.id
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
                 }`}
-                title={v.builtin ? 'Built-in view' : `Saved by ${v.created_by_name ?? 'leadership'}`}
               >
                 {v.name}
               </button>
+              }>{v.builtin ? 'Built-in view' : `Saved by ${v.created_by_name ?? 'leadership'}`}</InfoTooltip>
             ))}
             {!isBuiltinView && (
               <button
                 onClick={openEditView}
                 className="px-2.5 py-1 text-xs rounded-full font-medium bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600"
-                title="Edit this view's columns"
+                aria-label="Edit this view's columns"
               >
                 ✎ Edit
               </button>
@@ -474,7 +483,7 @@ export default function MemberOverview() {
             <button
               onClick={openNewView}
               className="px-2.5 py-1 text-xs rounded-full font-medium bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600"
-              title="Create a new view by picking stats"
+              aria-label="Create a new view by picking stats"
             >
               + New view
             </button>
@@ -513,24 +522,24 @@ export default function MemberOverview() {
               None
             </button>
             {thresholdSets.map(t => (
+              <InfoTooltip key={t.id} wrap label={
               <button
-                key={t.id}
                 onClick={() => setActiveThresholdId(t.id)}
                 className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${
                   activeThresholdId === t.id
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600'
                 }`}
-                title={`Saved by ${t.created_by_name ?? 'leadership'}`}
               >
                 {t.name}
               </button>
+              }>Saved by {t.created_by_name ?? 'leadership'}</InfoTooltip>
             ))}
             {activeThresholds && (
               <button
                 onClick={openEditThreshold}
                 className="px-2.5 py-1 text-xs rounded-full font-medium bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600"
-                title="Edit this threshold set"
+                aria-label="Edit this threshold set"
               >
                 ✎ Edit
               </button>
@@ -538,7 +547,7 @@ export default function MemberOverview() {
             <button
               onClick={openNewThreshold}
               className="px-2.5 py-1 text-xs rounded-full font-medium bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-slate-600"
-              title="Create a new threshold set"
+              aria-label="Create a new threshold set"
             >
               + New set
             </button>
@@ -575,17 +584,20 @@ export default function MemberOverview() {
             <>
               <div className="flex items-center gap-1">
                 <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Stats</span>
+                <InfoDot label="Stats filter format" size={11}>
+                  Accepts the same k/m/b shorthand as the War Room — e.g. 3m, 2.6b.
+                </InfoDot>
                 {/* Same k/m/b shorthand as the War Room — one parser, so the
                     two pages cannot read "2.6b" differently (#355). */}
                 <input
-                  type="text" placeholder="min" title="e.g. 3m, 2.6b"
+                  type="text" placeholder="min"
                   value={statsMin}
                   onChange={e => setStatsMin(e.target.value)}
                   className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <span className="text-xs text-gray-400">–</span>
                 <input
-                  type="text" placeholder="max" title="e.g. 3m, 2.6b"
+                  type="text" placeholder="max"
                   value={statsMax}
                   onChange={e => setStatsMax(e.target.value)}
                   className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"

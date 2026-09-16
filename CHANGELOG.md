@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.124.0] - 2026-09-16
+
+### Fixed
+- **War payouts: five column explanations were rendering nowhere at all (#612).**
+  `SortHeader` never accepted a `title` prop, so "War wins excluding war mugs",
+  "Mugs that happened during war hits" and three more were passed in and
+  silently dropped — not hidden on mobile, *absent*. They now render as a ⓘ
+  beside the column name.
+
+### Changed
+- **Payouts and Members pages off native tooltips (#612).** Slice 4 — 45 sites.
+  - The RW payout sheet's participation cells carried their arithmetic
+    (`12 war hits × 2.5`) in a `title`; that is now readable on a tap.
+  - `TimeCell`'s banked-time breakdown came off CSS-only `group-hover`. Like the
+    loadout shield, the ⚑ still rendered on a phone — announcing banked time
+    with no way to account for it.
+  - ⚠️ Anything that sorts on click gets its ⓘ wrapped in a `stopPropagation`
+    span, so reading a column's meaning never re-sorts the sheet underneath the
+    reader.
+  - ⚠️ `TierBadge`'s override marker became a wrap: it renders inside the
+    button that opens the CPR modal, where a nested button is invalid markup.
+  - Member Overview's two stat-filter inputs lose their duplicate `title` hints
+    in favour of one ⓘ on the "Stats" label.
+  - Deleted: the visitor-mode disabled reasons whose buttons already read "Save
+    disabled (visitor)" on their face, and six icon-only `title`s that were
+    accessible names (now `aria-label`).
+
 ## [3.123.0] - 2026-09-16
 
 ### Changed
