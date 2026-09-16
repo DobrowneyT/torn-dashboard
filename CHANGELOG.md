@@ -18,6 +18,41 @@ surface it automatically.
 
 ---
 
+## [3.127.0] - 2026-09-16
+
+### Fixed
+- **Tooltip text ran outside its own box (#612 follow-up).** ⚠️ The panel paints
+  at fixed viewport coordinates but is still a **DOM descendant** of its
+  trigger, so it inherited from whatever it sat in. In the War Room that meant a
+  column header's `uppercase tracking-wide whitespace-nowrap`: the Fair Fight
+  explanation rendered in caps and **could not wrap**, so it overflowed the
+  rounded panel entirely. Table cells carry `whitespace-nowrap` too. The panel
+  now resets the typography it inherits — the same `text-left normal-case` the
+  old `group-hover` panel in PayoutManagement carried, for exactly this reason.
+- **Every tooltip was painted at the full 340px.** `PANEL_MAX` was being used as
+  a width rather than a cap, so a four-word tooltip was 340px of mostly empty
+  box, and the battle-stats breakdown went from a tidy ~150px table to a banner.
+  It is now a `max-width` over a shrink-to-fit panel, so each one is as wide as
+  its content needs and no wider. The right-edge clamp uses the **measured**
+  width, so a narrow panel no longer floats away from the cell it belongs to.
+
+### Changed
+- **Fewer, quieter tooltips in the War Room (#612 follow-up, MonChoon).**
+  - The member-name tooltip is **gone**: it repeated the text under the cursor,
+    on every row of a 100-row board.
+  - **Fair Fight** and **Revive %** are explained once in their column headers
+    and no longer per row. Both columns sit at the right-hand edge, where a
+    per-row panel had nowhere to open. The FF header absorbed what the cells
+    used to say, including what a dotted underline means — that mark stays on
+    the values, because "this one is an estimate" is the one thing a header
+    cannot say about an individual row.
+  - **Energy** and the three **cooldown** columns keep only what the header
+    cannot say: how stale the reading is, and whose key failed. The colour
+    legend was constant across every row.
+  - The revivable flags say **"Revivable"** / "Revivable by friends & faction
+    only" rather than a sentence. The glyph already implies a reviver; what
+    matters is the restriction.
+
 ## [3.126.0] - 2026-09-16
 
 ### Changed

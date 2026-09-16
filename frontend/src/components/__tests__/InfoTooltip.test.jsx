@@ -19,12 +19,42 @@ describe('tooltipPosition', () => {
     expect(pos.left).toBe(1200 - 340 - 8)
   })
 
+  it('⚠️ resets the typography it would otherwise inherit', () => {
+    // The panel is a DOM descendant of its trigger, so a War Room header's
+    // `uppercase tracking-wide whitespace-nowrap` reached it: the Fair Fight
+    // explanation rendered in caps and could not wrap, running out of its own
+    // rounded box. Nothing in the placement maths can save it from that.
+    const { container } = render(<InfoTooltip label="FF">Body</InfoTooltip>)
+    fireEvent.click(screen.getByRole('button', { name: 'FF' }))
+    const cls = screen.getByRole('tooltip').className
+    for (const reset of ['normal-case', 'whitespace-normal', 'tracking-normal', 'font-normal', 'not-italic']) {
+      expect(cls).toContain(reset)
+    }
+    expect(container).toBeTruthy()
+  })
+
   it('⚠️ narrows the panel rather than overflowing a phone', () => {
     // 320px cannot hold 340 plus margins. Off the right edge of a table that
     // already scrolls horizontally is somewhere a reader will not find it.
     const pos = tooltipPosition({ left: 10, top: 100, bottom: 120 }, { w: 320, h: 700 }, { w: 340, h: 90 })
-    expect(pos.width).toBe(320 - 8 * 2)
+    expect(pos.maxWidth).toBe(320 - 8 * 2)
     expect(pos.left).toBe(8)
+  })
+
+  it('⚠️ caps the width without imposing it, so short content stays narrow', () => {
+    // The panel used to be painted at PANEL_MAX every time, which turned the
+    // battle-stats breakdown from a tidy ~150px table into a banner of mostly
+    // empty box. maxWidth is a ceiling; the panel shrink-wraps under it.
+    const pos = tooltipPosition({ left: 40, top: 100, bottom: 120 }, { w: 1200, h: 800 }, { w: 150, h: 90 })
+    expect(pos.maxWidth).toBe(340)
+    expect(pos.width).toBe(150)
+  })
+
+  it('clamps a right-hand trigger by the MEASURED width, not the cap', () => {
+    // Pulling a 150px panel back as though it were 340 would leave it floating
+    // ~190px away from the cell it belongs to.
+    const pos = tooltipPosition({ left: 1150, top: 100, bottom: 120 }, { w: 1200, h: 800 }, { w: 150, h: 90 })
+    expect(pos.left).toBe(1200 - 150 - 8)
   })
 
   it('⚠️ flips above when there is no room below', () => {

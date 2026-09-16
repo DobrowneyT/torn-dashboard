@@ -84,7 +84,7 @@ export function memberFlags(member, { isFlying = false, stats = null } = {}) {
     flags.push({
       key: 'revive-anyone',
       glyph: '💉',
-      title: 'Revivable — a hired reviver can bring them up',
+      title: 'Revivable',
       tone: 'good',
     })
   } else if (audience === 'friends') {
@@ -93,7 +93,7 @@ export function memberFlags(member, { isFlying = false, stats = null } = {}) {
     flags.push({
       key: 'revive-friends',
       glyph: '💉',
-      title: 'Revivable by their friends & faction only — an outside reviver cannot',
+      title: 'Revivable by friends & faction only',
       tone: 'muted',
     })
   }
