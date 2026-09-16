@@ -49,6 +49,7 @@ import { JointPanel } from './OCJointPanel'
 import { solveForSelection } from '../utils/ocJointPipeline'
 import { computeChainEconomics, meanCpr } from '../utils/ocChainPipeline'
 import { buildChainIndex, chainFrom } from '../utils/ocChains'
+import InfoTooltip, { InfoDot, tipLines } from '../components/InfoTooltip'
 import { config } from '../config'
 import CrimePickerModal from '../components/oc/CrimePickerModal'
 import CrimeRankingTable from '../components/oc/CrimeRankingTable'
@@ -532,7 +533,6 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], joinGap =
             onClick={onRemove}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400"
             aria-label={`Remove ${scenario.name}`}
-            title="Remove from comparison"
           >
             <X className="w-4 h-4" />
           </button>
@@ -614,12 +614,12 @@ function ModelQuality({ scenario }) {
         </span>
       )}
       {problems.length > 0 && (
-        <span
-          className="text-gray-500 dark:text-gray-400 cursor-help border-b border-dashed border-gray-400"
-          title={problems.join('\n')}
+        <InfoTooltip
+          label={`${problems.length} diagram note${problems.length === 1 ? '' : 's'}`}
+          className="text-gray-500 dark:text-gray-400"
         >
-          {problems.length} diagram note{problems.length === 1 ? '' : 's'}
-        </span>
+          {tipLines(problems.join('\n'))}
+        </InfoTooltip>
       )}
     </div>
   )
@@ -641,11 +641,16 @@ function CrewPanel({ scenario, cprs, onChange, rosterCpr, sensitivity, measuring
           <button
             onClick={onMeasure}
             disabled={measuring}
-            title="Measure what each role is worth: how much it moves success, and how much it moves payout"
-            className="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 disabled:opacity-50 mr-1"
+            className="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-slate-600 disabled:opacity-50"
           >
             {measuring ? 'Measuring…' : 'What matters?'}
           </button>
+          {/* Its own tap target, not a wrap: the button is live, and one tap
+              cannot both explain it and press it. */}
+          <InfoDot label="What “What matters?” measures" className="mr-1">
+            Measures what each role is worth: how much it moves success, and how
+            much it moves payout.
+          </InfoDot>
           {[25, 50, 75, 95].map((v) => (
             <button
               key={v}
@@ -777,9 +782,9 @@ function RoleSensitivity({ row }) {
       ) : (
         /* ⚠️ Not "$0". We could not measure it — either the crime is unpriced
            or this role shifts probability onto endings we cannot value. */
-        <span className="text-gray-400" title="Payout effect could not be measured for this role">
-          payout effect unknown
-        </span>
+        <InfoTooltip label="payout effect unknown" className="text-gray-400">
+          Payout effect could not be measured for this role.
+        </InfoTooltip>
       )}
     </div>
   )
@@ -797,6 +802,19 @@ function RoleSensitivity({ row }) {
  * apart from it. A floor drawn from two runs and one drawn from six thousand
  * render identically, and the number is the only thing that separates them.
  */
+/**
+ * The reward breakdown as panel content (#612).
+ *
+ * ⚠️ `whitespace-pre-wrap`, not `tipLines`: rewardTooltip lays the drops out
+ * with indentation and blank-line separators, which is structure the author
+ * chose. Trimming each line to make paragraphs would throw it away.
+ */
+function RewardTip({ breakdown }) {
+  const text = rewardTooltip(breakdown)
+  if (!text) return null
+  return <div className="whitespace-pre-wrap font-mono text-[10px] leading-snug">{text}</div>
+}
+
 function rewardTooltip(b) {
   if (!b) return undefined
   const lines = []
@@ -1007,12 +1025,15 @@ export function ResultPanel({ scenario, result, calculating, error }) {
                           is left to say is that this row's chance is a sum, which
                           belongs on hover rather than back in the list. */}
                       {merged && (
-                        <span
-                          className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
-                          title={`The probability service reports this one diagram ending under ${merged.length} labels (${merged.join(', ')}). Their chances are added together here; the payout is identical for all of them because they share a node.`}
+                        <InfoTooltip
+                          label={`×${merged.length}`}
+                          className="text-gray-400 dark:text-gray-500 shrink-0"
                         >
-                          ×{merged.length}
-                        </span>
+                          The probability service reports this one diagram ending
+                          under {merged.length} labels ({merged.join(', ')}). Their
+                          chances are added together here; the payout is identical
+                          for all of them because they share a node.
+                        </InfoTooltip>
                       )}
                       {/* ⚠️ The two sources disagree about whether this outcome is a
                           success or a failure (#606), and neither is adopted. It
@@ -1021,49 +1042,52 @@ export function ResultPanel({ scenario, result, calculating, error }) {
                           gap — the other model has the ending, it just files it
                           on the other side. */}
                       {meta?.disputed_kind && (
-                        <span
-                          className="text-amber-600 dark:text-amber-400 cursor-help shrink-0"
-                          title={
-                            `Contested: the probability service counts this as a ${isGood ? 'success' : 'failure'}, `
-                            + `Crimes Hub draws it as a ${meta.disputed_kind === 'bad' ? 'failure' : 'success'}. `
-                            + 'Neither is adopted — the payout is $0 either way, so only the success chance is affected.'
-                          }
+                        <InfoTooltip
+                          label={`Crimes Hub: ${meta.disputed_kind === 'bad' ? 'failure' : 'success'}`}
+                          className="text-amber-600 dark:text-amber-400 shrink-0"
                         >
-                          Crimes Hub: {meta.disputed_kind === 'bad' ? 'failure' : 'success'}
-                        </span>
+                          Contested: the probability service counts this as a
+                          {isGood ? ' success' : ' failure'}, Crimes Hub draws it as a
+                          {meta.disputed_kind === 'bad' ? ' failure' : ' success'}.
+                          Neither is adopted — the payout is $0 either way, so only
+                          the success chance is affected.
+                        </InfoTooltip>
                       )}
                       {isGood && !meta?.disputed_kind && meta?.starved && (
-                        <span
-                          className="text-gray-400 dark:text-gray-500 cursor-help shrink-0"
-                          title={meta.problem || 'No diagram terminal for this ending — confirmed, treated as $0 (#473)'}
+                        <InfoTooltip
+                          label="no diagram match"
+                          className="text-gray-400 dark:text-gray-500 shrink-0"
                         >
-                          no diagram match
-                        </span>
+                          {tipLines(meta.problem) ?? 'No diagram terminal for this ending — confirmed, treated as $0 (#473).'}
+                        </InfoTooltip>
                       )}
                       {isGood && meta && !meta.resolved && !meta.starved && (
-                        <span
-                          className="text-amber-600 dark:text-amber-400 cursor-help shrink-0"
-                          title={meta.problem || 'This ending could not be matched to the diagram'}
+                        <InfoTooltip
+                          label="unmapped"
+                          className="text-amber-600 dark:text-amber-400 shrink-0"
                         >
-                          unmapped
-                        </span>
+                          {tipLines(meta.problem) ?? 'This ending could not be matched to the diagram.'}
+                        </InfoTooltip>
                       )}
                     </span>
                     <span className="flex items-center gap-3 whitespace-nowrap tabular-nums">
-                      <span className="text-gray-500 dark:text-gray-400"
-                        title={breakdown ? rewardTooltip(breakdown) : undefined}>
-                        {/* ⚠️ "unpriced" describes a gap in OUR measurement.
-                            A chain link is not that — it pays nothing because
-                            success spawns the next crime, which is what the
-                            crime IS (#585: 124/124 successful Stacking the Deck
-                            runs spawned a child). Saying "unpriced" sends
-                            somebody hunting a number that does not exist. */}
-                        {isGood && payout == null && chainTargetOf(meta)
+                      {/* ⚠️ "unpriced" describes a gap in OUR measurement.
+                          A chain link is not that — it pays nothing because
+                          success spawns the next crime, which is what the
+                          crime IS (#585: 124/124 successful Stacking the Deck
+                          runs spawned a child). Saying "unpriced" sends
+                          somebody hunting a number that does not exist. */}
+                      <InfoTooltip
+                        label={isGood && payout == null && chainTargetOf(meta)
                           ? <span className="text-indigo-600 dark:text-indigo-400">→ {chainTargetOf(meta)}</span>
                           : isGood && payout == null
                             ? 'unpriced'
                             : formatCurrency(payout ?? 0)}
-                      </span>
+                        decoration={breakdown ? undefined : 'no-underline'}
+                        className="text-gray-500 dark:text-gray-400"
+                      >
+                        {breakdown ? <RewardTip breakdown={breakdown} /> : null}
+                      </InfoTooltip>
                       {/* The observed spread, where there is one. On a cash
                           ending this is what the node actually paid across its
                           runs; on an items ending it is the floor and ceiling of
@@ -1071,16 +1095,17 @@ export function ResultPanel({ scenario, result, calculating, error }) {
                           single averaged number with no hint of its width — on
                           Blast from the Past that hid a $50M swing. */}
                       {breakdown?.range && (
-                        <span className="text-gray-400 dark:text-gray-500 hidden sm:inline"
-                          title={rewardTooltip(breakdown)}>
-                          {formatCurrency(breakdown.range.lo)}–{formatCurrency(breakdown.range.hi)}
-                        </span>
+                        <InfoTooltip
+                          label={`${formatCurrency(breakdown.range.lo)}–${formatCurrency(breakdown.range.hi)}`}
+                          className="text-gray-400 dark:text-gray-500 hidden sm:inline"
+                        >
+                          <RewardTip breakdown={breakdown} />
+                        </InfoTooltip>
                       )}
                       {isGood && payout != null && obs != null && obs < 30 && (
-                        <span className="text-amber-600 dark:text-amber-400"
-                          title={`Averaged from only ${obs} observed run${obs === 1 ? '' : 's'}`}>
-                          n={obs}
-                        </span>
+                        <InfoTooltip label={`n=${obs}`} className="text-amber-600 dark:text-amber-400">
+                          Averaged from only {obs} observed run{obs === 1 ? '' : 's'}.
+                        </InfoTooltip>
                       )}
                       {/* ⚠️ "in items", not "+items". Nothing is being ADDED: no
                           crime in the fleet pays both cash and items, so on the
@@ -1088,10 +1113,9 @@ export function ResultPanel({ scenario, result, calculating, error }) {
                           at current market rates. The old label read as a bonus
                           on top of a cash reward that does not exist. */}
                       {isGood && breakdown?.kind === 'items' && (
-                        <span className="text-gray-400 dark:text-gray-500 cursor-help"
-                          title={rewardTooltip(breakdown)}>
-                          in items
-                        </span>
+                        <InfoTooltip label="in items" className="text-gray-400 dark:text-gray-500">
+                          <RewardTip breakdown={breakdown} />
+                        </InfoTooltip>
                       )}
                       <span className="w-16 text-right">{(p * 100).toFixed(3)}%</span>
                     </span>

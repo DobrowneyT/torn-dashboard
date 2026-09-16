@@ -12,7 +12,7 @@
 // Every pure helper involved had tests. Not one of them mounted the component,
 // so nothing caught it. These do — the assertions matter less than the render.
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { ResultPanel } from '../OCSimulatorView'
 
 afterEach(cleanup)
@@ -165,5 +165,44 @@ describe('per person-day', () => {
     }
     render(<ResultPanel scenario={noCash} result={RESULT} />)
     expect(screen.queryByText(/per person-day/)).toBeNull()
+  })
+})
+
+// #612 — the endings list carried its whole reward story in `title` attributes:
+// the drop-by-drop breakdown, the observed range, the "n=" sample size, and the
+// reasons an ending is contested or unmapped. None of it existed on a phone.
+describe('ResultPanel — reward details are reachable (#612)', () => {
+  const ITEMS = {
+    name: 'Window of Opportunity',
+    parameter_count: 5,
+    endings: [{
+      ending_key: 'goodEnding1', kind: 'good', resolved: true, starved: false, alias_of: null,
+      money_avg: 0, item_value_avg: 98460178, item_value_min: 39384071, item_value_max: 206766374,
+      observations: 781, item_value_unmatched: ['Mystery Box'],
+      item_drops: [{ name: 'Priceless Painting', dropRate: 1, qty: { min: 1, avg: 1, max: 1 }, unitPrice: 12000000, contribution: 12000000 }],
+    }],
+  }
+
+  it('opens the drop-by-drop breakdown on a tap', () => {
+    render(<ResultPanel scenario={ITEMS} result={{ successChance: 0.8, failureChance: 0.2, goodEnding1: 0.8 }} />)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'in items' }))
+    const panel = screen.getByRole('tooltip')
+    expect(panel.textContent).toContain('Priceless Painting')
+    // ⚠️ The "could not price" line is the one that stops the total being read
+    // as an estimate rather than a floor — it must survive the move.
+    expect(panel.textContent).toContain('Mystery Box')
+  })
+
+  it('⚠️ keeps the small-sample warning readable rather than just amber', () => {
+    // "n=4" on its own says nothing. The colour was decoration; the count of
+    // runs behind it was the fact, and it lived only in a `title`.
+    const thin = {
+      ...ITEMS,
+      endings: [{ ...ITEMS.endings[0], observations: 4, item_drops: [] }],
+    }
+    render(<ResultPanel scenario={thin} result={{ successChance: 0.8, failureChance: 0.2, goodEnding1: 0.8 }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'n=4' }))
+    expect(screen.getByRole('tooltip').textContent).toMatch(/only 4 observed runs/i)
   })
 })
