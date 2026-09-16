@@ -28,6 +28,19 @@
 }
 
 @layer components {
+  /* #612 — InfoTooltip `wrap` mode.
+
+     ⚠️ A disabled control dispatches NO pointer events, so a wrapper around it
+     never sees the tap either. That makes a disabled-reason tooltip ("Set an
+     opponent faction ID first") unreachable on a touchscreen — the exact
+     failure the native `title` had. Handing the child's events to the wrapper
+     is what gives that explanation a tap target. The child is disabled, so
+     there is nothing to lose by making it inert. */
+  .tip-wrap > :disabled,
+  .tip-wrap > [aria-disabled="true"] {
+    pointer-events: none;
+  }
+
   .card {
     @apply bg-white border border-gray-200 rounded-lg shadow-sm p-4 sm:p-6 transition-colors duration-200;
   }
