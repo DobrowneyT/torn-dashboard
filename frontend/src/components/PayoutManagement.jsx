@@ -34,6 +34,7 @@ import OccupancyPanel from './OccupancyPanel'
 import { coverageVerdict, formatDelta } from '../utils/occupancyReport'
 import { fmtDbTime } from '../utils/time'
 import { X } from 'lucide-react'
+import InfoTooltip, { InfoDot } from './InfoTooltip'
 
 /**
  * Recompute payout totals + per-member payouts from the current unit values
@@ -1113,9 +1114,11 @@ export default function PayoutManagement() {
                       const isEditing = editingRewardPrice?.itemId === itemId
                       return (
                         <div key={itemId} className="grid grid-cols-4 gap-2 text-sm items-center">
-                          <div className="text-blue-800 dark:text-blue-200 truncate" title={data.name}>
-                            {data.name}
-                          </div>
+                          <InfoTooltip
+                            label={<span className="block truncate">{data.name}</span>}
+                            decoration="no-underline"
+                            className="block min-w-0 text-blue-800 dark:text-blue-200"
+                          >{data.name}</InfoTooltip>
                           <div className="text-right">
                             {isEditing ? (
                               <div className="flex items-center justify-end gap-1">
@@ -1131,14 +1134,14 @@ export default function PayoutManagement() {
                                 <button
                                   onClick={handleSaveRewardPrice}
                                   className="px-1 py-0 bg-green-600 text-white rounded text-xs hover:bg-green-700"
-                                  title="Save"
+                                  aria-label="Save price"
                                 >
                                   ✓
                                 </button>
                                 <button
                                   onClick={handleCancelRewardPrice}
                                   className="px-1 py-0 bg-gray-600 text-white rounded text-xs hover:bg-gray-700"
-                                  title="Cancel"
+                                  aria-label="Cancel"
                                 >
                                   ✕
                                 </button>
@@ -1149,12 +1152,12 @@ export default function PayoutManagement() {
                                   {formatCurrency(unitValue)}
                                 </span>
                                 {isManual && (
-                                  <span className="text-amber-600" title="Manually adjusted">*</span>
+                                  <InfoTooltip label="*" decoration="no-underline" className="text-amber-600">Manually adjusted</InfoTooltip>
                                 )}
                                 <button
                                   onClick={() => handleEditRewardPrice(itemId, unitValue)}
                                   className="px-1 py-0 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 ml-1"
-                                  title="Edit price"
+                                  aria-label="Edit price"
                                 >
                                   ✎
                                 </button>
@@ -1162,7 +1165,7 @@ export default function PayoutManagement() {
                                   <button
                                     onClick={() => handleResetRewardPrice(itemId)}
                                     className="px-1 py-0 bg-orange-600 text-white rounded text-xs hover:bg-orange-700"
-                                    title="Reset to calculated"
+                                    aria-label="Reset to market price"
                                   >
                                     ↻
                                   </button>
@@ -1211,9 +1214,11 @@ export default function PayoutManagement() {
                       const unitValue = data.quantity > 0 ? Math.floor(data.totalValue / data.quantity) : 0
                       return (
                         <div key={itemId} className="grid grid-cols-4 gap-2 text-sm">
-                          <div className="text-red-800 dark:text-red-200 truncate" title={data.name}>
-                            {data.name}
-                          </div>
+                          <InfoTooltip
+                            label={<span className="block truncate">{data.name}</span>}
+                            decoration="no-underline"
+                            className="block min-w-0 text-red-800 dark:text-red-200"
+                          >{data.name}</InfoTooltip>
                           <div className="text-right text-red-700 dark:text-red-300">
                             {formatCurrency(unitValue)}
                           </div>
@@ -1255,7 +1260,6 @@ export default function PayoutManagement() {
               <button
                 onClick={handleSaveWeek}
                 disabled={isSaving || payoutResults.members.length === 0 || isVisitor}
-                title={isVisitor ? 'Visitor mode is read-only — saving is disabled.' : undefined}
                 className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSaving ? 'Saving...' : (isVisitor ? 'Save disabled (visitor)' : 'Save to Database')}
@@ -1303,20 +1307,31 @@ export default function PayoutManagement() {
                     </th>
                     <th
                       className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600"
-                      title={usingOccupancy ? 'Sourced from the occupancy poller (#389) — this window was fully watched.' : undefined}
                       onClick={() => handleSort('timeSpent')}
                     >
                       Time <SortIcon columnKey="timeSpent" />
+                      {usingOccupancy && (
+                        <span onClick={(e) => e.stopPropagation()} className="inline-flex ml-1">
+                          <InfoDot label="About the Time column" size={11}>
+                            Sourced from the occupancy poller (#389) — this window was
+                            fully watched.
+                          </InfoDot>
+                        </span>
+                      )}
                     </th>
                     {showObserved && (
                     <th
                       className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600 whitespace-nowrap"
-                      title={usingOccupancy
-                        ? 'What the occupancy poller watched (#389) — same as the Time column, this window was fully watched.'
-                        : 'What the occupancy poller actually watched (#389). This window had a coverage gap, so payouts still use the legacy calculation.'}
                       onClick={() => handleSort('observedSeconds')}
                     >
                       Observed <SortIcon columnKey="observedSeconds" />
+                      <span onClick={(e) => e.stopPropagation()} className="inline-flex ml-1">
+                        <InfoDot label="About the Observed column" size={11}>
+                          {usingOccupancy
+                            ? 'What the occupancy poller watched (#389) — same as the Time column, this window was fully watched.'
+                            : 'What the occupancy poller actually watched (#389). This window had a coverage gap, so payouts still use the legacy calculation.'}
+                        </InfoDot>
+                      </span>
                     </th>
                     )}
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('timePercent')}>
@@ -1374,14 +1389,14 @@ export default function PayoutManagement() {
                               <button
                                 onClick={() => handleSavePenalty(member.userId)}
                                 className="px-1 py-0 bg-green-600 text-white rounded text-xs hover:bg-green-700"
-                                title="Save"
+                                aria-label="Save penalty"
                               >
                                 ✓
                               </button>
                               <button
                                 onClick={handleCancelPenalty}
                                 className="px-1 py-0 bg-gray-600 text-white rounded text-xs hover:bg-gray-700"
-                                title="Cancel"
+                                aria-label="Cancel"
                               >
                                 ✕
                               </button>
@@ -1392,12 +1407,12 @@ export default function PayoutManagement() {
                                 {member.sitOutPenalty.toFixed(0)}
                               </span>
                               {member.penaltyOverridden && (
-                                <span className="text-blue-600" title="Override applied">*</span>
+                                <InfoTooltip label="*" decoration="no-underline" className="text-blue-600">Override applied</InfoTooltip>
                               )}
                               <button
                                 onClick={() => handleEditPenalty(member.userId, member.sitOutPenalty)}
                                 className="px-1 py-0 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 ml-1"
-                                title="Edit penalty"
+                                aria-label="Edit penalty"
                               >
                                 ✎
                               </button>
@@ -1405,7 +1420,7 @@ export default function PayoutManagement() {
                                 <button
                                   onClick={() => handleResetPenalty(member.userId)}
                                   className="px-1 py-0 bg-orange-600 text-white rounded text-xs hover:bg-orange-700"
-                                  title="Reset to calculated"
+                                  aria-label="Reset penalty to calculated"
                                 >
                                   ↻
                                 </button>
@@ -1514,9 +1529,9 @@ function TierBadge({ tier }) {
   )
 }
 
-// Time-spent cell with a hover breakdown (#168). When a member banked time in
-// crimes they left before execution, flag it red and list those stints on hover
-// so leadership can see a legitimate reassignment vs join-and-bail farming.
+// Time-spent cell with a breakdown behind it (#168). When a member banked time
+// in crimes they left before execution, flag it red and list those stints so
+// leadership can see a legitimate reassignment vs join-and-bail farming.
 //
 // #389 part 3: once occupancy drives the payout, `bankedSeconds` is a stale
 // legacy figure — occupancy already reflects true continuous presence through
@@ -1525,15 +1540,22 @@ function TimeCell({ member, usingOccupancy }) {
   const bankedCrimes = member.bankedCrimes || []
   const bankedSeconds = member.bankedSeconds || 0
   const hasBanked = !usingOccupancy && bankedSeconds > 0
+  if (!hasBanked) {
+    return <td className="py-2 px-2 text-xs">{formatTimeHours(member.timeSpent)}</td>
+  }
+  // ⚠️ Was a `group-hover` panel, so the breakdown behind the ⚑ did not exist on
+  // a phone — and the ⚑ still rendered, announcing banked time nobody could
+  // account for (#612).
   return (
-    <td className="py-2 px-2 text-xs relative group">
-      <span className={hasBanked ? 'cursor-help border-b border-dashed border-red-400' : ''}>
-        {formatTimeHours(member.timeSpent)}
-        {hasBanked && <span className="ml-1 text-red-500" title="includes banked time from crimes left early">⚑</span>}
-      </span>
-      {hasBanked && (
-        <div className="hidden group-hover:block absolute z-30 left-0 top-full mt-1 w-72 p-2 rounded bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 shadow-xl text-left normal-case">
-          <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Time breakdown</div>
+    <td className="py-2 px-2 text-xs">
+      <InfoTooltip
+        label={<>{formatTimeHours(member.timeSpent)}<span className="ml-1 text-red-500">⚑</span></>}
+        decoration="underline decoration-dashed decoration-red-400 underline-offset-2"
+      >
+        <div className="w-64">
+          <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">
+            Time breakdown — includes banked time from crimes left early
+          </div>
           <div className="flex justify-between text-[11px] text-gray-600 dark:text-gray-300">
             <span>Completed / current</span>
             <span>{formatTimeHours(Math.max(0, member.timeSpent - bankedSeconds))}</span>
@@ -1547,7 +1569,7 @@ function TimeCell({ member, usingOccupancy }) {
             ))}
           </div>
         </div>
-      )}
+      </InfoTooltip>
     </td>
   )
 }
@@ -1564,7 +1586,11 @@ function TimeCell({ member, usingOccupancy }) {
 function ObservedCell({ member, usingOccupancy }) {
   const observed = member.observedSeconds
   if (observed === undefined || observed === null) {
-    return <td className="py-2 px-2 text-xs text-gray-400" title="No occupancy record for this member">—</td>
+    return (
+      <td className="py-2 px-2 text-xs text-gray-400">
+        <InfoTooltip label="—">No occupancy record for this member.</InfoTooltip>
+      </td>
+    )
   }
   const compareAgainst = usingOccupancy ? (member.legacyTimeSpent ?? 0) : (member.timeSpent ?? 0)
   const delta = observed - compareAgainst
@@ -1575,14 +1601,14 @@ function ObservedCell({ member, usingOccupancy }) {
     <td className="py-2 px-2 text-xs whitespace-nowrap">
       <span className="tabular-nums">{formatTimeHours(observed)}</span>
       {Math.abs(delta) >= 30 * 60 && (
-        <span
+        <InfoTooltip
+          label={formatDelta(delta)}
           className={`ml-1 tabular-nums ${overInferred ? 'text-red-500' : 'text-gray-400'}`}
-          title={overInferred
-            ? 'The legacy crime_slots calculation credits more time than the poller ever saw'
-            : 'The poller saw less — likely it was not running for part of this stint'}
         >
-          {formatDelta(delta)}
-        </span>
+          {overInferred
+            ? 'The legacy crime_slots calculation credits more time than the poller ever saw.'
+            : 'The poller saw less — likely it was not running for part of this stint.'}
+        </InfoTooltip>
       )}
     </td>
   )

@@ -15,6 +15,7 @@ import { Clock, LoaderCircle } from 'lucide-react'
 import { apiGet, apiPut } from '../../utils/apiClient'
 import { eventWindowRows, coverageByHour, windowCoverage } from '../../utils/eventWindows'
 import { fmtAgo } from '../../utils/time'
+import InfoTooltip from '../InfoTooltip'
 
 export default function EventWindowPanel({ windows, onChanged }) {
   const [me, setMe] = useState(null)
@@ -113,14 +114,15 @@ export default function EventWindowPanel({ windows, onChanged }) {
         <>
           <div className="flex flex-wrap gap-1.5">
             {buckets.map((b) => (
-              <div
+              <InfoTooltip
                 key={b.hour}
+                decoration="no-underline"
                 className="text-xs rounded px-2 py-1 bg-gray-100 dark:bg-slate-700"
-                title={b.members.map((m) => m.memberName).join(', ')}
-              >
-                <span className="font-medium tabular-nums">{b.label}</span>
-                <span className="text-gray-500 dark:text-gray-400"> · {b.members.length}</span>
-              </div>
+                label={<>
+                  <span className="font-medium tabular-nums">{b.label}</span>
+                  <span className="text-gray-500 dark:text-gray-400"> · {b.members.length}</span>
+                </>}
+              >{b.members.map((m) => m.memberName).join(', ')}</InfoTooltip>
             ))}
           </div>
 
@@ -134,7 +136,7 @@ export default function EventWindowPanel({ windows, onChanged }) {
                       {/* A stored string we could not read shows a dash, not
                           the raw text — passing it through would present junk
                           as a time. */}
-                      {r.label ?? <span className="text-gray-400" title={`unreadable value: ${r.raw}`}>—</span>}
+                      {r.label ?? <InfoTooltip label="—" className="text-gray-400">Unreadable value: {r.raw}</InfoTooltip>}
                     </td>
                   </tr>
                 ))}

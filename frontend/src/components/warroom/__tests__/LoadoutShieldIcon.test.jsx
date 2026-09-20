@@ -5,7 +5,7 @@
 // so it mounts directly rather than needing the desktop War Room's own
 // auth/websocket data layer.
 import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import LoadoutShieldIcon from '../LoadoutShieldIcon'
 
 afterEach(cleanup)
@@ -21,6 +21,17 @@ describe('LoadoutShieldIcon', () => {
     expect(container.innerHTML).toBe('')
   })
 
+  // ⚠️ The panel is no longer in the DOM until it is opened (#612). It used to
+  // be rendered always and hidden with `group-hover`, which is precisely why it
+  // did not exist on a phone: no hover, no panel, and a shield on screen
+  // advertising gear nobody could read.
+  // The band cases render twice without cleanup in between, so open the most
+  // recent shield rather than assuming there is only one.
+  const openPanel = () => {
+    const shields = screen.getAllByRole('button', { name: 'Observed gear' })
+    fireEvent.click(shields[shields.length - 1])
+  }
+
   it('shows the shield and a tooltip with every captured slot, who saw it, and its age', () => {
     render(
       <LoadoutShieldIcon
@@ -34,6 +45,8 @@ describe('LoadoutShieldIcon', () => {
         }}
       />
     )
+    expect(screen.queryByText('AK-47')).toBeNull()
+    openPanel()
     expect(screen.getByText('AK-47')).toBeTruthy()
     expect(screen.getByText('Combat Vest')).toBeTruthy()
     expect(screen.getByText(/Observed .* by Scout/)).toBeTruthy()
@@ -58,16 +71,19 @@ describe('LoadoutShieldIcon', () => {
   it('is green under 2h — act on it', () => {
     expect(shieldFor(5)).toContain('text-emerald-600')
     expect(shieldFor(119)).toContain('text-emerald-600')
+    openPanel()
     expect(screen.queryByText(/over 2h old/)).toBeNull()
   })
 
   it('is amber between 2h and 24h — probably still right', () => {
     expect(shieldFor(121)).toContain('text-amber-600')
+    openPanel()
     expect(screen.getByText(/over 2h old/)).toBeTruthy()
   })
 
   it('is grey past 24h — a hint, not a fact', () => {
     expect(shieldFor(25 * 60)).toContain('text-gray-400')
+    openPanel()
     expect(screen.getByText(/over a day old/)).toBeTruthy()
   })
 

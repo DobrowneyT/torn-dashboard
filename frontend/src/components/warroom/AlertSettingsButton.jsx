@@ -103,7 +103,7 @@ export default function AlertSettingsButton({ prefs, setPrefs, open: openProp, o
   return (
     <div className="relative inline-flex" ref={ref}>
       <button type="button" onClick={() => setOpen(o => !o)}
-        title="Personal alerts — dibs hospital-exit reminder and chain-watch"
+        aria-label="Personal alerts — dibs hospital-exit reminder and chain-watch"
         className={`p-2 rounded-lg border transition-colors ${
           anyOn
             ? 'border-blue-400 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20'

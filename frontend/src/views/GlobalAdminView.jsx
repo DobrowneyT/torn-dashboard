@@ -1,12 +1,14 @@
 // Global Admin (slice #74): cross-faction oversight surface — scraper job
 // control (enable/disable, run now), run history, and key-pool health.
 // Admin-only (server-enforced); API mode only.
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Fragment, useEffect, useState, useCallback, useMemo } from 'react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { fmtDbTime } from '../utils/time'
 import { keyPoolStatus, sortKeyPoolRows } from '../utils/keyPoolTable'
 import { scraperJobSummary } from '../utils/scraperJobInfo'
 import InfoTooltip from '../components/InfoTooltip'
+import CronEditor from '../components/CronEditor'
+import { describeCron, minuteLoad } from '../utils/cronSentence'
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react'
 
 function Card({ title, action, children }) {
@@ -34,38 +36,106 @@ const SCHEDULE_SOURCE = {
   default: { label: 'built-in', className: 'bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-gray-400' },
 }
 
-function ScheduleCell({ job, onSave, disabled }) {
-  const override = job.cron_schedule ?? ''
-  const [value, setValue] = useState(override)
-  const dirty = value !== override
+/**
+ * The cadence, at rest (#756).
+ *
+ * ⚠️ A reading surface, not a control. This was an always-live text input on
+ * every one of 19 rows, for a value changed maybe twice a year — and it put
+ * raw six-field cron on screen, where `*​/5 * * * *` (five minutes) and
+ * `*​/5 * * * * *` (five SECONDS) are near enough identical to type by mistake.
+ * Dropping the input chrome makes the row SHORTER than it was, so the editor
+ * that opens underneath is not paid for out of the resting state.
+ */
+function ScheduleCell({ job, expanded, onToggle, disabled }) {
+  const effective = job.effective_schedule ?? ''
   const source = SCHEDULE_SOURCE[job.schedule_source] ?? SCHEDULE_SOURCE.default
 
-  // ⚠️ Clearing the box and saving sends an explicit null, which is "follow the
-  // fleet default" — a real instruction, distinct from leaving the field alone.
-  // Without it there is no way back from an override short of a database edit.
-  const save = () => onSave(value.trim() === '' ? null : value)
-
   return (
-    <span className="inline-flex flex-wrap items-center gap-1">
-      <input value={value} onChange={(e) => setValue(e.target.value)} disabled={disabled}
-        spellCheck={false} placeholder={job.effective_schedule ?? ''}
-        title={override ? 'This faction overrides the default' : `Following the ${source.label}: ${job.effective_schedule ?? ''}`}
-        className="font-mono text-xs px-2 py-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-slate-500 w-36" />
-      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${source.className}`}>
-        {source.label}
-      </span>
-      {dirty && (
-        <button onClick={save} disabled={disabled}
-          className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs">
-          {value.trim() === '' ? 'Use default' : 'Save'}
-        </button>
-      )}
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <InfoTooltip label={describeCron(effective)} className="text-gray-900 dark:text-gray-100">
+        <div className="font-mono">{effective}</div>
+        <div className="mt-1.5">Following the {source.label}.</div>
+      </InfoTooltip>
+      <InfoTooltip
+        label={source.label}
+        decoration="no-underline"
+        className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${source.className}`}
+      >
+        {job.cron_schedule
+          ? 'This faction overrides the default.'
+          : `Following the ${source.label}: ${effective}`}
+      </InfoTooltip>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={disabled}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Close' : 'Edit'} schedule for ${job.job_name}`}
+        className={`px-1.5 py-0.5 rounded text-xs disabled:opacity-50 ${
+          expanded
+            ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30'
+            : 'text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30'
+        }`}
+      >
+        ✎
+      </button>
       {job.rejected_schedule != null && (
-        <span className="text-[10px] text-red-600 dark:text-red-400" title={`Ignored: ${job.rejected_schedule}`}>
+        <InfoTooltip className="text-[10px] text-red-600 dark:text-red-400" label={<>
           invalid — using {job.effective_schedule}
-        </span>
+        </>}>
+          Ignored: {job.rejected_schedule}
+        </InfoTooltip>
       )}
     </span>
+  )
+}
+
+/**
+ * How crowded each minute of the hour already is (#756).
+ *
+ * The thing an admin is actually choosing against when they pick an offset:
+ * `revives-sync` sits on :05/:35 to stay clear of the hourly jobs, and
+ * `crime-occupancy` uses the seconds field for the same reason. It sits beside
+ * the table rather than inside a modal, because it is only useful while the
+ * schedule being edited is on screen next to it.
+ */
+function MinuteLoadStrip({ jobs }) {
+  const load = useMemo(
+    () => minuteLoad(jobs.map((j) => j.effective_schedule).filter(Boolean)),
+    [jobs],
+  )
+  if (load.busiest === 0) return null
+  const pad2 = (n) => String(n).padStart(2, '0')
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-end gap-px h-10" role="img"
+        aria-label={`Job count per minute of the hour; busiest is :${pad2(load.busiestMinute)} with ${load.busiest}`}>
+        {load.counts.map((c, m) => (
+          <span
+            key={m}
+            title={`:${pad2(m)} — ${c} job${c === 1 ? '' : 's'}`}
+            style={{ height: `${Math.max(8, Math.round((c / load.busiest) * 100))}%` }}
+            className={`flex-1 rounded-t-sm ${
+              c === 0 ? 'bg-gray-200 dark:bg-slate-700'
+                : c >= load.busiest ? 'bg-red-500'
+                  : 'bg-blue-500'
+            }`}
+          />
+        ))}
+      </div>
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        Busiest minute is <span className="font-mono">:{pad2(load.busiestMinute)}</span>{' '}
+        with {load.busiest} {load.busiest === 1 ? 'job' : 'jobs'} — pick a quiet one
+        when you add an offset.
+        {load.everyMinute > 0 && (
+          <>
+            {' '}{load.everyMinute} {load.everyMinute === 1 ? 'job runs' : 'jobs run'} every
+            minute and {load.everyMinute === 1 ? 'is' : 'are'} counted separately.
+          </>
+        )}
+      </p>
+    </div>
   )
 }
 
@@ -140,6 +210,7 @@ export default function GlobalAdminView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [busyJob, setBusyJob] = useState(null)
+  const [editingJob, setEditingJob] = useState(null)
   const [notice, setNotice] = useState(null)
   // Key Pool Health sort (all columns). Default: missing members surfaced first.
   const [keySort, setKeySort] = useState({ key: 'status', dir: 'desc' })
@@ -198,6 +269,7 @@ export default function GlobalAdminView() {
           ? `${job.job_name} now follows the default — applies on the API's next restart.`
           : `${job.job_name} cadence saved — applies on the API's next restart.`,
       })
+      setEditingJob(null)
       await load()
     } catch (err) {
       setNotice({ kind: 'err', msg: err.payload?.error || err.message })
@@ -271,7 +343,7 @@ export default function GlobalAdminView() {
   }
 
   const refreshBtn = (
-    <button onClick={load} title="Refresh"
+    <button onClick={load} aria-label="Refresh"
       className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
       <RefreshCw className="w-4 h-4" />
     </button>
@@ -302,7 +374,8 @@ export default function GlobalAdminView() {
             </thead>
             <tbody>
               {jobs.map((job) => (
-                <tr key={job.job_name} className="border-b border-gray-100 dark:border-slate-700/50">
+                <Fragment key={job.job_name}>
+                <tr className={`border-gray-100 dark:border-slate-700/50 ${editingJob === job.job_name ? '' : 'border-b'}`}>
                   <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">
                     {/* Was a native `title`, which mobile browsers show on
                         neither tap nor long press — so on a phone the whole
@@ -313,8 +386,12 @@ export default function GlobalAdminView() {
                     </InfoTooltip>
                   </td>
                   <td className="py-2 pr-4">
-                    <ScheduleCell job={job} disabled={busyJob !== null}
-                      onSave={(v) => saveSchedule(job, v)} />
+                    <ScheduleCell
+                      job={job}
+                      disabled={busyJob !== null}
+                      expanded={editingJob === job.job_name}
+                      onToggle={() => setEditingJob((cur) => (cur === job.job_name ? null : job.job_name))}
+                    />
                   </td>
                   <td className="py-2 pr-4">
                     <button onClick={() => toggleJob(job)} disabled={busyJob === job.job_name}
@@ -332,6 +409,23 @@ export default function GlobalAdminView() {
                     </button>
                   </td>
                 </tr>
+                {editingJob === job.job_name && (
+                  <tr className="border-b border-gray-100 dark:border-slate-700/50">
+                    <td colSpan="4" className="pb-3 pr-4">
+                      <CronEditor
+                        value={job.effective_schedule ?? ''}
+                        /* Only offer the revert when there IS an override to
+                           revert — otherwise the button would write null over
+                           null and read as a no-op that did something. */
+                        defaultValue={job.cron_schedule != null ? job.effective_schedule : undefined}
+                        busy={busyJob !== null}
+                        onSave={(v) => saveSchedule(job, v)}
+                        onCancel={() => setEditingJob(null)}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
               {jobs.length === 0 && (
                 <tr><td colSpan="4" className="py-3 text-gray-500 dark:text-gray-400">
@@ -341,6 +435,7 @@ export default function GlobalAdminView() {
             </tbody>
           </table>
         </div>
+        {jobs.length > 0 && <MinuteLoadStrip jobs={jobs} />}
       </Card>
 
       <Card title="Recent Runs">
@@ -362,7 +457,11 @@ export default function GlobalAdminView() {
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDbTime(run.started_at)}</td>
                   <td className="py-2 pr-4"><StatusBadge status={run.status} /></td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{run.rows_written}</td>
-                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md truncate" title={run.error || ''}>{run.error || ''}</td>
+                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md">
+                    {run.error
+                      ? <InfoTooltip label={<span className="block truncate">{run.error}</span>} decoration="no-underline" className="block min-w-0">{run.error}</InfoTooltip>
+                      : ''}
+                  </td>
                 </tr>
               ))}
               {runs.length === 0 && (
@@ -422,7 +521,11 @@ export default function GlobalAdminView() {
                     <StatusBadge status={keyPoolStatus(k)} />
                   </td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{k.last_claimed_at ? fmtDbTime(k.last_claimed_at) : '—'}</td>
-                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md truncate" title={k.last_error || ''}>{k.last_error || ''}</td>
+                  <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md">
+                    {k.last_error
+                      ? <InfoTooltip label={<span className="block truncate">{k.last_error}</span>} decoration="no-underline" className="block min-w-0">{k.last_error}</InfoTooltip>
+                      : ''}
+                  </td>
                 </tr>
               ))}
               {keys.length === 0 && (

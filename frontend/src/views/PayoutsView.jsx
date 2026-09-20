@@ -231,8 +231,7 @@ export default function PayoutsView({ isLeadership }) {
             <button
               onClick={() => setShowInfo(true)}
               className="p-1 text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
-              title="How OC payouts are calculated"
-              aria-label="Payout info"
+              aria-label="How OC payouts are calculated"
             >
               <Info className="w-5 h-5" />
             </button>
@@ -533,7 +532,7 @@ function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMembe
               <button
                 onClick={() => onShowCrimeStats(weekData)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
-                title="View crime-by-crime statistics for this week"
+                aria-label="View crime-by-crime statistics for this week"
               >
                 <BarChart3 className="w-4 h-4" />
                 Crime Statistics

@@ -8,7 +8,7 @@
 // the pure `splitFarmAbroad`/`isAbroadTarget` tests in
 // warRoomFarmSort.test.js, which both war rooms share).
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { ViewStateProvider } from '../../contexts/ViewStateContext'
 import { markTourSeen } from '../../utils/warRoomTour'
 import MobileWarRoomView from '../MobileWarRoomView'
@@ -86,5 +86,42 @@ describe('MobileWarRoomView — Farm mode Abroad section (#561)', () => {
     for (const m of MEMBERS) {
       expect(screen.getByRole('link', { name: m.name })).toBeTruthy()
     }
+  })
+})
+
+// #612 — the mobile board is exactly where a native `title` was worth nothing:
+// mobile browsers show one on neither tap nor long press, so every explanation
+// on this screen was unreachable on the only device it renders for.
+describe('MobileWarRoomView — explanations are reachable by tap (#612)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    markTourSeen('mobile')
+  })
+  afterEach(() => {
+    cleanup()
+    localStorage.clear()
+  })
+
+  it('⚠️ makes a disabled filter say WHY it is disabled, on a tap', () => {
+    // The 3x FF chip is off because the viewer has no battle stats of their
+    // own. That reason lived in a `title`, on the one screen where a `title`
+    // never appears — so the chip just looked broken.
+    seedViewState({ statusFilter: [], sortBy: 'timer', sortDir: 'asc' })
+    renderMobile()
+    const chip = screen.getByRole('button', { name: '3x FF' })
+    expect(chip.disabled).toBe(true)
+    fireEvent.pointerDown(chip)
+    expect(screen.getByRole('tooltip').textContent).toMatch(/no battle stats on record for you/i)
+  })
+
+  it('names each flag pill for a screen reader and opens its label on a tap', () => {
+    seedViewState({ statusFilter: [], sortBy: 'timer', sortDir: 'asc' })
+    renderMobile()
+    // TravelerMember is flying, which renders the flight pill on its card.
+    // "Flying" is also a status filter, so take the pill, not the chip.
+    const pills = screen.getAllByRole('button', { name: 'Flying' })
+    const pill = pills.find((el) => el.querySelector('svg')) ?? pills[0]
+    fireEvent.click(pill)
+    expect(screen.getByRole('tooltip').textContent).toContain('Flying')
   })
 })

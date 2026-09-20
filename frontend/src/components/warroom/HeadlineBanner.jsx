@@ -82,7 +82,7 @@ function Composer({ onSet, busy }) {
   return (
     <div className="relative inline-flex" ref={ref}>
       <button type="button" onClick={() => setOpen(o => !o)} disabled={busy}
-        title="Set a headline for the whole War Room"
+        aria-label="Set a headline for the whole War Room"
         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 disabled:opacity-50">
         <Megaphone className="w-4 h-4" /> Headline
       </button>
@@ -101,7 +101,7 @@ function Composer({ onSet, busy }) {
                 className="px-2 py-1 text-sm border border-gray-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-gray-900 dark:text-white" />
               <button type="button" disabled={!pushTime}
                 onClick={() => { const t = pushHeadlineText(pushTime); if (t) send(t, 'go') }}
-                title="Post a live countdown to this time for the whole War Room"
+                aria-label="Post a live countdown to this time for the whole War Room"
                 className={`text-sm px-3 py-1.5 rounded ${HEADLINE_TONE_STYLES.go} disabled:opacity-40`}>
                 Push at…
               </button>
@@ -181,7 +181,7 @@ export default function HeadlineBanner({ config, canManage, nowMs = Date.now(), 
               <span className="text-xs opacity-80 hidden sm:inline">{fmtAgo(config.headline_set_at, nowMs)}</span>
             )}
             {canManage && (
-              <button type="button" onClick={clear} disabled={busy} title="Clear headline"
+              <button type="button" onClick={clear} disabled={busy} aria-label="Clear headline"
                 className="p-1 rounded hover:bg-black/20">
                 <X className="w-4 h-4" />
               </button>

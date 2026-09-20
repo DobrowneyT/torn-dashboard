@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import InfoTooltip, { tooltipPosition } from '../InfoTooltip'
+import InfoTooltip, { InfoDot, tooltipPosition } from '../InfoTooltip'
 
 // The placement maths is the half worth pinning hardest: it is what makes the
 // panel readable on a 320px phone and what stops a row near the foot of a long
@@ -19,12 +19,42 @@ describe('tooltipPosition', () => {
     expect(pos.left).toBe(1200 - 340 - 8)
   })
 
+  it('⚠️ resets the typography it would otherwise inherit', () => {
+    // The panel is a DOM descendant of its trigger, so a War Room header's
+    // `uppercase tracking-wide whitespace-nowrap` reached it: the Fair Fight
+    // explanation rendered in caps and could not wrap, running out of its own
+    // rounded box. Nothing in the placement maths can save it from that.
+    const { container } = render(<InfoTooltip label="FF">Body</InfoTooltip>)
+    fireEvent.click(screen.getByRole('button', { name: 'FF' }))
+    const cls = screen.getByRole('tooltip').className
+    for (const reset of ['normal-case', 'whitespace-normal', 'tracking-normal', 'font-normal', 'not-italic']) {
+      expect(cls).toContain(reset)
+    }
+    expect(container).toBeTruthy()
+  })
+
   it('⚠️ narrows the panel rather than overflowing a phone', () => {
     // 320px cannot hold 340 plus margins. Off the right edge of a table that
     // already scrolls horizontally is somewhere a reader will not find it.
     const pos = tooltipPosition({ left: 10, top: 100, bottom: 120 }, { w: 320, h: 700 }, { w: 340, h: 90 })
-    expect(pos.width).toBe(320 - 8 * 2)
+    expect(pos.maxWidth).toBe(320 - 8 * 2)
     expect(pos.left).toBe(8)
+  })
+
+  it('⚠️ caps the width without imposing it, so short content stays narrow', () => {
+    // The panel used to be painted at PANEL_MAX every time, which turned the
+    // battle-stats breakdown from a tidy ~150px table into a banner of mostly
+    // empty box. maxWidth is a ceiling; the panel shrink-wraps under it.
+    const pos = tooltipPosition({ left: 40, top: 100, bottom: 120 }, { w: 1200, h: 800 }, { w: 150, h: 90 })
+    expect(pos.maxWidth).toBe(340)
+    expect(pos.width).toBe(150)
+  })
+
+  it('clamps a right-hand trigger by the MEASURED width, not the cap', () => {
+    // Pulling a 150px panel back as though it were 340 would leave it floating
+    // ~190px away from the cell it belongs to.
+    const pos = tooltipPosition({ left: 1150, top: 100, bottom: 120 }, { w: 1200, h: 800 }, { w: 150, h: 90 })
+    expect(pos.left).toBe(1200 - 150 - 8)
   })
 
   it('⚠️ flips above when there is no room below', () => {
@@ -103,5 +133,93 @@ describe('InfoTooltip', () => {
     expect(trigger.getAttribute('aria-describedby')).toBeNull()
     fireEvent.click(trigger)
     expect(trigger.getAttribute('aria-describedby')).toBe(screen.getByRole('tooltip').id)
+  })
+})
+
+// #612 — the three trigger shapes. The sweep off native `title` runs into
+// controls a button trigger cannot legally or safely wrap, and getting that
+// wrong is silent: invalid nesting still renders, and a stolen tap just looks
+// like a button that does not work.
+describe('InfoTooltip trigger shapes', () => {
+  it('lets a caller replace the dotted affordance rather than fight it', () => {
+    // ⚠️ BattleStatsCell marks an EXACT reading with a solid emerald underline
+    // and an estimate with the dotted one — the distinction the component
+    // exists to protect. Passing `underline decoration-solid` through
+    // className would put two text-decoration utilities of equal specificity
+    // in the same class list, and which one wins is decided by Tailwind's
+    // generated order, not by the caller.
+    const { container } = render(
+      <InfoTooltip label="2.4b" decoration="underline decoration-solid decoration-emerald-500/70">
+        Body
+      </InfoTooltip>,
+    )
+    const cls = container.querySelector('button').className
+    expect(cls).toContain('decoration-solid')
+    expect(cls).not.toContain('decoration-dotted')
+  })
+
+  it('wrap mode renders a span, not a button inside a button', () => {
+    const { container } = render(
+      <InfoTooltip wrap label={<button type="button">Enable</button>}>Why it is off</InfoTooltip>,
+    )
+    expect(container.querySelector('button button')).toBeNull()
+    expect(container.querySelector('span.tip-wrap')).toBeTruthy()
+  })
+
+  it('wrap mode opens on hover and on a tap on its own space', () => {
+    const { container } = render(
+      <InfoTooltip wrap label={<button type="button" disabled>Enable</button>}>
+        Set an opponent faction ID first
+      </InfoTooltip>,
+    )
+    const span = container.querySelector('span.tip-wrap')
+    fireEvent.mouseEnter(span)
+    expect(screen.getByRole('tooltip').textContent).toContain('opponent faction ID')
+    fireEvent.mouseLeave(span)
+    fireEvent.pointerDown(span)
+    expect(screen.getByRole('tooltip')).toBeTruthy()
+  })
+
+  it('⚠️ wrap mode does NOT steal a tap aimed at a live control', () => {
+    // A tooltip that eats the press turns a working button into a broken one,
+    // and on a touchscreen there is no second gesture to recover with.
+    const onClick = vi.fn()
+    render(
+      <InfoTooltip wrap label={<button type="button" onClick={onClick}>Save</button>}>
+        What saving does
+      </InfoTooltip>,
+    )
+    const btn = screen.getByRole('button', { name: 'Save' })
+    fireEvent.pointerDown(btn)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    fireEvent.click(btn)
+    expect(onClick).toHaveBeenCalled()
+  })
+
+  it('wrap mode leaves the control completely alone when there is nothing to say', () => {
+    const { container } = render(<InfoTooltip wrap label={<input readOnly value="x" />}>{null}</InfoTooltip>)
+    expect(container.querySelector('.tip-wrap')).toBeNull()
+    expect(container.querySelector('input')).toBeTruthy()
+  })
+
+  it('⚠️ hands inline styles to the TRIGGER, not the panel', () => {
+    // The calendar's multi-day band is placed by inline gridColumn/gridRow. Once
+    // it is wrapped, the WRAPPER is the grid item — leaving the placement on the
+    // child would drop every band into the first cell of the row.
+    const { container } = render(
+      <InfoTooltip wrap style={{ gridColumn: '2 / span 3' }} label={<button type="button">War</button>}>
+        Ends Tuesday
+      </InfoTooltip>,
+    )
+    expect(container.querySelector('span.tip-wrap').style.gridColumn).toBe('2 / span 3')
+  })
+
+  it('InfoDot is a separate tap target with a name of its own', () => {
+    // It sits beside a live control precisely so the control keeps its tap —
+    // which only works if the dot is reachable in its own right.
+    render(<InfoDot label="About fair fight">Your respect multiplier.</InfoDot>)
+    const dot = screen.getByRole('button', { name: 'About fair fight' })
+    fireEvent.click(dot)
+    expect(screen.getByRole('tooltip').textContent).toContain('respect multiplier')
   })
 })

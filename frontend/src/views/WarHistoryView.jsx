@@ -20,6 +20,7 @@ function runSummary(run, label) {
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, RefreshCw, Heart } from 'lucide-react'
 import StacksSnapshotSection from '../components/warroom/StacksSnapshotSection'
+import InfoTooltip from '../components/InfoTooltip'
 
 const PAGE_SIZE = 50
 
@@ -543,12 +544,15 @@ function ContributionsModal({ war, result, contributions, loading, isLive, sort,
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-lg font-semibold">War Contributions</h3>
               {isLive && (
-                <span
+                <InfoTooltip
+                  label="Live · bonus-normalized"
+                  decoration="no-underline"
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300"
-                  title="Computed live from scraped attacks (faction_attacks). Bonus chain hits are normalised to 10 score each, matching how termed-war shares get computed. Numbers refresh on the next Fetch Attacks run."
                 >
-                  Live · bonus-normalized
-                </span>
+                  Computed live from scraped attacks (faction_attacks). Bonus chain
+                  hits are normalised to 10 score each, matching how termed-war
+                  shares get computed. Numbers refresh on the next Fetch Attacks run.
+                </InfoTooltip>
               )}
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-400">

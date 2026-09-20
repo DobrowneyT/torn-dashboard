@@ -39,10 +39,10 @@ import {
   overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat, cooldownHue,
 } from '../utils/warRoomMemberStats'
 import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
-import InfoTooltip from '../components/InfoTooltip'
+import InfoTooltip, { InfoDot, tipLines } from '../components/InfoTooltip'
 import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
 import {
-  SCORE_DECAY_SEC, countsTowardScore, reviveScore, bestCaseChance,
+  SCORE_DECAY_SEC, bestCaseChance,
   indexRevivesByTarget, reviveChanceHue, formatReviveChance, modelError,
 } from '../utils/reviveChance'
 import { indexBattleStats, withBattleStats } from '../utils/warRoomBattleStats'
@@ -81,7 +81,7 @@ import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 import { parseStatInput, formatStats } from '../utils/statInput'
 import BattleStatsCell from '../components/BattleStatsCell'
 import {
-  fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
+  fairFight, formatFF, ffGradientPosition, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
 import { clampCadence } from '../utils/warRoomCadence.js'
 import { assistBadgeState } from '../utils/assistBadge.js'
@@ -265,18 +265,18 @@ function TravelEtaCell({ member }) {
   })
   if (eta.state === 'unknown') {
     return (
-      <span
-        title="No arrival estimate — we did not see this member take off, so there is nothing to count from."
-        className="text-gray-300 dark:text-gray-700 text-xs"
-      >—</span>
+      <InfoTooltip label="—" className="text-gray-300 dark:text-gray-700 text-xs">
+        No arrival estimate — we did not see this member take off, so there is
+        nothing to count from.
+      </InfoTooltip>
     )
   }
   if (eta.state === 'overdue') {
     return (
-      <span
-        title="Past every expected landing time. Either they are about to land, or their flight was extended (a Detective Agency Watchlist can do that)."
-        className="text-xs font-mono italic text-blue-500 dark:text-blue-400"
-      >landing</span>
+      <InfoTooltip label="landing" className="text-xs font-mono italic text-blue-500 dark:text-blue-400">
+        Past every expected landing time. Either they are about to land, or their
+        flight was extended (a Detective Agency Watchlist can do that).
+      </InfoTooltip>
     )
   }
 
@@ -285,9 +285,9 @@ function TravelEtaCell({ member }) {
     ? `Estimated arrival — ${label}, ±3% flight-time variance`
     : `Estimated arrival — still could be ${eta.methods.map((m) => TRAVEL_METHOD_LABELS[m] ?? m).join(' / ')}`
   return (
-    <span title={title} className="text-xs font-mono italic text-blue-600 dark:text-blue-400">
-      {formatTravelEta(eta)}
-    </span>
+    <InfoTooltip label={formatTravelEta(eta)} className="text-xs font-mono italic text-blue-600 dark:text-blue-400">
+      {title}
+    </InfoTooltip>
   )
 }
 
@@ -461,7 +461,7 @@ function ChainTimerCard({ chain, userId, isAdmin, onClaim, onRelease, claimError
           {canRelease && (
             <button
               onClick={onRelease}
-              title={claimedByMe ? 'Release your claim' : 'Admin override: release claim'}
+              aria-label={claimedByMe ? 'Release your claim' : 'Admin override: release claim'}
               className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 underline"
             >
               Release
@@ -550,13 +550,17 @@ function QuickLinkButton({ href, title, disabled, children }) {
   const base = 'inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-colors'
   if (disabled) {
     return (
-      <span
-        title={title}
-        className={`${base} border-gray-200 dark:border-slate-700 text-gray-300 dark:text-slate-600 cursor-not-allowed`}
-        aria-disabled="true"
-      >
-        {children}
-      </span>
+      // ⚠️ aria-label on a bare <span> is not exposed to a screen reader, so a
+      // disabled quick link would have no name at all. The wrap gives it one and
+      // makes it readable by tap as well.
+      <InfoTooltip wrap label={
+        <span
+          className={`${base} border-gray-200 dark:border-slate-700 text-gray-300 dark:text-slate-600 cursor-not-allowed`}
+          aria-disabled="true"
+        >
+          {children}
+        </span>
+      }>{title}</InfoTooltip>
     )
   }
   return (
@@ -564,7 +568,7 @@ function QuickLinkButton({ href, title, disabled, children }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      title={title}
+      aria-label={title}
       className={`${base} border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20`}
     >
       {children}
@@ -639,21 +643,28 @@ function ReviveQuickLinkButton({ serviceName, serviceUrl, serviceSource, service
     ? 'border-gray-200 dark:border-slate-700 text-gray-300 dark:text-slate-600 cursor-not-allowed'
     : 'border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'
 
+  // The live states (sending / sent / the error text) are already on the
+  // button's own face and in `aria-label`. Only "there is no service
+  // configured" is a fact the button cannot show, and it is the disabled case —
+  // which is exactly what a wrap can still make tappable.
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      disabled={disabled}
-      title={title}
-      aria-label={baseLabel}
-      className={`${base} ${stateClasses}`}
-    >
-      {busy ? (
-        <span className="block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-      ) : (
-        <RevivesIcon className="w-5 h-5" />
-      )}
-    </button>
+    <InfoTooltip wrap label={
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={disabled}
+        aria-label={title}
+        className={`${base} ${stateClasses}`}
+      >
+        {busy ? (
+          <span className="block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <RevivesIcon className="w-5 h-5" />
+        )}
+      </button>
+    }>
+      {disabled ? title : null}
+    </InfoTooltip>
   )
 }
 
@@ -710,7 +721,7 @@ function FindTargetButton() {
       <button
         type="button"
         onClick={pickAndOpen}
-        title={`Find Target — open random attack page in ID range ${minId.toLocaleString()}–${maxId.toLocaleString()}. Use when the chain timer is critical and you can't waste a second picking a target.`}
+        aria-label="Find Target"
         className={`${base} border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-amber-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20`}
       >
         <Crosshair className="w-5 h-5" />
@@ -718,11 +729,17 @@ function FindTargetButton() {
       <button
         type="button"
         onClick={() => setSettingsOpen(o => !o)}
-        title="Adjust Find Target ID range (stored per-user in localStorage)"
+        aria-label="Find Target settings"
         className="inline-flex items-center justify-center w-5 h-9 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
       >
         <Settings className="w-3 h-3" />
       </button>
+      <InfoDot label="About Find Target" size={12}>
+        Opens a random attack page in the ID range {minId}–{maxId}. Use it when
+        the chain timer is critical and you
+        cannot waste a second picking a target. The gear adjusts the range, which
+        is stored per-user in this browser.
+      </InfoDot>
       {/* z-30, not z-20: the sticky table header is z-20 (#331), and an equal
           z-index falls back to DOM order — the header comes later in the DOM,
           so it won and this popover opened underneath it. */}
@@ -750,7 +767,7 @@ function FindTargetButton() {
             />
           </div>
           <div className="text-[10px] text-gray-400 dark:text-gray-500">
-            Defaults: {FT_DEFAULT_MIN.toLocaleString()}–{FT_DEFAULT_MAX.toLocaleString()}. Saved per-user.
+            Defaults: {FT_DEFAULT_MIN}–{FT_DEFAULT_MAX}. Saved per-user.
           </div>
         </div>
       )}
@@ -811,25 +828,31 @@ function MemberEnergyCell({ stats }) {
   const band = energyBand(stats)
   const age = statsAgeSeconds(stats)
   const errored = hasStatsError(stats)
+  // Only what the header cannot say about THIS row: how stale the reading is,
+  // and whose key failed. "Energy (stacked) — green is ready" in all 100 rows
+  // was noise the column heading already covers.
   const title = errored
-    ? `Energy unavailable — this member's key failed: ${stats.last_error}`
+    ? `Key failed: ${stats.last_error}`
     : age == null
-      ? 'Energy — no reading yet'
-      : `Energy (${band}) as of ${age}s ago`
+      ? 'No reading yet'
+      : `As of ${age}s ago`
 
   // Grey, not red, when there is no reading (#351): colouring a member we
   // couldn't ask as "empty" would get them written off for a push.
   if (hue == null) {
-    return <span title={title} className="text-xs font-mono text-gray-300 dark:text-gray-700">{label}</span>
+    return (
+      <InfoTooltip label={label} className="text-xs font-mono text-gray-300 dark:text-gray-700">
+        {title}
+      </InfoTooltip>
+    )
   }
   return (
-    <span
-      title={title}
-      style={{ '--grad-hue': hue }}
-      className={`hue-grad text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
+    <InfoTooltip
+      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{label}</span>}
+      className={`text-xs font-mono ${band === 'stacked' ? 'font-semibold' : ''}`}
     >
-      {label}
-    </span>
+      {title}
+    </InfoTooltip>
   )
 }
 
@@ -840,21 +863,26 @@ function MemberCooldownCell({ stats, field, label }) {
   const errored = hasStatsError(stats)
   const overdosed = field === 'cooldown_drug' && overdosedByDrugCooldown(stats)
 
+  const age = statsAgeSeconds(stats)
   const title = errored
-    ? `${label} cooldown unavailable — this member's key failed: ${stats.last_error}`
+    ? `Key failed: ${stats.last_error}`
     : overdosed
-      ? `${label} cooldown over 10h — this member has OVERDOSED`
-      : `${label} cooldown — green is ready, red is capped`
+      ? 'Over 10h — overdosed'
+      : age == null
+        ? 'No reading yet'
+        : `As of ${age}s ago`
 
   // Overdose wins outright (#356): it already has its own red-and-bold
   // treatment from #351, and a gradient underneath would be a second way of
   // saying the same thing in a slightly different colour.
   if (overdosed) {
     return (
-      <span title={title} className="text-xs font-mono text-red-600 dark:text-red-400 font-semibold">
-        {formatCooldown(remaining)}
-        <span className="ml-1 not-italic" aria-label="overdosed">OD</span>
-      </span>
+      <InfoTooltip
+        label={<>{formatCooldown(remaining)}<span className="ml-1 not-italic" aria-label="overdosed">OD</span></>}
+        className="text-xs font-mono text-red-600 dark:text-red-400 font-semibold"
+      >
+        {title}
+      </InfoTooltip>
     )
   }
 
@@ -863,15 +891,18 @@ function MemberCooldownCell({ stats, field, label }) {
   if (hue == null) {
     // Grey, never green: a member whose key failed must not read as "ready".
     return (
-      <span title={title} className="text-xs font-mono text-gray-300 dark:text-gray-700">
-        {formatCooldown(remaining)}
-      </span>
+      <InfoTooltip label={formatCooldown(remaining)} className="text-xs font-mono text-gray-300 dark:text-gray-700">
+        {title}
+      </InfoTooltip>
     )
   }
   return (
-    <span title={title} style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
-      {formatCooldown(remaining)}
-    </span>
+    <InfoTooltip
+      label={<span style={{ '--grad-hue': hue }} className="hue-grad">{formatCooldown(remaining)}</span>}
+      className="text-xs font-mono"
+    >
+      {title}
+    </InfoTooltip>
   )
 }
 
@@ -895,28 +926,12 @@ function MemberReviveChanceCell({ revives, loaded }) {
     return () => clearInterval(id)
   }, [])
 
-  if (!loaded) {
-    return <span title="Revive chance — history not loaded yet" className="text-xs font-mono text-gray-300 dark:text-gray-700">—</span>
-  }
+  if (!loaded) return <span className="text-xs font-mono text-gray-300 dark:text-gray-700">—</span>
 
-  const history = revives ?? []
-  const score = reviveScore(history, nowSec)
-  const chance = bestCaseChance(history, nowSec)
-  const counted = history.filter((r) => countsTowardScore(r) && nowSec - Number(r.timestamp) < SCORE_DECAY_SEC)
-  const last = counted[0]
-  const lastAgo = last ? Math.max(0, Math.round((nowSec - Number(last.timestamp)) / 60)) : null
-
-  const title = [
-    `Best-case revive chance: what a skill-100 reviver would see right now.`,
-    counted.length === 0
-      ? 'No revives in the last 24h — fully rested.'
-      : `${counted.length} revive${counted.length === 1 ? '' : 's'} in the last 24h (score ${score.toFixed(2)}); most recent ${lastAgo}m ago.`,
-    'Computed from our own revive history — accurate as long as that history is complete.',
-  ].join('\n')
-
+  const chance = bestCaseChance(revives ?? [], nowSec)
   const hue = reviveChanceHue(chance)
   return (
-    <span title={title} style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
+    <span style={{ '--grad-hue': hue }} className="hue-grad text-xs font-mono">
       {formatReviveChance(chance)}
     </span>
   )
@@ -938,14 +953,7 @@ function FairFightCell({ mine, target }) {
   const targetStats = targetBattleStats(target)
   const ff = fairFight(mine, targetStats)
 
-  if (ff === null) {
-    return (
-      <span
-        className="text-xs text-gray-300 dark:text-gray-600"
-        title={mine ? 'No battle stats for this target yet.' : 'No battle stats on record for you yet.'}
-      >—</span>
-    )
-  }
+  if (ff === null) return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
 
   // An estimate on EITHER side makes the result an estimate. The even-split
   // assumption overstates lopsided builds, and on the target side that inflates
@@ -955,17 +963,12 @@ function FairFightCell({ mine, target }) {
 
   // 0 → red (0deg), 1 → green (120deg).
   const hue = Math.round(120 * ffGradientPosition(ff))
+  // The dotted underline still means "estimate" — that mark is the one thing
+  // the header cannot say about an individual row.
   return (
     <span
       style={{ '--grad-hue': hue }}
       className={`hue-grad text-xs font-mono ${estimated ? 'underline decoration-dotted decoration-from-font' : ''}`}
-      title={[
-        `Fair Fight ${formatFF(ff)} — your respect multiplier against this target.`,
-        isMaxFF(ff) ? 'At the 3.00 cap: full respect.' : '',
-        estimated
-          ? 'Estimated: only a stat TOTAL is known for one side, so an even split was assumed. That overstates lopsided builds, so the real FF may be lower.'
-          : 'Computed from a full stat breakdown on both sides.',
-      ].filter(Boolean).join('\n')}
     >
       {formatFF(ff)}
     </span>
@@ -976,12 +979,19 @@ function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title
   const active = sortCol === col
   return (
     <th
-      title={title}
       onClick={() => onSort(col)}
       className={`py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap ${className}`}
     >
       <span className="flex items-center gap-1">
         {children}
+        {title && (
+          // ⚠️ stopPropagation, not decoration: the whole <th> sorts on click,
+          // so without it reading the column's explanation would also re-sort
+          // the board out from under whoever was reading it.
+          <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+            <InfoDot label={`About this column`}>{tipLines(title)}</InfoDot>
+          </span>
+        )}
         <span className={`text-xs ${active ? 'text-blue-500 dark:text-blue-400' : 'text-gray-300 dark:text-gray-600'}`}>
           {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
         </span>
@@ -1007,9 +1017,12 @@ function SurgeSection({ label, hint, checked, onToggle, fields, setFields, onCom
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2 pl-6">
           {rows.map(({ label: fieldLabel, field, min, max, fb, w, hint: fieldHint }) => (
             <div key={field}>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{fieldLabel}</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                {fieldLabel}
+                {fieldHint && <InfoDot label={`About ${fieldLabel}`} size={11} className="ml-1">{fieldHint}</InfoDot>}
+              </label>
               <input
-                type="number" min={min} max={max} step={1} title={fieldHint}
+                type="number" min={min} max={max} step={1}
                 value={fields[field]}
                 onChange={e => setFields(f => ({ ...f, [field]: e.target.value }))}
                 onBlur={() => onCommit(field, min, max, fb)}
@@ -1275,34 +1288,36 @@ function ConfigPanel({
             {toggling ? 'Stopping…' : 'Stop War Room'}
           </button>
         ) : (
+          <InfoTooltip wrap label={
           <button
             onClick={onToggleEnabled}
             disabled={toggling || !config?.faction_id}
-            title={!config?.faction_id ? 'Set an opponent faction ID first' : ''}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
           >
             <span className="w-2 h-2 rounded-full bg-white opacity-80" />
             {toggling ? 'Enabling…' : 'Enable War Room'}
           </button>
+          }>{!config?.faction_id ? 'Set an opponent faction ID first.' : null}</InfoTooltip>
         )}
+        <InfoTooltip wrap label={
         <button
           onClick={onUpdateSpies}
           disabled={updatingSpies || !config?.faction_id}
-          title={!config?.faction_id ? 'Set a faction ID first' : 'Fetch members + BSP battle stats'}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-400 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
         >
           {updatingSpies ? '⏳ Fetching…' : '🔍 Update Spies'}
         </button>
+        }>{!config?.faction_id ? 'Set a faction ID first.' : 'Fetches members plus BSP battle stats.'}</InfoTooltip>
         {/* Roster Refresh (#339) — the control the old "UI Refresh" slider
             pretended to be. That one was client-side and inert since the
             API-mode collapse; this one is the server cadence, so turning it
             down genuinely cuts Torn calls. Floor 0.5s = 2 Hz. */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Roster Refresh</label>
-          <div
-            className="flex items-center gap-1.5"
-            title="How often the server re-reads BOTH rosters from Torn (two calls per sweep). 0 stops roster polling entirely; otherwise 0.5s (2 Hz) is the hard floor, and a small key pool is held slower still. Takes effect on the next tick."
-          >
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Roster Refresh
+            <InfoDot label="About Roster Refresh" size={11} className="ml-1">{'How often the server re-reads BOTH rosters from Torn (two calls per sweep). 0 stops roster polling entirely; otherwise 0.5s (2 Hz) is the hard floor, and a small key pool is held slower still. Takes effect on the next tick.'}</InfoDot>
+          </label>
+          <div className="flex items-center gap-1.5">
             <input
               type="number"
               min={0}
@@ -1345,6 +1360,7 @@ function ConfigPanel({
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             TornStats max spy age <span className="text-gray-400 dark:text-gray-600">(days, 0 = any age)</span>
+            <InfoDot label="About TornStats max spy age" size={11} className="ml-1">{'Upper bound on TornStats spy age. 0 = no age filter (always use TornStats spy if one exists). BSP only fills members TornStats has no spy for, or whose spy is older than this value.'}</InfoDot>
           </label>
           <input
             type="number"
@@ -1355,7 +1371,6 @@ function ConfigPanel({
             onBlur={commitTsMaxAge}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="0"
-            title="Upper bound on TornStats spy age. 0 = no age filter (always use TornStats spy if one exists). BSP only fills members TornStats has no spy for, or whose spy is older than this value."
             className="w-24 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -1364,6 +1379,7 @@ function ConfigPanel({
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             Our chain poll <span className="text-gray-400 dark:text-gray-600">(s)</span>
+            <InfoDot label="About Our chain poll" size={11} className="ml-1">{'How often the server polls our chain endpoint. Clamped to 1–600s. The cron forces an extra poll when the chain timer is within 6s of expiring regardless of this value.'}</InfoDot>
           </label>
           <input
             type="number"
@@ -1375,13 +1391,13 @@ function ConfigPanel({
             onBlur={commitChainOurs}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="5"
-            title="How often the server polls our chain endpoint. Clamped to 1–600s. The cron forces an extra poll when the chain timer is within 6s of expiring regardless of this value."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             Enemy chain poll <span className="text-gray-400 dark:text-gray-600">(s)</span>
+            <InfoDot label="About Enemy chain poll" size={11} className="ml-1">{"How often the server polls the enemy faction's chain endpoint. Clamped to 1–600s. Pauses while enemy is in cooldown."}</InfoDot>
           </label>
           <input
             type="number"
@@ -1393,7 +1409,6 @@ function ConfigPanel({
             onBlur={commitChainEnemy}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="30"
-            title="How often the server polls the enemy faction's chain endpoint. Clamped to 1–600s. Pauses while enemy is in cooldown."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -1404,6 +1419,7 @@ function ConfigPanel({
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             Member stats <span className="text-gray-400 dark:text-gray-600">(s, 0 = off)</span>
+            <InfoDot label="About Member stats" size={11} className="ml-1">{"How often the server refreshes OUR members' energy and drug/medical/booster cooldowns, using each member's own key. One Torn call per enrolled member per cycle, so 0 disables it and the minimum when enabled is 30s. Only runs while the war room is enabled."}</InfoDot>
           </label>
           <input
             type="number"
@@ -1415,7 +1431,6 @@ function ConfigPanel({
             onBlur={commitMemberStats}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="0"
-            title="How often the server refreshes OUR members' energy and drug/medical/booster cooldowns, using each member's own key. One Torn call per enrolled member per cycle, so 0 disables it and the minimum when enabled is 30s. Only runs while the war room is enabled."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -1423,6 +1438,7 @@ function ConfigPanel({
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             Dibs auto-drop <span className="text-gray-400 dark:text-gray-600">(s)</span>
+            <InfoDot label="About Dibs auto-drop" size={11} className="ml-1">{"If you dib an already-alive target and haven't killed them within this many seconds, your claim is released so someone else can take them. Only applies to alive targets — a hospital claim waits for them to come out. Clamped to 5–600s."}</InfoDot>
           </label>
           <input
             type="number"
@@ -1434,7 +1450,6 @@ function ConfigPanel({
             onBlur={commitDibsExpiry}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="30"
-            title="If you dib an already-alive target and haven't killed them within this many seconds, your claim is released so someone else can take them. Only applies to alive targets — a hospital claim waits for them to come out. Clamped to 5–600s."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -1442,6 +1457,7 @@ function ConfigPanel({
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             Assist window <span className="text-gray-400 dark:text-gray-600">(s)</span>
+            <InfoDot label="About Assist window" size={11} className="ml-1">{'How long a smoke / tear / help request stays up before it expires on its own. A Torn fight runs to five minutes, so anything shorter can drop the request while the fight it is about is still going. Also cleared the moment the target stops being attackable. Clamped to 5–600s.'}</InfoDot>
           </label>
           <input
             type="number"
@@ -1453,7 +1469,6 @@ function ConfigPanel({
             onBlur={commitAssistExpiry}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
             placeholder="300"
-            title="How long a smoke / tear / help request stays up before it expires on its own. A Torn fight runs to five minutes, so anything shorter can drop the request while the fight it is about is still going. Also cleared the moment the target stops being attackable. Clamped to 5–600s."
             className="w-20 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -1517,7 +1532,6 @@ function ConfigPanel({
             </select>
             <button
               onClick={() => setShowServicesModal(true)}
-              title="Manage revive services"
               className="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-300 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
               aria-label="Manage revive services"
             >
@@ -2659,12 +2673,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 </span>
               )}
               {polling.state === 'roster-paused' && (
-                <span
-                  title="The war room is running, but Roster Refresh is 0s so neither roster is being polled. Set it above 0 to resume."
-                  className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-semibold"
+                <InfoTooltip
+                  decoration="no-underline"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full text-xs font-semibold"
+                  label={<><span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> RUNNING — ROSTER PAUSED</>}
                 >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> RUNNING — ROSTER PAUSED
-                </span>
+                  The war room is running, but Roster Refresh is 0s so neither
+                  roster is being polled. Set it above 0 to resume.
+                </InfoTooltip>
               )}
               {polling.state === 'off' && isLeadership && (
                 <span className="flex items-center gap-1.5 px-2.5 py-1 bg-gray-200 dark:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-full text-xs font-semibold">
@@ -2679,7 +2695,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               {isLeadership && !isVisitor && (
                 <button
                   onClick={() => setLeadershipPanelOpen(v => !v)}
-                  title={leadershipPanelOpen ? 'Hide leadership controls' : 'Show leadership controls'}
                   aria-expanded={leadershipPanelOpen}
                   aria-label="Toggle leadership controls"
                   className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors ${
@@ -2696,7 +2711,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               {canSeeNotes && (
                 <button
                   onClick={() => setNotesPanelOpen(v => !v)}
-                  title={notesPanelOpen ? 'Hide war notes' : 'Show war notes & roll-call results'}
                   aria-expanded={notesPanelOpen}
                   aria-label="Toggle war notes"
                   className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors ${
@@ -2731,7 +2745,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                       ? 'border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:border-blue-400'
                       : 'bg-amber-500 hover:bg-amber-600 text-white'
                   }`}
-                  title={myRollCall ? 'Review or edit your roll-call response' : 'Fill out your war roll call'}
+                  aria-label={myRollCall ? 'Review or edit your roll-call response' : 'Fill out your war roll call'}
                 >
                   <ClipboardList className="w-4 h-4" />
                   Roll Call{myRollCall ? '' : ' !'}
@@ -2767,7 +2781,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             <button
               data-tour="help"
               onClick={() => setHelpOpen(true)}
-              title="How the War Room works"
               aria-label="War Room help"
               className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
             >
@@ -2935,7 +2948,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Sort:</span>
               <button
                 onClick={() => setSortCol(c => c === 'farm' ? 'timer' : 'farm')}
-                title="Tiered sort: Okay at top (just-released first), then hospital/jail by timer ascending. Click a column header to leave farm mode."
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   sortCol === 'farm'
                     ? 'bg-emerald-600 text-white'
@@ -2944,6 +2956,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               >
                 {sortCol === 'farm' ? 'Farm mode — ON' : 'Farm mode'}
               </button>
+              <InfoDot label="About farm mode" size={12}>
+                Tiered sort: Okay at top (just-released first), then hospital/jail
+                by timer ascending. Click a column header to leave farm mode.
+              </InfoDot>
               {sortCol === 'farm' && (
                 <span className="text-[11px] text-gray-500 dark:text-gray-500">
                   Okay first (just-released at top), then timer ascending. Click a column to exit.
@@ -2960,7 +2976,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <button
                 onClick={() => setStatsFilterEnabled(v => !v)}
                 disabled={!statsFilterUsable}
-                title={statsFilterUsable ? undefined : 'No battle stats for our members yet — the daily sweep has not run'}
                 className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                   statsFilterEnabled && statsFilterUsable
                     ? 'bg-blue-600 text-white'
@@ -2975,12 +2990,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 </span>
               )}
               {columns.ff && (
+                <InfoTooltip wrap label={
                 <button
                   onClick={() => setFfMaxOnly(v => !v)}
                   disabled={!ffFilterUsable}
-                  title={ffFilterUsable
-                    ? 'Show only targets at the 3.00 fair-fight cap — full respect for you.\nIn farm mode anyone online and out of hospital stays visible regardless, so you can still see a push forming.'
-                    : 'No battle stats on record for you yet, so FF cannot be computed.'}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
                     ffMaxOnly && ffFilterUsable
                       ? 'bg-emerald-600 text-white'
@@ -2989,6 +3002,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 >
                   3x FF
                 </button>
+                }>
+                  {ffFilterUsable ? (
+                    <>
+                      <div>Show only targets at the 3.00 fair-fight cap — full respect for you.</div>
+                      <div className="mt-1.5">In farm mode anyone online and out of hospital stays visible regardless, so you can still see a push forming.</div>
+                    </>
+                  ) : 'No battle stats on record for you yet, so FF cannot be computed.'}
+                </InfoTooltip>
               )}
               <input
                 type="text"
@@ -3092,11 +3113,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               surgeAlert.posted ? (
                 <span className="text-xs font-semibold px-2.5 py-1 rounded bg-white/20">Headline posted ✓</span>
               ) : (
-                <button onClick={postSurgeHeadline} disabled={postingHeadline}
-                  title="Post the matching rally call to the headline banner for everyone"
-                  className="text-xs font-semibold px-3 py-1.5 rounded bg-white/90 text-gray-900 hover:bg-white disabled:opacity-60">
-                  {postingHeadline ? 'Posting…' : 'Post rally call'}
-                </button>
+                <InfoTooltip wrap label={
+                  <button onClick={postSurgeHeadline} disabled={postingHeadline}
+                    className="text-xs font-semibold px-3 py-1.5 rounded bg-white/90 text-gray-900 hover:bg-white disabled:opacity-60">
+                    {postingHeadline ? 'Posting…' : 'Post rally call'}
+                  </button>
+                }>Posts the matching rally call to the headline banner for everyone.</InfoTooltip>
               )
             )}
             <button onClick={() => setSurgeAlert(null)} aria-label="Dismiss" className="p-1 rounded hover:bg-black/20">
@@ -3134,16 +3156,31 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                       <SortTh
                         col="ff" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
                         className="text-right"
-                        title={[
-                          'Fair Fight — the respect multiplier YOU would get hitting this target.',
-                          'FF = min(3, 1 + 8/3 × (their BS score / your BS score)),',
-                          'BS score = √str + √spd + √def + √dex.',
-                          'This column is personal: it is computed from your own battle stats,',
-                          'so it reads differently for every viewer.',
-                          myBattleStats
-                            ? ''
-                            : 'No battle stats on record for you yet — the column cannot be computed.',
-                        ].filter(Boolean).join('\n')}
+                        title={
+                          <>
+                            <div>Fair Fight — the respect multiplier YOU would get hitting this target.</div>
+                            <div className="mt-1.5 font-mono text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                              <div>FF = min(3, 1 + 8/3 × (their BS score / your BS score))</div>
+                              <div>BS score = √str + √spd + √def + √dex</div>
+                            </div>
+                            <div className="mt-1.5">
+                              It saturates at the 3.00 cap, so a lot of a healthy roster sits flat there.
+                            </div>
+                            <div className="mt-1.5">
+                              A dotted underline on a value means it is an estimate: only a stat total was
+                              known for one side, so an even split was assumed and the real FF may be lower.
+                            </div>
+                            <div className="mt-1.5">
+                              This column is personal — computed from your own battle stats, so it reads
+                              differently for every viewer.
+                            </div>
+                            {!myBattleStats && (
+                              <div className="mt-1.5 text-amber-600 dark:text-amber-400">
+                                No battle stats on record for you yet — the column cannot be computed.
+                              </div>
+                            )}
+                          </>
+                        }
                       >FF</SortTh>
                     )}
                     {/* Energy and the cooldowns sort like any other column (#351):
@@ -3164,14 +3201,23 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     {columns.reviveChance && (
                       <SortTh
                         col="revive_chance" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
-                        title={[
-                          'Best-case revive chance — what a skill-100 reviver would see.',
-                          'chance = 90 + skill/10 − score × (8 − skill/25), computed from our own',
-                          'revive history (revives-sync). Torn does not report this directly.',
-                          reviveModelCheck
+                        title={
+                          <>
+                            <div>Best-case revive chance — what a skill-100 reviver would see.</div>
+                            <div className="mt-1.5 font-mono text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                              chance = 90 + skill/10 − score × (8 − skill/25)
+                            </div>
+                            <div className="mt-1.5">
+                              Computed from our own revive history (revives-sync). Torn does not report
+                              this directly.
+                            </div>
+                            <div className="mt-1.5">
+                              {reviveModelCheck
                             ? `History check vs what Torn displayed: ${reviveModelCheck.meanAbsError.toFixed(1)}pp mean error, ${reviveModelCheck.bias >= 0 ? '+' : ''}${reviveModelCheck.bias.toFixed(1)}pp bias over ${reviveModelCheck.samples} observed revive${reviveModelCheck.samples === 1 ? '' : 's'}. A positive bias means revives we never scraped — expected until the feed has run 24h.`
-                            : 'History check: no observed revives to compare against yet.',
-                        ].join('\n')}
+                            : 'History check: no observed revives to compare against yet.'}
+                            </div>
+                          </>
+                        }
                       >Revive %</SortTh>
                     )}
                     {columns.dibs && (
@@ -3217,13 +3263,16 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                           <div className="flex items-center gap-1.5 min-w-0">
                             <a href={`https://www.torn.com/profiles.php?XID=${m.member_id}`}
                               target="_blank" rel="noopener noreferrer"
-                              className="font-medium text-blue-600 dark:text-blue-400 hover:underline truncate"
-                              title={m.member_name}>
+                              className="font-medium text-blue-600 dark:text-blue-400 hover:underline truncate">
                               {m.member_name}
                             </a>
                             <span className="text-xs text-gray-400 dark:text-gray-600">Lv{m.level}</span>
                             {isOverdosed(m) && (
-                              <span title="Overdosed" className="px-1 py-0.5 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold">OD</span>
+                              <InfoTooltip
+                                label="OD"
+                                decoration="no-underline"
+                                className="px-1 py-0.5 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold"
+                              >Overdosed</InfoTooltip>
                             )}
                             <LoadoutShieldIcon loadoutRow={loadout[m.member_id]} />
                             <MemberNoteButton
@@ -3277,7 +3326,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                   <InfoTooltip
                                     key={f.key}
                                     label={f.glyph}
-                                    className={`text-base leading-none no-underline ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
+                                    decoration="no-underline"
+                                    className={`text-base leading-none ${FLAG_TONE_CLASS[f.tone] ?? ''}`}
                                   >
                                     {f.title}
                                   </InfoTooltip>
@@ -3378,7 +3428,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                   href={st.href}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  title={st.title}
                                   aria-label={st.title}
                                   className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border max-w-[9rem] transition-colors border-orange-400 text-orange-700 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/40"
                                 >
@@ -3415,13 +3464,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                 : 'border-gray-300 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400'
                             const inert = st.action === 'none'
                             return (
+                              <InfoTooltip wrap label={
                               <button
                                 onClick={() => {
                                   if (st.action === 'claim') handleClaimDibs(m.member_id)
                                   else if (st.action === 'release') handleReleaseDibs(m.member_id)
                                 }}
                                 disabled={inert || dib?._pending}
-                                title={st.title ?? (st.mine ? 'Click to release' : undefined)}
                                 className={`inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border max-w-[9rem] transition-colors ${tone} ${
                                   inert ? 'cursor-default' : 'cursor-pointer'
                                 } ${dib?._pending ? 'opacity-70' : ''}`}
@@ -3429,6 +3478,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                 <span className="truncate">{st.label}</span>
                                 {dib?._pending && <Loader2 size={11} className="animate-spin shrink-0" />}
                               </button>
+                              }>{st.title ?? (st.mine ? 'Click to release' : null)}</InfoTooltip>
                             )
                           })()}
                         </td>
@@ -3453,7 +3503,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                                 ? 'bg-blue-600 hover:bg-blue-700'
                                 : 'bg-red-600 hover:bg-red-700'
                             const label = showAssist ? `⚔ Assist ${dib.claimed_name}` : '⚔ Attack'
-                            const title = showAssist ? `${dib.claimed_name} called dibs — click to assist` : undefined
                             // #157: while the chain is about to drop, ring the
                             // buttons of hittable (Okay) targets red so it's
                             // obvious where to click to save it.
@@ -3463,7 +3512,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             return (
                               <a href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.member_id}`}
                                 target="_blank" rel="noopener noreferrer"
-                                title={title}
                                 className={`inline-flex items-center gap-1 px-2.5 py-1 text-white rounded text-xs font-medium transition-colors ${colorClass}${chainCue}`}>
                                 {label}
                               </a>

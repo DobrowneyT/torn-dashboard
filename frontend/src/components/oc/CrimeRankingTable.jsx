@@ -15,6 +15,7 @@ import { AlertTriangle, LoaderCircle, ArrowUpDown, Link2 } from 'lucide-react'
 import { apiGet } from '../../utils/apiClient'
 import { rankCrimes, sortRanking } from '../../utils/ocRanking'
 import { formatCurrency } from '../../utils/payoutCalculations'
+import InfoTooltip from '../InfoTooltip'
 
 const DEFAULT_CPR = 75
 
@@ -171,30 +172,32 @@ export default function CrimeRankingTable({ scenarios, chains = [] }) {
                 <td className={`py-2 px-2 font-medium ${r.sustainable === false ? 'line-through text-gray-400' : ''}`}>
                   {r.name}
                   {r.chainLinks && (
-                    <span
+                    <InfoTooltip
+                      label={`chain ×${r.chainLinks.length}${!r.chainConfident ? '?' : ''}`}
                       className={`ml-1.5 text-[10px] ${r.chainConfident ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}
-                      title={`${r.chainLinks.join(' → ')}\n\nValue and scope are for the whole chain. ${
-                        r.chainConfident
-                          ? 'Confirmed from our own spawn history.'
-                          : 'Not yet observed in this faction — taken from known Torn chains, so treat the link as unverified here.'
-                      }`}
                     >
-                      chain ×{r.chainLinks.length}{!r.chainConfident && '?'}
-                    </span>
+                      <div className="font-medium">{r.chainLinks.join(' → ')}</div>
+                      <div className="mt-1.5">
+                        Value and scope are for the whole chain.{' '}
+                        {r.chainConfident
+                          ? 'Confirmed from our own spawn history.'
+                          : 'Not yet observed in this faction — taken from known Torn chains, so treat the link as unverified here.'}
+                      </div>
+                    </InfoTooltip>
                   )}
                   {r.paysInItems && (
-                    <span className="ml-1.5 text-[10px] text-blue-600 dark:text-blue-400"
-                      title="Pays in items rather than cash — valued from our own completed runs at current prices">
-                      items
-                    </span>
+                    <InfoTooltip label="items" className="ml-1.5 text-[10px] text-blue-600 dark:text-blue-400">
+                      Pays in items rather than cash — valued from our own completed
+                      runs at current prices.
+                    </InfoTooltip>
                   )}
                   {/* ⚠️ An item we cannot price contributes nothing, so this
                       crime's value is an understatement, not an estimate. */}
                   {r.unpricedItemRows > 0 && (
-                    <span className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400"
-                      title={`${r.unpricedItemRows} item drop(s) have no market or sell price, so they count as zero — this crime is worth more than shown`}>
-                      under
-                    </span>
+                    <InfoTooltip label="under" className="ml-1.5 text-[10px] text-amber-600 dark:text-amber-400">
+                      {r.unpricedItemRows} item drop(s) have no market or sell price,
+                      so they count as zero — this crime is worth more than shown.
+                    </InfoTooltip>
                   )}
                 </td>
                 <td className="py-2 px-2 text-xs text-gray-500 dark:text-gray-400">{r.categoryLabel ?? '—'}</td>
@@ -211,12 +214,13 @@ export default function CrimeRankingTable({ scenarios, chains = [] }) {
                         <span className="text-gray-400 text-xs"> /{(r.breakEven * 100).toFixed(0)}</span>
                       )}
                       {r.chainedSuccess != null && (
-                        <span
+                        <InfoTooltip
+                          label={`${(r.chainedSuccess * 100).toFixed(0)}% end-to-end`}
                           className="block text-[10px] text-gray-400"
-                          title="Chance the whole chain completes — every link has to succeed for the scope to come back"
                         >
-                          {(r.chainedSuccess * 100).toFixed(0)}% end-to-end
-                        </span>
+                          Chance the whole chain completes — every link has to succeed
+                          for the scope to come back.
+                        </InfoTooltip>
                       )}
                     </span>
                   )}
@@ -230,11 +234,15 @@ export default function CrimeRankingTable({ scenarios, chains = [] }) {
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums">
                   {r.spawnsPerWeek == null ? <Unknown label="never run" /> : (
-                    <span className={r.spawnConfident ? '' : 'text-amber-600 dark:text-amber-400'}
-                      title={r.spawnConfident ? undefined : `Only ${r.spawnRuns} run${r.spawnRuns === 1 ? '' : 's'} on record — not a reliable rate`}>
-                      {r.spawnsPerWeek.toFixed(1)}
-                      {!r.spawnConfident && '?'}
-                    </span>
+                    <InfoTooltip
+                      label={`${r.spawnsPerWeek.toFixed(1)}${r.spawnConfident ? '' : '?'}`}
+                      decoration={r.spawnConfident ? 'no-underline' : undefined}
+                      className={r.spawnConfident ? '' : 'text-amber-600 dark:text-amber-400'}
+                    >
+                      {r.spawnConfident
+                        ? null
+                        : `Only ${r.spawnRuns} run${r.spawnRuns === 1 ? '' : 's'} on record — not a reliable rate.`}
+                    </InfoTooltip>
                   )}
                 </td>
                 <td className="py-2 px-2 text-right tabular-nums font-semibold">
@@ -257,5 +265,5 @@ export default function CrimeRankingTable({ scenarios, chains = [] }) {
 
 /** An em dash with a reason, never a zero. */
 function Unknown({ label = 'no data' }) {
-  return <span className="text-gray-400" title={label}>—</span>
+  return <InfoTooltip label="—" className="text-gray-400">{label}</InfoTooltip>
 }

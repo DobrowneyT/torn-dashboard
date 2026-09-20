@@ -18,6 +18,300 @@ surface it automatically.
 
 ---
 
+## [3.132.0] - 2026-09-20
+
+### Changed
+- **Scraper Jobs shows cadences in English, and edits them with a picker
+  (#756).** Slice 3 of 3 — the editor is now on the page.
+  - ⚠️ **The schedule cell is a reading surface, not a control.** It was an
+    always-live text input on every one of 19 rows, for a value changed maybe
+    twice a year, and it put raw six-field cron on screen — where
+    `*/5 * * * *` (five minutes) and `*/5 * * * * *` (five **seconds**) differ
+    by one character and a factor of sixty in Torn API traffic. It now reads
+    "Every 30 minutes"; the expression is one hover away. **Dropping the input
+    chrome makes the row shorter than it was**, so the editor that opens
+    underneath is not paid for out of the resting state.
+  - **The editor opens inline, one at a time** — not in a modal. ⚠️ An offset is
+    chosen *relative to the other jobs*, and a modal covers the table you are
+    choosing against.
+  - **New: a minute-occupancy strip** under the table, showing how crowded each
+    minute of the hour already is. `:00` is by far the busiest, which is exactly
+    the pile-up `crime-occupancy` sidesteps by living at `:30` — the strip turns
+    picking a quiet offset from guesswork into a glance.
+  - "Use default" is offered only where there **is** an override to revert;
+    without that guard the button would write null over null and read as a
+    no-op that did something.
+
+## [3.131.0] - 2026-09-20
+
+### Added
+- **`CronEditor` — the schedule sentence, as a component (#756).** Slice 2 of 3;
+  still not wired into a page, so nothing changes on screen yet.
+  A period dropdown plus chip rows for minutes, hours, days and **seconds**,
+  with the expression, the plain English and the next four fire times live
+  underneath.
+  - ⚠️ **It never rewrites a schedule it cannot say.** A cadence using a field
+    the sentence has no control for — a day-of-month, a range — opens straight
+    in a text box with the expression untouched and a note saying why. Rounding
+    it off to the nearest thing the picker can express would be worse than the
+    box it replaces, because it would look like it worked.
+  - ⚠️ **A chip row can never be emptied.** An empty minute list is not a
+    schedule: cron would reject it, the scheduler would fall back to the code
+    default, and the page would then show a cadence nobody chose.
+  - ⚠️ **"Use default" sends null, not the default's text.** Null means "follow
+    the fleet default" — a live instruction that keeps tracking it. Writing the
+    value back would pin the faction to whatever the default happened to be that
+    day (`scheduleResolution.ts`).
+  - A sub-minute cadence prints its own cost: picking a second second on an
+    every-minute job shows "≈ 2,880 Torn calls a day, per tenant — that is twice
+    a minute, on a shared key pool". Two clicks double a job's traffic on every
+    tenant at once, so the figure belongs on screen before Save rather than in
+    the key pool afterwards.
+
+## [3.130.0] - 2026-09-20
+
+### Added
+- **The schedule model behind a human-friendly cadence editor (#756).**
+  `utils/cronSentence.js` turns a cron expression into a *sentence* — "every
+  day", "at minutes 5 and 35" — and back again. Slice 1 of 3; no UI yet.
+  - ⚠️ **It always writes six fields.** `node-cron` reads a leading seconds
+    field when given six and standard cron has five, so `*/5 * * * *` is every
+    five *minutes* while `*/5 * * * * *` is every five *seconds* — a 12× jump in
+    Torn API traffic against a shared key pool, from one extra asterisk, with
+    nothing to reject it because both are valid. Emitting one shape removes the
+    whole class of mistake. Five-field values already in the column are read as
+    seconds-zero rather than refused.
+  - ⚠️ **Refusing to parse is a feature.** The sentence cannot say "the 1st of
+    the month" or "9–17", so `parseCron` returns null for those and the caller
+    falls back to a raw text box. Rounding a cadence off to something the editor
+    *can* say would be worse than the text box it replaces — the text box at
+    least fails loudly.
+  - The load-bearing test is a round trip over all 19 shipped schedules, checked
+    against `registerJobs.ts` itself rather than a transcription: a job that is
+    opened and closed untouched must write back the bytes it started with.
+    `crime-occupancy` keeps its `:30`.
+  - `minuteLoad` counts how crowded each minute of the hour already is — what an
+    admin is really choosing against when they pick an offset. ⚠️ Every-minute
+    jobs are counted separately, since one of them occupies all sixty and would
+    flatten the chart, hiding exactly the quiet minutes it exists to reveal.
+
+## [3.129.0] - 2026-09-19
+
+### Fixed
+- **The Fair Fight header's spacing fix never reached the file (#612
+  follow-up).** ⚠️ 3.128.0 claimed to rewrite both the Fair Fight and Revive %
+  column explanations as real paragraphs. The edit script did Fair Fight, threw
+  on Revive, and — writing only at the end — saved neither; the follow-up patch
+  then covered Revive alone. So Fair Fight kept its source-wrapped array the
+  whole time, with a paragraph gap through the middle of one sentence. Applied
+  for real, and verified in the file rather than in the intent.
+
+### Changed
+- **Torn user IDs render without grouping separators (MonChoon).** The Find
+  Target explanation said "4,200,001–4,300,000" for a range Torn itself always
+  shows bare. A second format for a number the reader already knows the shape of
+  is a small tax on every read; the gear popover's "Defaults:" line had it too.
+
+## [3.128.0] - 2026-09-19
+
+### Fixed
+- **Paragraph gaps landed mid-sentence in two tooltips (#612 follow-up).**
+  ⚠️ `tipLines` turns every `\n` into a paragraph break, so its input has to be
+  whole sentences. The Fair Fight and Revive % column explanations were arrays
+  of **source-code-wrapped lines** — a habit from the native `title`, which did
+  not wrap on its own — so "…only a stat total" / "was known for one side…" got
+  a paragraph gap through the middle of one sentence while the real wrapping
+  stayed tight. Both are written as actual paragraphs now, with the formulas as
+  a tight monospace block, which is the structure they always wanted.
+  `tipLines` passes non-strings straight through, so a caller with real
+  structure to express hands over JSX instead of pretending it is text.
+
+### Changed
+- **The battle-stats panel stops explaining what its own footer says
+  (MonChoon).** An own-key reading carried "Exact — read from this member's own
+  key", one sentence that widened the whole panel to repeat the solid emerald
+  underline beside it. Our own roster has exactly one exact source, so the
+  source token now reads **`API`** next to the enemy side's `TS` / `BSP` — three
+  short labels that read alike — and the sentence is gone.
+
+## [3.127.0] - 2026-09-16
+
+### Fixed
+- **Tooltip text ran outside its own box (#612 follow-up).** ⚠️ The panel paints
+  at fixed viewport coordinates but is still a **DOM descendant** of its
+  trigger, so it inherited from whatever it sat in. In the War Room that meant a
+  column header's `uppercase tracking-wide whitespace-nowrap`: the Fair Fight
+  explanation rendered in caps and **could not wrap**, so it overflowed the
+  rounded panel entirely. Table cells carry `whitespace-nowrap` too. The panel
+  now resets the typography it inherits — the same `text-left normal-case` the
+  old `group-hover` panel in PayoutManagement carried, for exactly this reason.
+- **Every tooltip was painted at the full 340px.** `PANEL_MAX` was being used as
+  a width rather than a cap, so a four-word tooltip was 340px of mostly empty
+  box, and the battle-stats breakdown went from a tidy ~150px table to a banner.
+  It is now a `max-width` over a shrink-to-fit panel, so each one is as wide as
+  its content needs and no wider. The right-edge clamp uses the **measured**
+  width, so a narrow panel no longer floats away from the cell it belongs to.
+
+### Changed
+- **Fewer, quieter tooltips in the War Room (#612 follow-up, MonChoon).**
+  - The member-name tooltip is **gone**: it repeated the text under the cursor,
+    on every row of a 100-row board.
+  - **Fair Fight** and **Revive %** are explained once in their column headers
+    and no longer per row. Both columns sit at the right-hand edge, where a
+    per-row panel had nowhere to open. The FF header absorbed what the cells
+    used to say, including what a dotted underline means — that mark stays on
+    the values, because "this one is an estimate" is the one thing a header
+    cannot say about an individual row.
+  - **Energy** and the three **cooldown** columns keep only what the header
+    cannot say: how stale the reading is, and whose key failed. The colour
+    legend was constant across every row.
+  - The revivable flags say **"Revivable"** / "Revivable by friends & faction
+    only" rather than a sentence. The glyph already implies a reviver; what
+    matters is the restriction.
+
+## [3.126.0] - 2026-09-16
+
+### Changed
+- **The last of the native tooltips are gone (#612).** Slice 6 — Competitions,
+  Inventory, the revive-services modal, the version chip, the calendar, the four
+  small `warroom/` widgets, Faction Settings, Global Admin and War History.
+  **There is now no `title` attribute on a DOM element anywhere in the app.**
+  - The revive-services modal was the densest remaining case: all six of its
+    field explanations sat on an `<input>` or `<select>`, including which JSON
+    key each service expects — the thing you actually need when wiring one up.
+  - Global Admin's schedule provenance ("this faction overrides the default")
+    moves onto the source pill, where it is visible rather than buried on the
+    input; the two truncated error columns now open their full text.
+  - Resolving a competition gets its own ⓘ, because the action is irreversible
+    and what it is about to do has to be readable *before* pressing it.
+  - ⚠️ `InfoTooltip` gained a `style` passthrough for the calendar's multi-day
+    band: the band is placed by inline `gridColumn`/`gridRow`, and once wrapped,
+    the **wrapper** is the grid item — leaving the placement on the child would
+    drop every band into the first cell of its row.
+
+## [3.125.0] - 2026-09-16
+
+### Changed
+- **War Room controls off native tooltips (#612).** Slice 5 — the toolbar, the
+  leadership config panel and the row action buttons, 30 sites. The desktop
+  table cells went in 3.122.0; this is everything around them.
+  - ⚠️ The seven leadership cadence settings had their explanation on the
+    `<input>` itself — the least useful place in the app for one. An `<input
+    title>` is unreachable on a touchscreen *and* invisible to a screen reader,
+    so text describing a control that costs real Torn API calls ("one call per
+    enrolled member per cycle") was effectively unwritten. Each now has a ⓘ on
+    its own label.
+  - Disabled reasons that are now tappable: Enable War Room and Update Spies
+    with no opponent faction ID set, the 3x FF filter with no stats on record,
+    the Revives button with no service configured, and an inert dibs badge.
+  - Find Target and Farm mode get their own ⓘ, since both buttons are live and a
+    single tap cannot both explain and activate.
+  - ⚠️ A disabled quick link was carrying its name in `aria-label` on a bare
+    `<span>`, which is not exposed to a screen reader at all — it had no
+    accessible name. It is now a wrapped tooltip with a real one.
+  - Deleted: seven `title`s duplicating an `aria-label`, the assist link's
+    "click to assist" (the button face reads "⚔ Assist {name}"), and the stats
+    filter's disabled reason, which already renders as visible text beside it.
+
+## [3.124.0] - 2026-09-16
+
+### Fixed
+- **War payouts: five column explanations were rendering nowhere at all (#612).**
+  `SortHeader` never accepted a `title` prop, so "War wins excluding war mugs",
+  "Mugs that happened during war hits" and three more were passed in and
+  silently dropped — not hidden on mobile, *absent*. They now render as a ⓘ
+  beside the column name.
+
+### Changed
+- **Payouts and Members pages off native tooltips (#612).** Slice 4 — 45 sites.
+  - The RW payout sheet's participation cells carried their arithmetic
+    (`12 war hits × 2.5`) in a `title`; that is now readable on a tap.
+  - `TimeCell`'s banked-time breakdown came off CSS-only `group-hover`. Like the
+    loadout shield, the ⚑ still rendered on a phone — announcing banked time
+    with no way to account for it.
+  - ⚠️ Anything that sorts on click gets its ⓘ wrapped in a `stopPropagation`
+    span, so reading a column's meaning never re-sorts the sheet underneath the
+    reader.
+  - ⚠️ `TierBadge`'s override marker became a wrap: it renders inside the
+    button that opens the CPR modal, where a nested button is invalid markup.
+  - Member Overview's two stat-filter inputs lose their duplicate `title` hints
+    in favour of one ⓘ on the "Stats" label.
+  - Deleted: the visitor-mode disabled reasons whose buttons already read "Save
+    disabled (visitor)" on their face, and six icon-only `title`s that were
+    accessible names (now `aria-label`).
+
+## [3.123.0] - 2026-09-16
+
+### Changed
+- **OC pages: the reward story is no longer hidden in a `title` (#612).**
+  Slice 3 of the native-tooltip sweep — the Simulator, the crime ranking table,
+  the Planner's feed queue, the Crimes page and the crime picker. 23 sites, and
+  the Simulator's endings list was the densest: the drop-by-drop item
+  breakdown, the observed payout range, the `n=` sample size, and the reasons an
+  ending is contested, starved or unmapped all lived in `title` text.
+  - ⚠️ The item breakdown keeps `whitespace-pre-wrap` rather than being folded
+    into paragraphs. `rewardTooltip` lays the drops out with indentation and
+    blank-line separators, and reflowing it would throw away structure that was
+    written deliberately — including the "could not price" line, which is what
+    stops the total reading as an estimate rather than a floor.
+  - "What matters?" gets a separate ⓘ instead of a wrapped tooltip: the button
+    is live, and one tap cannot both explain it and press it.
+  - ⚠️ `TierTag` had to become a wrap rather than a button trigger. It renders
+    inside the Crimes page's "coming out in 24h" pill, which is an `<a>` — a
+    button inside an anchor is invalid markup that still renders, and it would
+    have swallowed the link's tap. Same for the crime picker's "wip" tag, which
+    sits inside the row's select button.
+
+## [3.122.0] - 2026-09-16
+
+### Changed
+- **War Room: every explanation in the rows is now readable on a phone (#612).**
+  Slice 2 of the native-tooltip sweep — the table cells and the target cards,
+  where the `title` attribute failed hardest: mobile browsers show one on
+  neither tap nor long press, so on the mobile board *every* explanation was
+  unreachable on the only device that screen exists for.
+  - Desktop columns converted: travel ETA (all three states), Energy, the three
+    cooldowns, Revive %, Fair Fight, the OD badge, and the sortable column
+    headers. ⚠️ A column header's explanation gets its own ⓘ with
+    `stopPropagation` — the whole `<th>` sorts on click, so without it reading
+    the explanation would re-sort the board out from under the reader.
+  - Mobile cards converted: flag pills (each now also named for a screen
+    reader), the Fair Fight badge, the OD badge, and the disabled reasons on the
+    dibs button and the filter chips.
+  - ⚠️ On the Fair Fight cells the dotted underline is **not** the tooltip
+    affordance — it means "this is an estimate, only a stat total was known for
+    one side". Those pass `decoration` explicitly so the component's own dotted
+    mark cannot claim a second meaning for it.
+  - `BattleStatsCell` and `LoadoutShieldIcon` moved off CSS-only `group-hover`
+    onto the same component. The shield was the worse of the two: it still
+    rendered on mobile, advertising that a target's gear was known, with no way
+    to read it.
+  - Deleted rather than converted: `title`s that only repeated an existing
+    `aria-label` or the control's own visible label ("Back to desktop",
+    "tap to assist", the revive tile's state echo).
+
+## [3.121.0] - 2026-09-16
+
+### Changed
+- **InfoTooltip gained the trigger shapes the native-tooltip sweep needs (#612).**
+  The component could only render a `<button>` trigger with a fixed dotted
+  underline, which covers a label and nothing else. Three additions:
+  - a `decoration` prop, so a caller replaces the affordance instead of fighting
+    it. Passing `underline decoration-solid` through `className` put two
+    text-decoration utilities of equal specificity in one class list and let
+    Tailwind's generated order decide the winner — the War Room's flag glyphs
+    were relying on exactly that coin flip and now pass `decoration="no-underline"`.
+  - `wrap` mode, a `<span>` trigger that goes AROUND a control which has to stay
+    itself — a link, an input, a disabled button. Nesting a button in a button is
+    invalid and swallows the control's own click. ⚠️ A disabled control
+    dispatches no pointer events at all, so a wrapper around one never sees the
+    tap either; `.tip-wrap > :disabled { pointer-events: none }` hands those
+    events to the wrapper, which is the only reason a disabled-reason
+    explanation is readable on a phone.
+  - `InfoDot`, a small ⓘ that sits BESIDE an enabled control. Wrapping one would
+    force a single tap to choose between opening the panel and pressing the
+    button, and it has to press the button.
+
 ## [3.120.0] - 2026-09-15
 
 ### Added

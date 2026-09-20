@@ -66,6 +66,7 @@ import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
 import { isTourSeen, markTourSeen } from '../utils/warRoomTour'
 import HeadlineBanner from '../components/warroom/HeadlineBanner'
 import MemberNoteButton from '../components/warroom/MemberNoteButton'
+import InfoTooltip from '../components/InfoTooltip'
 import { isOverdosed } from '../utils/memberNotes'
 import { parseStatInput } from '../utils/statInput'
 import {
@@ -207,9 +208,14 @@ function TimerPill({ until, urgentBelow = 300 }) {
 
 function FlagPill({ Icon, color, title }) {
   return (
-    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 dark:bg-slate-700 ${color}`} title={title}>
-      <Icon size={12} />
-    </span>
+    <InfoTooltip
+      label={<Icon size={12} aria-hidden="true" />}
+      ariaLabel={title}
+      decoration="no-underline"
+      className={`inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 dark:bg-slate-700 ${color}`}
+    >
+      {title}
+    </InfoTooltip>
   )
 }
 
@@ -220,9 +226,7 @@ function FlagsRow({ flags, state, description }) {
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       {isFlying && (
-        <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-800" title="Flying">
-          <Plane size={12} />
-        </span>
+        <FlagPill Icon={Plane} color="bg-blue-100 text-blue-800" title="Flying" />
       )}
       {active.map(f => <FlagPill key={f.key} Icon={f.Icon} color={f.color} title={f.label} />)}
     </div>
@@ -249,10 +253,18 @@ function FairFightBadge({ mine, m }) {
 
   if (ff === null) {
     return (
-      <div className="text-right shrink-0" title="No battle stats for this target yet.">
-        <div className="font-mono text-[15px] font-bold leading-none text-gray-400">—</div>
-        <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">FF</div>
-      </div>
+      <InfoTooltip
+        label={
+          <span className="block text-right">
+            <span className="block font-mono text-[15px] font-bold leading-none text-gray-400">—</span>
+            <span className="block text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">FF</span>
+          </span>
+        }
+        decoration="no-underline"
+        className="shrink-0"
+      >
+        No battle stats for this target yet.
+      </InfoTooltip>
     )
   }
 
@@ -264,26 +276,33 @@ function FairFightBadge({ mine, m }) {
   const hue = Math.round(120 * ffGradientPosition(ff))
 
   return (
-    <div
-      className="text-right shrink-0"
-      title={[
-        `Fair Fight ${formatFF(ff)} — your respect multiplier against this target.`,
-        isMaxFF(ff) ? 'At the 3.00 cap: full respect.' : '',
-        estimated
-          ? 'Estimated: only a stat total is known for one side, so an even split was assumed. The real FF may be lower.'
-          : 'From a full stat breakdown on both sides.',
-      ].filter(Boolean).join('\n')}
+    <InfoTooltip
+      label={
+        <span className="block text-right">
+          <span
+            style={{ '--grad-hue': hue }}
+            className={`hue-grad block font-mono text-[15px] font-bold leading-none tabular-nums ${
+              estimated ? 'underline decoration-dotted decoration-from-font' : ''
+            }`}
+          >
+            {formatFF(ff)}
+          </span>
+          <span className="block text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">FF</span>
+        </span>
+      }
+      // The dotted underline on the number means "estimate", so the component's
+      // own affordance would be a second, conflicting meaning for the same mark.
+      decoration="no-underline"
+      className="shrink-0"
     >
-      <div
-        style={{ '--grad-hue': hue }}
-        className={`hue-grad font-mono text-[15px] font-bold leading-none tabular-nums ${
-          estimated ? 'underline decoration-dotted decoration-from-font' : ''
-        }`}
-      >
-        {formatFF(ff)}
+      <div>Fair Fight {formatFF(ff)} — your respect multiplier against this target.</div>
+      {isMaxFF(ff) && <div className="mt-1.5">At the 3.00 cap: full respect.</div>}
+      <div className="mt-1.5">
+        {estimated
+          ? 'Estimated: only a stat total is known for one side, so an even split was assumed. The real FF may be lower.'
+          : 'From a full stat breakdown on both sides.'}
       </div>
-      <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">FF</div>
-    </div>
+    </InfoTooltip>
   )
 }
 
@@ -345,7 +364,11 @@ function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, 
             <span>·</span>
             <span>Lv{m.level}</span>
             {m.overdosed && (
-              <span title="Overdosed" className="px-1 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold">OD</span>
+              <InfoTooltip
+                label="OD"
+                decoration="no-underline"
+                className="px-1 rounded bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300 text-[10px] font-semibold"
+              >Overdosed</InfoTooltip>
             )}
             <MemberNoteButton
               memberId={m.id}
@@ -440,10 +463,16 @@ function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, 
 
       {/* Row 4 — actions, side-by-side */}
       <div className="flex gap-2">
+        <InfoTooltip
+          wrap
+          className="flex-1"
+          // Only the reasons it is UNPRESSABLE need a way in. "Press to release
+          // your dib" just restated the button's own label, and a tooltip on a
+          // live button would have to steal the tap to show it.
+          label={
         <button
           onClick={() => isMyDib ? onRelease(m.id) : onClaim(m.id)}
           disabled={claimedByOther || isPending}
-          title={claimedByOther ? `Claimed by ${dib.claimedName}` : isPending ? 'Waiting for server confirmation…' : isMyDib ? 'Press to release your dib' : undefined}
           className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] border inline-flex items-center justify-center gap-1.5 transition-colors ${
             claimedByOther
               ? 'bg-gray-200 text-gray-400 border-gray-200 cursor-not-allowed dark:bg-slate-700 dark:text-slate-500 dark:border-slate-700'
@@ -466,6 +495,12 @@ function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, 
             'Dibs'
           )}
         </button>
+          }
+        >
+          {claimedByOther ? `Claimed by ${dib.claimedName}`
+            : isPending ? 'Waiting for server confirmation…'
+            : null}
+        </InfoTooltip>
         {/* Attack — 3 states (priority order):
               1. Green Attack: target is Online AND Okay (overrides dibs —
                  a fresh-kill window shouldn't be locked behind a claim).
@@ -480,13 +515,13 @@ function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, 
             : showAssist
               ? 'bg-blue-600 hover:bg-blue-700 text-white'
               : 'bg-red-600 hover:bg-red-700 text-white'
+          // No tooltip: the assist state already says "Assist {name}" on the
+          // button face, and "tap to assist" only restated it (#612).
           const label = showAssist ? `Assist ${dib.claimedName}` : 'Attack'
-          const title = showAssist ? `${dib.claimedName} called dibs — tap to assist` : undefined
           return (
             <a
               href={`https://www.torn.com/page.php?sid=attack&user2ID=${m.id}`}
               target="_blank" rel="noopener noreferrer"
-              title={title}
               className={`flex-1 min-h-[40px] rounded-lg px-3 font-semibold text-[13px] inline-flex items-center justify-center gap-1.5 no-underline ${colorClass}`}
             >
               <Swords size={15} />
@@ -591,7 +626,7 @@ function HeaderBar({ factionLabel, isActive, paused, isLeadership, activeFilterC
       </button>
 
       {onClose && (
-        <button onClick={onClose} aria-label="Exit mobile view" title="Back to desktop" className="w-9 h-9 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 inline-flex items-center justify-center flex-shrink-0">
+        <button onClick={onClose} aria-label="Exit mobile view" className="w-9 h-9 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 inline-flex items-center justify-center flex-shrink-0">
           <X size={18} />
         </button>
       )}
@@ -714,7 +749,7 @@ function ReviveQuickLinkTile({ serviceName, serviceUrl, onRequestRevive, tileBas
     : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900 text-gray-700 dark:text-gray-300 active:bg-gray-100 dark:active:bg-slate-800'
 
   return (
-    <button type="button" onClick={handleClick} disabled={disabled} title={title} aria-label={baseLabel} className={`${tileBase} ${stateClasses}`}>
+    <button type="button" onClick={handleClick} disabled={disabled} aria-label={title} className={`${tileBase} ${stateClasses}`}>
       <HeartPulse size={18} />
       {busy ? '…' : feedback ? feedback.text : 'Revives'}
     </button>
@@ -729,11 +764,14 @@ function TwoTierFilters({
   advancedCount, onOpenAdvanced,
 }) {
   const chip = (label, active, onClick, activeClass = 'bg-blue-600 text-white border-blue-600', opts = {}) => (
-    <button
+    <InfoTooltip
       key={label}
+      wrap
+      className="flex-shrink-0"
+      label={
+    <button
       onClick={onClick}
       disabled={opts.disabled}
-      title={opts.title}
       className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border ${
         active
           ? activeClass
@@ -742,6 +780,10 @@ function TwoTierFilters({
     >
       {label}
     </button>
+      }
+    >
+      {opts.title ?? null}
+    </InfoTooltip>
   )
   return (
     <div className="px-3 py-2 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex gap-1.5 overflow-x-auto whitespace-nowrap items-center scrollbar-hide">

@@ -54,7 +54,7 @@ export default function VersionChip({ servingVersion, variant = 'header' }) {
     return (
       <button
         onClick={handleClick}
-        title={label.title}
+        aria-label={label.title}
         className={`w-full text-left px-4 py-2 text-xs font-mono select-text ${base}`}
       >
         {copied ? 'Copied' : label.copyText}
@@ -65,7 +65,6 @@ export default function VersionChip({ servingVersion, variant = 'header' }) {
   return (
     <button
       onClick={handleClick}
-      title={label.title}
       aria-label={label.title}
       // select-text, deliberately: if the point is bug reports, it has to be
       // highlightable as well as clickable.

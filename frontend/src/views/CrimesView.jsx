@@ -10,6 +10,7 @@ import {
   CRIME_STATUS_OPTIONS
 } from '../utils/crimeStatusUtils'
 import { config } from '../config'
+import InfoTooltip from '../components/InfoTooltip'
 
 export default function CrimesView({ crimesData, isLeadership }) {
   const { user } = useAuth()
@@ -462,13 +463,20 @@ const TIER_COLORS = { 0: 'bg-tier-review', 1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'b
 
 function TierTag({ tier }) {
   if (tier == null) return null
+  // ⚠️ `wrap`, not the default button trigger: this tag renders inside the
+  // "coming out in 24h" pill, which is an <a>. A button inside an anchor is
+  // invalid markup that still renders, and it would swallow the link's tap.
   return (
-    <span
-      title={`Faction tier ${tier}`}
-      className={`text-[10px] leading-none px-1.5 py-0.5 rounded text-white font-semibold ${TIER_COLORS[tier] ?? 'bg-tier-review'}`}
+    <InfoTooltip
+      wrap
+      label={
+        <span className={`text-[10px] leading-none px-1.5 py-0.5 rounded text-white font-semibold ${TIER_COLORS[tier] ?? 'bg-tier-review'}`}>
+          T{tier}
+        </span>
+      }
     >
-      T{tier}
-    </span>
+      Faction tier {tier}
+    </InfoTooltip>
   )
 }
 
@@ -717,8 +725,10 @@ function CurrentCrimesPanel({ memberId }) {
                     const secs = f.readyAt - now
                     const ready = secs <= 0
                     return (
-                      <a key={i} href={crimeUrl(f.crimeId)} target="_blank" rel="noreferrer"
-                        title={`${f.crimeName} — ${f.position}`}
+                      // wrap, not a trigger of its own: the pill IS a link to
+                      // the crime, and a tap has to follow it.
+                      <InfoTooltip key={i} wrap label={
+                      <a href={crimeUrl(f.crimeId)} target="_blank" rel="noreferrer"
                         className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 hover:brightness-95">
                         <span className="font-medium text-gray-700 dark:text-gray-300">{memberNames[f.id] || `#${f.id}`}</span>
                         <TierTag tier={memberTiers[f.id]} />
@@ -726,6 +736,10 @@ function CurrentCrimesPanel({ memberId }) {
                           {ready ? 'ready' : formatCountdown(secs)}
                         </span>
                       </a>
+                      }>
+                        <div className="font-medium">{f.crimeName}</div>
+                        <div className="mt-1.5">{f.position}</div>
+                      </InfoTooltip>
                     )
                   })}
                 </div>

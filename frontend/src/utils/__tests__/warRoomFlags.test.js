@@ -101,8 +101,13 @@ describe('memberFlags', () => {
     const friends = memberFlags({ is_revivable: true, revive_setting: REVIVE_FRIENDS })[0]
     expect(anyone.key).toBe('revive-anyone')
     expect(friends.key).toBe('revive-friends')
-    expect(anyone.title).toMatch(/hired reviver can/i)
-    expect(friends.title).toMatch(/cannot/i)
+    // The labels were trimmed to the fact itself (MonChoon, 2026-09-16) — the
+    // glyph already implies a reviver is involved, so the sentence explaining
+    // that was padding. What must survive is the RESTRICTION: paying an outside
+    // reviver for a friends-only target buys nothing.
+    expect(anyone.title).toBe('Revivable')
+    expect(friends.title).toMatch(/friends & faction only/i)
+    expect(friends.title).not.toBe(anyone.title)
     expect(anyone.tone).not.toBe(friends.tone)
   })
 

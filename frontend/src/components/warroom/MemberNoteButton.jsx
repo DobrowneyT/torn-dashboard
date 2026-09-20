@@ -62,7 +62,6 @@ export default function MemberNoteButton({ memberId, memberName, note = '', canE
       <button
         type="button"
         onClick={onPencilClick}
-        title={canEdit ? (hasNote ? 'Click to edit note' : 'Add a note') : (hasNote ? 'Member note' : '')}
         aria-label={canEdit ? 'Edit member note' : 'View member note'}
         className={`p-1 rounded ${hasNote
           ? 'text-amber-500 hover:text-amber-600'

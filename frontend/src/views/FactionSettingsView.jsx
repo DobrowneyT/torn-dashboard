@@ -7,6 +7,7 @@ import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient'
 import { PAYOUT_MODES, DEFAULT_PAYOUT_MODE } from '../utils/payoutCalculations'
 import { CheckCircle2, AlertTriangle, Trash2, Loader2, Image as ImageIcon } from 'lucide-react'
+import InfoTooltip from '../components/InfoTooltip'
 
 // Read a picked file as a data: URL (base64) for the branding upload endpoint.
 function fileToDataUrl(file) {
@@ -209,16 +210,17 @@ function RolesSection({ readOnly }) {
                   <td className="py-2 pr-4">
                     <span className="inline-flex flex-wrap gap-1.5">
                       {m.grants.map((g) => (
-                        <span key={g.role} title={g.granted_by ? `granted by ${g.granted_by}` : undefined}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs capitalize bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
+                        <InfoTooltip key={g.role} wrap label={
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs capitalize bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">
                           {g.role}
                           {!readOnly && (
-                            <button onClick={() => revoke(m.torn_user_id, g.role)} title={`Revoke ${g.role}`}
+                            <button onClick={() => revoke(m.torn_user_id, g.role)} aria-label={`Revoke ${g.role}`}
                               className="text-blue-400 hover:text-red-500 dark:hover:text-red-400 leading-none">
                               ×
                             </button>
                           )}
                         </span>
+                        }>{g.granted_by ? `Granted by ${g.granted_by}` : null}</InfoTooltip>
                       ))}
                     </span>
                   </td>
