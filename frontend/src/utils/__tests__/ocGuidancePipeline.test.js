@@ -142,7 +142,7 @@ describe('computeGuidance', () => {
   })
 
   it('carries the assumptions through to the table', async () => {
-    const out = await run({ gap: 0.5, gapIsAssumed: true })
+    const out = await run({ slackPerSeat: 0.5, slackIsAssumed: true })
     expect(out.guidance.assumptions.some((a) => /12h/.test(a))).toBe(true)
     expect(out.guidance.assumptions.some((a) => /40/.test(a))).toBe(true)
   })

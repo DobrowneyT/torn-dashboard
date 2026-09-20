@@ -4,7 +4,7 @@
 // to compare crimes with different role counts: a bigger crime ties up more
 // people for longer, so a raw E(X) comparison silently favours it.
 import { describe, expect, it } from 'vitest'
-import { personDays, perPersonPerDay, GAP_DEFAULT_DAYS, GAP_MAX_DAYS } from '../ocPersonDays'
+import { personDays, perPersonPerDay, SLACK_DEFAULT_DAYS, SLACK_MAX_DAYS } from '../ocPersonDays'
 
 /**
  * Independent reference: walk the actual join schedule and sum the locks.
@@ -42,7 +42,7 @@ describe('personDays', () => {
     // The absolute ceiling is n members × n days. A formula that can pass it is
     // charging for time nobody spent.
     for (const n of [2, 3, 4, 5, 6]) {
-      expect(personDays(n, GAP_MAX_DAYS)).toBeLessThanOrEqual(n * n)
+      expect(personDays(n, SLACK_MAX_DAYS)).toBeLessThanOrEqual(n * n)
     }
   })
 
@@ -54,7 +54,7 @@ describe('personDays', () => {
 
   it('⚠️ clamps the gap to [0, 24h] rather than trusting a caller', () => {
     // A gap above 24h would mean a joiner arriving before the previous one did.
-    expect(personDays(6, 5)).toBe(personDays(6, GAP_MAX_DAYS))
+    expect(personDays(6, 5)).toBe(personDays(6, SLACK_MAX_DAYS))
     expect(personDays(6, -3)).toBe(personDays(6, 0))
   })
 
@@ -134,18 +134,18 @@ describe('perPersonPerDay', () => {
   })
 
   it('defaults the gap to 12h and says so', () => {
-    expect(GAP_DEFAULT_DAYS).toBe(0.5)
+    expect(SLACK_DEFAULT_DAYS).toBe(0.5)
     const out = perPersonPerDay({ ...base, crews: 1 })
-    expect(out.gap).toBe(0.5)
-    expect(out.gapIsAssumed).toBe(true)
-    expect(perPersonPerDay({ ...base, crews: 1, gap: 0.25 }).gapIsAssumed).toBe(false)
+    expect(out.slackPerSeat).toBe(0.5)
+    expect(out.slackIsAssumed).toBe(true)
+    expect(perPersonPerDay({ ...base, crews: 1, slackPerSeat: 0.25 }).slackIsAssumed).toBe(false)
   })
 
   it('⚠️ the gap assumption moves the answer by ~22% across its range', () => {
     // Why #687 exists: `g` is faction behaviour, not a game rule, and every
     // threshold the algorithm produces inherits it.
-    const floor = perPersonPerDay({ ...base, crews: 1, gap: 0 }).perParticipant
-    const ceiling = perPersonPerDay({ ...base, crews: 1, gap: 1 }).perParticipant
+    const floor = perPersonPerDay({ ...base, crews: 1, slackPerSeat: 0 }).perParticipant
+    const ceiling = perPersonPerDay({ ...base, crews: 1, slackPerSeat: 1 }).perParticipant
     expect(floor / ceiling).toBeCloseTo(26 / 21, 6)
     expect(floor / ceiling).toBeGreaterThan(1.2)
   })

@@ -68,7 +68,7 @@ export function publishGuidance({
   chosen, ceiling = {}, readings = {}, crews = null,
   carryWeightMax = CARRY_MAX, expectedBlend = EXPECTED_BLEND,
   nearMissWithin = 0, values = null,
-  gap = null, gapIsAssumed = false, rosterSize = null, generatedAt = null,
+  slackPerSeat = null, slackIsAssumed = false, rosterSize = null, generatedAt = null,
 } = {}) {
   const empty = { scenarioName, publishable: false, roles: [], value: { floor: null, expected: null, uplift: null }, assumptions: [] }
   if (!chosen || positionIds.length === 0) return { ...empty, reason: 'no-chosen-vector' }
@@ -194,9 +194,14 @@ export function publishGuidance({
   const vExpected = num(values?.expected?.expectedValue)
 
   const assumptions = []
-  if (gap !== null) {
+  if (slackPerSeat !== null) {
+    // ⚠️ "Join gap of 12h between members" until #744, which is the opposite of
+    // what happens: members sit down EARLY, not late. The old wording sent a
+    // reader looking for a way to fill faster; the real lever is to stop taking
+    // a seat before it is needed.
     assumptions.push(
-      `Join gap of ${Math.round(gap * 24)}h between members${gapIsAssumed ? ' — assumed, not measured (#687)' : ''}.`
+      `Each seat after the first held ${Math.round(slackPerSeat * 24)}h beyond its schedule`
+      + `${slackIsAssumed ? ' — assumed, not measured (#687)' : ' — measured (#687)'}.`
     )
   }
   if (rosterSize !== null) {

@@ -151,7 +151,7 @@ export default function OCSimulatorView() {
         call: (name, parameters) =>
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
         days: 30, spawnsPerDay: 4,
-        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
+        slackPerSeat: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
         spawns,
       }))
     } catch {
@@ -417,8 +417,8 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], joinGap =
         // ⚠️ Measured where we have the history, assumed where we do not — and
         // the table says which, because "we measured 12h" and "we assumed 12h"
         // are different claims (#687).
-        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
-        gapIsAssumed: !joinGap?.measured,
+        slackPerSeat: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
+        slackIsAssumed: !joinGap?.measured,
         // #713: a chain ROOT pays nothing itself, so it is valued at the whole
         // chain. Without these it would be refused — and it is the crime
         // members actually join.

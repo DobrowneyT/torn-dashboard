@@ -74,7 +74,7 @@ export function makeProbe({ scenario, call }) {
 
 export async function computeGuidance({
   scenario, rosterCpr, category, call,
-  gap = null, gapIsAssumed = false, expectedBlend, nearMissWithin = 3,
+  slackPerSeat = null, slackIsAssumed = false, expectedBlend, nearMissWithin = 3,
   incumbent = null, maxCandidates, now = () => new Date().toISOString(),
   // Needed only for a chain root — see below.
   scenarios = [], chains = [], categoryOf = null, chainCpr = null,
@@ -217,7 +217,7 @@ export async function computeGuidance({
 
   // Slice 4 — descend from the ceiling.
   const search = await searchThresholds({
-    readings, positionIds, rosterSize, category, probe, weights, gap, incumbent, maxCandidates,
+    readings, positionIds, rosterSize, category, probe, weights, slackPerSeat, incumbent, maxCandidates,
   })
   if (!search.chosen) return fail(search.reason ?? 'no-expected-value', { ceiling, probeCalls, search })
 
@@ -229,7 +229,7 @@ export async function computeGuidance({
     scenarioName: scenario.name, positionIds, roleNames, weights,
     chosen: search.chosen.vector, ceiling: ceiling.vector, readings,
     crews: search.chosen.crews,
-    expectedBlend, nearMissWithin, gap, gapIsAssumed, rosterSize,
+    expectedBlend, nearMissWithin, slackPerSeat, slackIsAssumed, rosterSize,
   })
   const expectedVector = Object.fromEntries(draft.roles.map((r) => [r.positionId, r.expected]))
   const expectedValueAtCrew = await probe(expectedVector)
@@ -238,7 +238,7 @@ export async function computeGuidance({
     scenarioName: scenario.name, positionIds, roleNames, weights,
     chosen: search.chosen.vector, ceiling: ceiling.vector, readings,
     crews: search.chosen.crews,
-    expectedBlend, nearMissWithin, gap, gapIsAssumed, rosterSize,
+    expectedBlend, nearMissWithin, slackPerSeat, slackIsAssumed, rosterSize,
     generatedAt: now(),
     values: {
       floor: { expectedValue: search.chosen.expectedValue },
