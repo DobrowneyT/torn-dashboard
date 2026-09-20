@@ -18,6 +18,30 @@ surface it automatically.
 
 ---
 
+## [3.132.0] - 2026-09-20
+
+### Changed
+- **Scraper Jobs shows cadences in English, and edits them with a picker
+  (#756).** Slice 3 of 3 — the editor is now on the page.
+  - ⚠️ **The schedule cell is a reading surface, not a control.** It was an
+    always-live text input on every one of 19 rows, for a value changed maybe
+    twice a year, and it put raw six-field cron on screen — where
+    `*/5 * * * *` (five minutes) and `*/5 * * * * *` (five **seconds**) differ
+    by one character and a factor of sixty in Torn API traffic. It now reads
+    "Every 30 minutes"; the expression is one hover away. **Dropping the input
+    chrome makes the row shorter than it was**, so the editor that opens
+    underneath is not paid for out of the resting state.
+  - **The editor opens inline, one at a time** — not in a modal. ⚠️ An offset is
+    chosen *relative to the other jobs*, and a modal covers the table you are
+    choosing against.
+  - **New: a minute-occupancy strip** under the table, showing how crowded each
+    minute of the hour already is. `:00` is by far the busiest, which is exactly
+    the pile-up `crime-occupancy` sidesteps by living at `:30` — the strip turns
+    picking a quiet offset from guesswork into a glance.
+  - "Use default" is offered only where there **is** an override to revert;
+    without that guard the button would write null over null and read as a
+    no-op that did something.
+
 ## [3.131.0] - 2026-09-20
 
 ### Added
