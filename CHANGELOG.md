@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.132.1] - 2026-09-20
+
+### Fixed
+- **CI's Compose job raced itself for a host port.** ⚠️ PR #746 failed with
+  `failed to bind host port 0.0.0.0:36580/tcp: address already in use` during a
+  run of back-to-back merges — not a code failure, and an error that looks
+  nothing like its cause. The workflow picked a random port and checked it with
+  `ss`, then spent minutes building images before Compose actually bound it: a
+  time-of-check/time-of-use window a concurrent run can walk straight into. The
+  same code also let both services draw the **same** port, since neither was
+  bound when either was checked.
+  Both host ports are now published as `0`, so the kernel assigns them **at bind
+  time** and there is no reservation to lose; `docker compose port` reports what
+  was actually handed out. ⚠️ The Postgres port reaches `new-faction.mjs` as an
+  exported `PGPORT` rather than being written back into `deploy/.env` — that
+  file is the container's published-port config, and rewriting it mid-run would
+  have the next `compose up` want to recreate the very database the step had
+  just provisioned into.
+
 ## [3.132.0] - 2026-09-20
 
 ### Changed

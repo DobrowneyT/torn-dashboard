@@ -70,37 +70,52 @@ jobs:
     - name: Configure compose environment
       run: |
         set -euo pipefail
-        cp deploy/.env.example deploy/.env
         # Isolated from BOTH the runner's own defaults AND production's real
         # ports (production listens on 5432/8088 on this same host) — a
         # plain "avoid the runner's defaults" comment stopped being enough
         # the moment this started running on the production box itself.
         #
-        # ⚠️ Allocated at RUN TIME rather than hardcoded, for the same reason
-        # the project name is: two concurrent runs on fixed ports collide, and
-        # the second fails to bind with an error that looks nothing like its
-        # cause. Picked from a wide range and checked against what is actually
-        # listening, so a run also cannot collide with production or staging.
-        pick_port() {
-          local p
-          while :; do
-            p=$(shuf -i 20000-60000 -n 1)
-            ss -ltn "( sport = :$p )" | grep -q LISTEN || { echo "$p"; return; }
-          done
-        }
-        PG_PORT=$(pick_port)
-        WEB_PORT=$(pick_port)
-        echo "POSTGRES_HOST_PORT=$PG_PORT" >> deploy/.env
-        echo "HTTP_PORT=$WEB_PORT" >> deploy/.env
-        # Later steps curl the stack; they need the port this run actually got.
-        echo "CI_HTTP_PORT=$WEB_PORT" >> "$GITHUB_ENV"
-        echo "project $COMPOSE_PROJECT_NAME  pg:$PG_PORT  http:$WEB_PORT"
+        # ⚠️ Port 0 means "kernel, pick a free one AT BIND TIME", and that
+        # timing is the whole point. This used to shuf a port and check it with
+        # `ss` — which is a time-of-check/time-of-use race: the check passes,
+        # then minutes of image building go by before compose actually binds,
+        # and a concurrent run can take the port in between. PR #746 failed
+        # exactly that way ("failed to bind host port 0.0.0.0:36580/tcp:
+        # address already in use") during a run of back-to-back merges, and the
+        # error looks nothing like its cause. The old code could also hand the
+        # SAME port to both services, since neither was bound when either was
+        # checked. There is no window left to lose now: nothing is reserved,
+        # and `docker compose port` reports what was actually assigned.
+        cp deploy/.env.example deploy/.env
+        echo "POSTGRES_HOST_PORT=0" >> deploy/.env
+        echo "HTTP_PORT=0" >> deploy/.env
+        echo "project $COMPOSE_PROJECT_NAME  ports: kernel-assigned"
 
     - name: Build images
       run: docker compose -f deploy/docker-compose.yml --project-directory deploy build
 
     - name: Boot the shared services
       run: docker compose -f deploy/docker-compose.yml --project-directory deploy up -d --wait postgres nginx
+
+    # ⚠️ AFTER the bind, never before — that ordering is the fix. `port` reports
+    # what the kernel actually handed out, so there is no reservation to lose
+    # and no window in which another run can take it.
+    - name: Record the ports the kernel assigned
+      run: |
+        set -euo pipefail
+        compose() { docker compose -f deploy/docker-compose.yml --project-directory deploy "$@"; }
+        WEB_PORT=$(compose port nginx 80 | head -1 | sed 's/.*://')
+        PG_PORT=$(compose port postgres 5432 | head -1 | sed 's/.*://')
+        test -n "$WEB_PORT" && test -n "$PG_PORT"
+        echo "CI_HTTP_PORT=$WEB_PORT" >> "$GITHUB_ENV"
+        # ⚠️ PGPORT in the ENVIRONMENT, not back into deploy/.env. new-faction.mjs
+        # runs on the host and reads POSTGRES_HOST_PORT from that file, but it
+        # uses `??=`, so an exported PGPORT wins. Rewriting the file instead
+        # would change postgres's published-port config mid-run, and the next
+        # `compose up` would want to recreate the container we just provisioned
+        # into.
+        echo "PGPORT=$PG_PORT" >> "$GITHUB_ENV"
+        echo "nginx on $WEB_PORT  postgres on $PG_PORT"
 
     # Every faction (forge included) is a module: this IS the production
     # runbook, exercised end-to-end on every PR.
