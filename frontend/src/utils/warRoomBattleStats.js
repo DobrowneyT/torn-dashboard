@@ -33,10 +33,14 @@ export function indexBattleStats(rows = []) {
  * "BSP" understates it, and presenting a prediction as exact would have a lead
  * size up a target against a number that was never measured.
  *
+ * "API" rather than "OWN" (MonChoon, 2026-09-19): three short tokens that read
+ * alike is the whole explanation, and it stops the panel widening to carry a
+ * sentence saying the same thing.
+ *
  * Unknown sources fall back to the weakest claim rather than the strongest —
  * enemy rows carry no `source` at all, and under-claiming is the safe error.
  */
-const SOURCE_LABEL = { torn: 'OWN', tornstats: 'TS', bsp: 'BSP' }
+const SOURCE_LABEL = { torn: 'API', tornstats: 'TS', bsp: 'BSP' }
 
 export function statsSourceLabel(source) {
   return SOURCE_LABEL[source] ?? 'BSP'

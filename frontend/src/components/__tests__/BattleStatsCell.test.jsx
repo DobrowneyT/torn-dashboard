@@ -41,13 +41,16 @@ describe('BattleStatsCell', () => {
     expect(panel.textContent).toContain('Total')
   })
 
-  it('⚠️ marks an own-key reading as exact, in the underline and in the panel', () => {
+  it('⚠️ marks an own-key reading as exact, in the underline and in the source token', () => {
+    // The sentence that used to say this was dropped (MonChoon, 2026-09-19): it
+    // widened the panel to repeat what the solid underline and a three-letter
+    // source token already carry. Both of those must therefore still be right.
     render(<BattleStatsCell member={{ ...BASE, spy_source: 'torn' }} />)
     const cls = screen.getByRole('button').className
     expect(cls).toContain('decoration-solid')
     expect(cls).not.toContain('decoration-dotted')
     open()
-    expect(screen.getByRole('tooltip').textContent).toContain('own key')
+    expect(screen.getByRole('tooltip').textContent).toContain('(API)')
   })
 
   it('⚠️ leaves an estimate dotted, and never claims it is exact', () => {
@@ -55,7 +58,9 @@ describe('BattleStatsCell', () => {
     render(<BattleStatsCell member={{ ...BASE, spy_source: 'tornstats', ts_spy_at: new Date().toISOString() }} />)
     expect(screen.getByRole('button').className).toContain('decoration-dotted')
     open()
-    expect(screen.getByRole('tooltip').textContent).not.toContain('own key')
+    const panel = screen.getByRole('tooltip').textContent
+    expect(panel).toContain('(TS)')
+    expect(panel).not.toContain('(API)')
   })
 
   it('still shows a total when the source carries no per-stat breakdown', () => {

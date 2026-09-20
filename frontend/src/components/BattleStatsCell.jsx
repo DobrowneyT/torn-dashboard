@@ -81,11 +81,6 @@ export default function BattleStatsCell({ member: m }) {
       className="font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold"
     >
       <div className="min-w-[150px]">
-        {isExact && (
-          <div className="mb-1.5 text-emerald-600 dark:text-emerald-400">
-            Exact — read from this member&apos;s own key.
-          </div>
-        )}
         {rows.length > 0 ? (
           <table className="font-mono w-full">
             <tbody>
