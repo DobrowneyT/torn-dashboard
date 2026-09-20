@@ -18,6 +18,40 @@ surface it automatically.
 
 ---
 
+## [3.133.0] - 2026-09-20
+
+### Added
+- **Seat timing: when members actually sit down, against when the seat is
+  needed (#744).** Slice 1 — the measurement and its endpoint; no UI yet.
+  - ⚠️ #687's `g` conflates two mechanisms — members queueing up at the front of
+    a crime, and the crime itself running long — and **only the first is
+    something a faction can change tomorrow**. One number cannot separate them:
+    tnl's wall-clock excess is *larger* than forge's while its person-day excess
+    is far smaller. This measures the seating on its own.
+  - A crime completes `24h × n` after the first join and all slots are open from
+    the start, so seat `s` is not needed until hour `24 × (s − 1)`. capacityx
+    takes its sixth seat at hour 65 for a slot not needed until 120 — 55 hours
+    of lock-in that buys nothing, because a member cannot be in two organized
+    crimes at once.
+  - ⚠️ **Early and late are reported separately, never netted.** tnl is the case
+    that shows why: seats 2 and 6 are 11.3h early between them and the rest are
+    8.7h late, so a signed sum calls the whole thing 2.6h and reports a faction
+    as nearly fine when it is not.
+  - ⚠️ Seat 1 is never counted early — that join *starts* the clock, so there is
+    no earlier hour it could have been taken.
+  - ⚠️ Seat order comes from `joined_at`, and the baseline is `min(joined_at)`
+    over the crime's own slots rather than `planning_at` or `created_at`.
+    Measuring from `created_at` reports recruitment lag instead, which is the
+    mistake an earlier draft of #744 made.
+
+### Fixed
+- **#744 contradicted itself and has been corrected.** It carried both a
+  "pausing IS real" correction and the first draft's "not pausing,
+  `ready_at → executed_at` is 0.0h median" claim that the correction refutes.
+  The stale section is rewritten: pausing is real, it lives in
+  `planning → ready`, and the 0.0h median was a useless statistic on a
+  long-tailed distribution rather than a wrong one.
+
 ## [3.132.1] - 2026-09-20
 
 ### Fixed
