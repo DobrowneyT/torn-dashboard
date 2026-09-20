@@ -18,6 +18,32 @@ surface it automatically.
 
 ---
 
+## [3.134.0] - 2026-09-20
+
+### Changed
+- **`g` was never a "join gap" — renamed to `slackPerSeat`, and the published
+  guidance now says the right thing (#744).** Slice 2.
+  - ⚠️ **The published wording was backwards.** The guidance table said
+    *"Join gap of 12h between members"*, explained in `docs/oc-cpr-algorithm.md`
+    as "nobody joins the instant the previous role's 24h expires" — people
+    arriving **late**. Measured, the opposite happens: capacityx takes its sixth
+    seat at hour 65 for a slot not needed until 120. The old wording sent a
+    reader hunting for a way to fill faster; the real lever is to stop taking a
+    seat before it is needed. It now reads *"Each seat after the first held 12h
+    beyond its schedule"*, and says whether that is measured or assumed.
+  - `GAP_DEFAULT_DAYS` → `SLACK_DEFAULT_DAYS`, `GAP_MAX_DAYS` →
+    `SLACK_MAX_DAYS`, and the `gap` / `gapIsAssumed` fields → `slackPerSeat` /
+    `slackIsAssumed` through the person-day model, the guidance pipeline, the
+    guidance table and the spawn simulation. No arithmetic changed.
+  - `docs/oc-cpr-algorithm.md` carries the correction as its own section, with
+    the measured seat table for all three factions and the two reasons one
+    number cannot stand in for two mechanisms: tnl's wall-clock excess is
+    *larger* than forge's while its person-day excess is far smaller, and
+    netting early against late calls tnl's 11.3h of early seating "2.6h".
+  - The test guarding the published wording was tightened: it matched
+    `/12h|gap/i`, which the corrected string passes and the wrong one does too.
+    It now asserts the new phrasing **and** that "join gap" is absent.
+
 ## [3.133.0] - 2026-09-20
 
 ### Added

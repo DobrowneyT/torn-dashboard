@@ -76,7 +76,7 @@ the author's own hedges.
 ```
                           Σ over concurrently-running crimes of E(X)
 $/faction-member/day  =  ───────────────────────────────────────────
-                            roster size × personDays(n, g)
+                            roster size × personDays(n, s)
 ```
 
 ⚠️ This is the single most consequential decision in the whole design, and it
@@ -152,20 +152,54 @@ holding.
 **The document's formula is correct as written.**
 
 ```
-personDays(n, g) = n(n+1)/2  +  (n-1)·g
+personDays(n, s) = n(n+1)/2  +  (n-1)·s
                    └ lock-in ┘   └ slack ┘
 ```
 
 - `n(n+1)/2` — lock-in under a perfect fill, from the 24h-per-remaining-slot
   mechanic: locks of `n, n-1, … 1` days.
-- `(n-1)·g` — the human factor. Each joiner after the first arrives `g` early
-  and idles, because nobody joins the instant the previous role's 24h expires.
+- `(n-1)·s` — the human factor. Each seat after the first is held `s` longer
+  than it needs to be.
 
-⚠️ **`g` is faction behaviour, not a game rule.** It is the only free parameter
+⚠️ **`s` is faction behaviour, not a game rule.** It is the only free parameter
 in the figure, defaults to 12h, is clamped to `[0, 24h]`, and every threshold
 the algorithm produces inherits it. It moves the answer by **~22%** across that
 range — which is why #687 exists to measure our real value from observed
 occupancy.
+
+### ⚠️ It used to be `g`, for "join gap", and the name was wrong (#744)
+
+This section previously explained the slack term as *"nobody joins the instant
+the previous role's 24h expires"* — a gap between joins, i.e. people arriving
+**late**. The formula was right and the measurement was right; the explanation
+was backwards, and it pointed at a fix nobody can make.
+
+Measured over 180 days, median join hour by seat in six-role crimes:
+
+| seat | needed at | tnl | forge | capacityx |
+|---|---|---|---|---|
+| 1 | 0 | 4.0 | 3.3 | 13.6 |
+| 2 | 24 | 19.3 | 14.5 | 28.0 |
+| 3 | 48 | 49.5 | 42.3 | 36.3 |
+| 4 | 72 | 73.7 | 71.3 | **44.6** |
+| 5 | 96 | 97.5 | 87.9 | **52.8** |
+| 6 | 120 | 113.4 | 107.0 | **65.0** |
+
+**capacityx takes its sixth seat at hour 65 for a slot not needed until 120.**
+Members arrive *early*, not late — fifty-five hours of lock-in that buys
+nothing, because the crime still completes at `24h × n` and a member cannot be
+in two organized crimes at once.
+
+⚠️ **One number cannot separate the two mechanisms it stands for.** Early
+seating is a behaviour a faction can change tomorrow; wall-clock extension (the
+crime running longer than `24h × n`, to which pause delay contributes) is not.
+tnl's wall-clock excess is *larger* than forge's while its person-day excess is
+far smaller — so `s` alone will report them as similar when they are not.
+`/api/oc-simulator/seat-timing` measures the first on its own.
+
+⚠️ **Early and late must not be netted.** tnl's seats 2 and 6 are 11.3h early
+between them and the rest are 8.7h late; a signed sum calls the whole thing
+2.6h and reports a faction as nearly fine when it is not.
 
 **Decision, 2026-09-12: keep 12h.** It is our specified buffer and the default
 does not change. #687 still goes ahead as a *measurement*, to check the
@@ -443,7 +477,7 @@ which makes the gap visible rather than silent.
 
 ### The cumulative slack term — 21% wrong, and biased
 
-I argued the slack term should be `g·n(n-1)/2` rather than `(n-1)·g`, reasoning
+I argued the slack term should be `s·n(n-1)/2` rather than `(n-1)·s`, reasoning
 that an early joiner sits through every subsequent gap.
 
 **Wrong.** The gaps do not delay the crime — it completes at `24h × n` whatever

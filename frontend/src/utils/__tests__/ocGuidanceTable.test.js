@@ -110,10 +110,24 @@ describe('publishGuidance', () => {
   })
 
   it('⚠️ states what it assumed, so nobody reads it as permanent truth', () => {
-    const g = publishGuidance({ ...base(), gap: 0.5, gapIsAssumed: true, rosterSize: 92 })
-    expect(g.assumptions.some((a) => /12h|gap/i.test(a))).toBe(true)
+    const g = publishGuidance({ ...base(), slackPerSeat: 0.5, slackIsAssumed: true, rosterSize: 92 })
+    expect(g.assumptions.some((a) => /12h.*beyond its schedule/i.test(a))).toBe(true)
+    expect(g.assumptions.some((a) => /assumed, not measured/i.test(a))).toBe(true)
+    // ⚠️ The published guidance said "Join gap of 12h between members" until
+    // #744 — the opposite of what happens. Members sit down EARLY, and that
+    // wording sent a reader hunting for a way to fill faster instead of the
+    // lever they have: stop taking a seat before it is needed.
+    expect(g.assumptions.some((a) => /join gap/i.test(a))).toBe(false)
     expect(g.assumptions.some((a) => /roster|92/.test(a))).toBe(true)
     expect(g.assumptions.some((a) => /halfway|blend|expected/i.test(a))).toBe(true)
+  })
+
+  it('⚠️ distinguishes a measured slack from an assumed one', () => {
+    // "We measured 12h" and "we assumed 12h" are different claims, and every
+    // published threshold inherits the number either way (#687).
+    const measured = publishGuidance({ ...base(), slackPerSeat: 0.5, slackIsAssumed: false })
+    expect(measured.assumptions.some((a) => /measured \(#687\)/.test(a))).toBe(true)
+    expect(measured.assumptions.some((a) => /assumed, not measured/.test(a))).toBe(false)
   })
 
   it('shows both values when the caller priced both crews', () => {
