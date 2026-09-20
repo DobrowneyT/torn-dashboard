@@ -18,6 +18,32 @@ surface it automatically.
 
 ---
 
+## [3.131.0] - 2026-09-20
+
+### Added
+- **`CronEditor` — the schedule sentence, as a component (#756).** Slice 2 of 3;
+  still not wired into a page, so nothing changes on screen yet.
+  A period dropdown plus chip rows for minutes, hours, days and **seconds**,
+  with the expression, the plain English and the next four fire times live
+  underneath.
+  - ⚠️ **It never rewrites a schedule it cannot say.** A cadence using a field
+    the sentence has no control for — a day-of-month, a range — opens straight
+    in a text box with the expression untouched and a note saying why. Rounding
+    it off to the nearest thing the picker can express would be worse than the
+    box it replaces, because it would look like it worked.
+  - ⚠️ **A chip row can never be emptied.** An empty minute list is not a
+    schedule: cron would reject it, the scheduler would fall back to the code
+    default, and the page would then show a cadence nobody chose.
+  - ⚠️ **"Use default" sends null, not the default's text.** Null means "follow
+    the fleet default" — a live instruction that keeps tracking it. Writing the
+    value back would pin the faction to whatever the default happened to be that
+    day (`scheduleResolution.ts`).
+  - A sub-minute cadence prints its own cost: picking a second second on an
+    every-minute job shows "≈ 2,880 Torn calls a day, per tenant — that is twice
+    a minute, on a shared key pool". Two clicks double a job's traffic on every
+    tenant at once, so the figure belongs on screen before Save rather than in
+    the key pool afterwards.
+
 ## [3.130.0] - 2026-09-20
 
 ### Added
