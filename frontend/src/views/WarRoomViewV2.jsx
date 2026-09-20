@@ -735,8 +735,8 @@ function FindTargetButton() {
         <Settings className="w-3 h-3" />
       </button>
       <InfoDot label="About Find Target" size={12}>
-        Opens a random attack page in the ID range {minId.toLocaleString()}–
-        {maxId.toLocaleString()}. Use it when the chain timer is critical and you
+        Opens a random attack page in the ID range {minId}–{maxId}. Use it when
+        the chain timer is critical and you
         cannot waste a second picking a target. The gear adjusts the range, which
         is stored per-user in this browser.
       </InfoDot>
@@ -767,7 +767,7 @@ function FindTargetButton() {
             />
           </div>
           <div className="text-[10px] text-gray-400 dark:text-gray-500">
-            Defaults: {FT_DEFAULT_MIN.toLocaleString()}–{FT_DEFAULT_MAX.toLocaleString()}. Saved per-user.
+            Defaults: {FT_DEFAULT_MIN}–{FT_DEFAULT_MAX}. Saved per-user.
           </div>
         </div>
       )}
@@ -3156,19 +3156,31 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                       <SortTh
                         col="ff" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
                         className="text-right"
-                        title={[
-                          'Fair Fight — the respect multiplier YOU would get hitting this target.',
-                          'FF = min(3, 1 + 8/3 × (their BS score / your BS score)),',
-                          'BS score = √str + √spd + √def + √dex.',
-                          'It saturates at the 3.00 cap, so a lot of a healthy roster sits flat there.',
-                          'A dotted underline on a value means it is an ESTIMATE: only a stat total',
-                          'was known for one side, so an even split was assumed and the real FF may be lower.',
-                          'This column is personal — computed from your own battle stats, so it reads',
-                          'differently for every viewer.',
-                          myBattleStats
-                            ? ''
-                            : 'No battle stats on record for you yet — the column cannot be computed.',
-                        ].filter(Boolean).join('\n')}
+                        title={
+                          <>
+                            <div>Fair Fight — the respect multiplier YOU would get hitting this target.</div>
+                            <div className="mt-1.5 font-mono text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                              <div>FF = min(3, 1 + 8/3 × (their BS score / your BS score))</div>
+                              <div>BS score = √str + √spd + √def + √dex</div>
+                            </div>
+                            <div className="mt-1.5">
+                              It saturates at the 3.00 cap, so a lot of a healthy roster sits flat there.
+                            </div>
+                            <div className="mt-1.5">
+                              A dotted underline on a value means it is an estimate: only a stat total was
+                              known for one side, so an even split was assumed and the real FF may be lower.
+                            </div>
+                            <div className="mt-1.5">
+                              This column is personal — computed from your own battle stats, so it reads
+                              differently for every viewer.
+                            </div>
+                            {!myBattleStats && (
+                              <div className="mt-1.5 text-amber-600 dark:text-amber-400">
+                                No battle stats on record for you yet — the column cannot be computed.
+                              </div>
+                            )}
+                          </>
+                        }
                       >FF</SortTh>
                     )}
                     {/* Energy and the cooldowns sort like any other column (#351):

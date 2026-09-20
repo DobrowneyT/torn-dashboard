@@ -18,6 +18,23 @@ surface it automatically.
 
 ---
 
+## [3.129.0] - 2026-09-19
+
+### Fixed
+- **The Fair Fight header's spacing fix never reached the file (#612
+  follow-up).** ⚠️ 3.128.0 claimed to rewrite both the Fair Fight and Revive %
+  column explanations as real paragraphs. The edit script did Fair Fight, threw
+  on Revive, and — writing only at the end — saved neither; the follow-up patch
+  then covered Revive alone. So Fair Fight kept its source-wrapped array the
+  whole time, with a paragraph gap through the middle of one sentence. Applied
+  for real, and verified in the file rather than in the intent.
+
+### Changed
+- **Torn user IDs render without grouping separators (MonChoon).** The Find
+  Target explanation said "4,200,001–4,300,000" for a range Torn itself always
+  shows bare. A second format for a number the reader already knows the shape of
+  is a small tax on every read; the gear popover's "Defaults:" line had it too.
+
 ## [3.128.0] - 2026-09-19
 
 ### Fixed
