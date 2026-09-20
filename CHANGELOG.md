@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.130.0] - 2026-09-20
+
+### Added
+- **The schedule model behind a human-friendly cadence editor (#756).**
+  `utils/cronSentence.js` turns a cron expression into a *sentence* — "every
+  day", "at minutes 5 and 35" — and back again. Slice 1 of 3; no UI yet.
+  - ⚠️ **It always writes six fields.** `node-cron` reads a leading seconds
+    field when given six and standard cron has five, so `*/5 * * * *` is every
+    five *minutes* while `*/5 * * * * *` is every five *seconds* — a 12× jump in
+    Torn API traffic against a shared key pool, from one extra asterisk, with
+    nothing to reject it because both are valid. Emitting one shape removes the
+    whole class of mistake. Five-field values already in the column are read as
+    seconds-zero rather than refused.
+  - ⚠️ **Refusing to parse is a feature.** The sentence cannot say "the 1st of
+    the month" or "9–17", so `parseCron` returns null for those and the caller
+    falls back to a raw text box. Rounding a cadence off to something the editor
+    *can* say would be worse than the text box it replaces — the text box at
+    least fails loudly.
+  - The load-bearing test is a round trip over all 19 shipped schedules, checked
+    against `registerJobs.ts` itself rather than a transcription: a job that is
+    opened and closed untouched must write back the bytes it started with.
+    `crime-occupancy` keeps its `:30`.
+  - `minuteLoad` counts how crowded each minute of the hour already is — what an
+    admin is really choosing against when they pick an offset. ⚠️ Every-minute
+    jobs are counted separately, since one of them occupies all sixty and would
+    flatten the chart, hiding exactly the quiet minutes it exists to reveal.
+
 ## [3.129.0] - 2026-09-19
 
 ### Fixed
