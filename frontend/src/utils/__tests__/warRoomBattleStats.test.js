@@ -97,7 +97,7 @@ describe('statsSourceLabel', () => {
     // labelling that "BSP" would present fact as a guess, and the reverse
     // would be worse — a lead sizing a target off a prediction they believe
     // is exact.
-    expect(statsSourceLabel('torn')).toBe('OWN')
+    expect(statsSourceLabel('torn')).toBe('API')
     expect(statsSourceLabel('tornstats')).toBe('TS')
     expect(statsSourceLabel('bsp')).toBe('BSP')
   })

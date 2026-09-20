@@ -18,6 +18,28 @@ surface it automatically.
 
 ---
 
+## [3.128.0] - 2026-09-19
+
+### Fixed
+- **Paragraph gaps landed mid-sentence in two tooltips (#612 follow-up).**
+  ⚠️ `tipLines` turns every `\n` into a paragraph break, so its input has to be
+  whole sentences. The Fair Fight and Revive % column explanations were arrays
+  of **source-code-wrapped lines** — a habit from the native `title`, which did
+  not wrap on its own — so "…only a stat total" / "was known for one side…" got
+  a paragraph gap through the middle of one sentence while the real wrapping
+  stayed tight. Both are written as actual paragraphs now, with the formulas as
+  a tight monospace block, which is the structure they always wanted.
+  `tipLines` passes non-strings straight through, so a caller with real
+  structure to express hands over JSX instead of pretending it is text.
+
+### Changed
+- **The battle-stats panel stops explaining what its own footer says
+  (MonChoon).** An own-key reading carried "Exact — read from this member's own
+  key", one sentence that widened the whole panel to repeat the solid emerald
+  underline beside it. Our own roster has exactly one exact source, so the
+  source token now reads **`API`** next to the enemy side's `TS` / `BSP` — three
+  short labels that read alike — and the sentence is gone.
+
 ## [3.127.0] - 2026-09-16
 
 ### Fixed

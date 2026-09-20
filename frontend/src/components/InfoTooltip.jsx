@@ -81,15 +81,23 @@ export function tooltipPosition(rect, viewport, size) {
 }
 
 /**
- * Render a "\n"-joined explanation as separate lines.
+ * Render a "\n"-joined explanation as separate paragraphs.
  *
  * Half the native tooltips being replaced built their text by joining an array
  * with newlines, because that is all a `title` can do. A panel can lay the same
  * sentences out properly, and squashing them back into one paragraph would lose
  * the structure the author already decided on.
+ *
+ * ⚠️ Every "\n" becomes a PARAGRAPH BREAK, so the caller's array elements have
+ * to be whole sentences. A `title` string hard-wrapped at source-code width —
+ * which several were, since a native tooltip did not wrap on its own — puts a
+ * paragraph gap in the middle of a sentence and reads as broken spacing.
+ * Anything that is not a string passes through untouched, so a caller with real
+ * structure to express (a formula block, say) can hand over JSX instead.
  */
 export function tipLines(text) {
   if (text == null) return null
+  if (typeof text !== 'string') return text
   const parts = String(text).split('\n').map((t) => t.trim()).filter(Boolean)
   if (parts.length === 0) return null
   return parts.map((t, i) => <div key={i} className={i === 0 ? '' : 'mt-1.5'}>{t}</div>)

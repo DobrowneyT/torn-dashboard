@@ -3189,14 +3189,23 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     {columns.reviveChance && (
                       <SortTh
                         col="revive_chance" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
-                        title={[
-                          'Best-case revive chance — what a skill-100 reviver would see.',
-                          'chance = 90 + skill/10 − score × (8 − skill/25), computed from our own',
-                          'revive history (revives-sync). Torn does not report this directly.',
-                          reviveModelCheck
+                        title={
+                          <>
+                            <div>Best-case revive chance — what a skill-100 reviver would see.</div>
+                            <div className="mt-1.5 font-mono text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                              chance = 90 + skill/10 − score × (8 − skill/25)
+                            </div>
+                            <div className="mt-1.5">
+                              Computed from our own revive history (revives-sync). Torn does not report
+                              this directly.
+                            </div>
+                            <div className="mt-1.5">
+                              {reviveModelCheck
                             ? `History check vs what Torn displayed: ${reviveModelCheck.meanAbsError.toFixed(1)}pp mean error, ${reviveModelCheck.bias >= 0 ? '+' : ''}${reviveModelCheck.bias.toFixed(1)}pp bias over ${reviveModelCheck.samples} observed revive${reviveModelCheck.samples === 1 ? '' : 's'}. A positive bias means revives we never scraped — expected until the feed has run 24h.`
-                            : 'History check: no observed revives to compare against yet.',
-                        ].join('\n')}
+                            : 'History check: no observed revives to compare against yet.'}
+                            </div>
+                          </>
+                        }
                       >Revive %</SortTh>
                     )}
                     {columns.dibs && (
