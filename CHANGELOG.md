@@ -18,6 +18,37 @@ surface it automatically.
 
 ---
 
+## [3.136.0] - 2026-09-22
+
+### Fixed
+- **Member Overview: the window's delta could cover the wrong days and still
+  report itself complete (#764).** Two defects, both silent — the row showed
+  `data_complete: true` with no amber flag in each case.
+  - ⚠️ **The delta could reach PAST the window.** `pickOldestInWindow` returns
+    the first snapshot at or before the boundary, and with a scraper gap that
+    can be far older. Snapshots today and 45 days ago under a 30-day window gave
+    `days_covered: 45, data_complete: true` — **a column headed "30d" showing 45
+    days of gain**. Because `daysCovered >= windowDays` was the completeness
+    test, overshooting made a row look *more* complete, and a member could pass
+    a 30-day requirement on 45 days of activity.
+  - ⚠️ **The window was not anchored to today.** `newest` is whatever
+    `snaps[0]` happens to be, so a member whose key died ten days ago reported
+    "the 30 days ending 10 days ago" as the last 30 — the case that most looks
+    like somebody going quiet.
+  - ⚠️ **`classifyRow` no longer turns either into a confirmed failure.** A rate
+    measured over the wrong days is not a verdict about a person. Both now land
+    in *inconclusive* (amber), which asks a human to look. The stale case is the
+    dangerous direction: somebody who stopped playing still carries their old
+    rate, and this module's rule is that missing data is never a silent pass.
+    Point-in-time thresholds (tenure, streak) are unaffected — they do not
+    depend on the delta — and so are the non-threshold red flags.
+  - The reasons are named separately rather than collapsed into "partial":
+    *too short* means wait, *spans longer* means the scraper has a gap, *stale*
+    means this member is no longer being measured. Three different actions.
+  - `MAX_SNAPSHOT_AGE_DAYS = 2` is a stated tunable: `member-stats` sweeps once
+    a day, so calling a one-day-old snapshot stale would paint the whole roster
+    amber every morning before the job runs.
+
 ## [3.135.0] - 2026-09-22
 
 ### Added
