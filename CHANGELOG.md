@@ -18,6 +18,34 @@ surface it automatically.
 
 ---
 
+## [3.135.0] - 2026-09-22
+
+### Added
+- **The OC Simulator shows when we actually take our seats (#744).** Slice 3,
+  which closes the issue's scope.
+  - The headline is the thing nothing surfaced before: *"Our 6th seat in a
+    6-role crime is taken 55h before it is needed — about 5.7 person-days per
+    crime, freed with no training and no scope cost."* ⚠️ It says what the
+    earliness **buys**, not just that it exists: "55h early" is a fact, and the
+    person-days are the reason to act on it.
+  - Each seat is drawn on one axis against the hour it is needed, because the
+    distance between the two marks *is* the finding.
+  - ⚠️ **Late seats are shown, not hidden.** capacityx's first two seats are
+    late. A panel drawing only the early side would imply a faction is
+    uniformly early and make the advice wrong for exactly the seats it is wrong
+    about.
+  - ⚠️ A faction already on schedule is told so rather than handed a number to
+    chase, and seats dropped for too few runs are named — a table missing seat 4
+    with no explanation reads as "nobody ever sits there", which is a far more
+    alarming claim than "we could not look".
+  - Placed **above** the crime cards: seat timing is a property of how the
+    faction runs crimes rather than of any crime, and it is the only lever on
+    the page that costs nothing. Burying it under six cards would put the
+    cheapest win last.
+  - ⚠️ Its own file and its state in the outer component, per the v3.97.0 crash
+    — a panel declared inside the view it serves is a temporal-dead-zone throw
+    that builds cleanly and dies on render.
+
 ## [3.134.0] - 2026-09-20
 
 ### Changed
