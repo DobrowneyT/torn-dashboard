@@ -18,6 +18,21 @@ surface it automatically.
 
 ---
 
+## [3.136.1] - 2026-09-22
+
+### Fixed
+- **CI: the Compose job read its host port before the last thing that rebinds
+  it.** The port-0 change in v3.136.0 closed a TOCTOU race by letting the kernel
+  assign at bind time and reading the number back with `docker compose port` —
+  but it read it once, right after the first `up`. ⚠️ The faction bring-up a
+  few steps later **recreates nginx** (the override file and the new forge vhost
+  change its config), and with `HTTP_PORT=0` the kernel hands out a *fresh* port
+  on that second bind. Every probe then hit the stale number: `curl: (7) Failed
+  to connect to localhost port 32779` eleven times over, while nginx sat healthy
+  on a port nothing was asking for. The ports are now re-read after the
+  recreate, and the comment on the first readback says outright that it is not
+  the last bind.
+
 ## [3.136.0] - 2026-09-22
 
 ### Fixed
