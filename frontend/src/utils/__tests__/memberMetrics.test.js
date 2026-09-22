@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildMemberRow, classifyRow, summarizeCompliance, pickOldestInWindow,
+  MAX_SNAPSHOT_AGE_DAYS,
 } from '../memberMetrics.js'
 
 const iso = (d) => d.toISOString().slice(0, 10)
@@ -138,5 +139,120 @@ describe('summarizeCompliance — flagged and inconclusive are separate buckets'
     const rows = [ok, noData, bad].map((r) => ({ ...r, ...classifyRow(r, { xantaken: 3 }, opts) }))
     const s = summarizeCompliance(rows, opts)
     expect(s).toMatchObject({ total: 3, flagged: 1, inconclusive: 1, nonDonator: 1 })
+  })
+})
+
+// #764 — the window's delta can cover the wrong days.
+//
+// ⚠️ Both defects below were SILENT: the row reported `data_complete: true`
+// with no amber flag, so a skimming reader saw a clean row. They matter because
+// classifyRow turns these deltas into red / amber / ok, and a wrong denominator
+// is a wrong verdict about a person.
+describe('buildMemberRow — the window must mean what it says (#764)', () => {
+  it('⚠️ flags a delta that reached PAST the window', () => {
+    // A scraper gap leaves no snapshot near the boundary, so pickOldestInWindow
+    // walks straight past it. Before #764 this reported 45 days of gain under a
+    // heading that said 30, marked complete — a member could pass a 30-day
+    // requirement on 45 days of activity.
+    const snaps = [snap(daysAgo(0), 1450), snap(daysAgo(45), 1000)]
+    const row = buildMemberRow(member, snaps, 30)
+    expect(row.days_covered).toBe(45)
+    expect(row.window_overshoot).toBe(true)
+    expect(row.data_complete).toBe(false)
+    expect(row.data_partial_reason).toMatch(/45d/)
+    expect(row.data_partial_reason).toMatch(/30d/)
+  })
+
+  it('⚠️ flags a window that does not reach today', () => {
+    // Key died, or the member left. "The 30 days ending 10 days ago" presented
+    // as the last 30 days — and it is exactly the case that looks like somebody
+    // going quiet.
+    const snaps = [snap(daysAgo(10), 1200), snap(daysAgo(40), 1000)]
+    const row = buildMemberRow(member, snaps, 30)
+    expect(row.stale_days).toBe(10)
+    expect(row.data_stale).toBe(true)
+    expect(row.data_complete).toBe(false)
+    expect(row.data_partial_reason).toMatch(/10d old/)
+  })
+
+  it('leaves a healthy window alone', () => {
+    const snaps = [snap(daysAgo(0), 1450), snap(daysAgo(30), 1000)]
+    const row = buildMemberRow(member, snaps, 30)
+    expect(row.days_covered).toBe(30)
+    expect(row.window_overshoot).toBe(false)
+    expect(row.data_stale).toBe(false)
+    expect(row.data_complete).toBe(true)
+    expect(row.data_partial_reason).toBeNull()
+  })
+
+  it('tolerates a snapshot from yesterday, because the sweep is daily', () => {
+    // member-stats runs once a day. Calling a one-day-old snapshot "stale"
+    // would paint the entire roster amber every morning before the job runs.
+    const snaps = [snap(daysAgo(1), 1450), snap(daysAgo(31), 1000)]
+    const row = buildMemberRow(member, snaps, 30)
+    expect(row.data_stale).toBe(false)
+    expect(MAX_SNAPSHOT_AGE_DAYS).toBeGreaterThanOrEqual(1)
+  })
+
+  it('⚠️ still reports too-short history as too-short, not as overshoot', () => {
+    // A new member has less data, which is a different problem with a different
+    // answer: wait. Conflating it with "measured over the wrong days" would
+    // send someone looking for a scraper fault that does not exist.
+    const snaps = [snap(daysAgo(0), 130), snap(daysAgo(10), 100)]
+    const row = buildMemberRow(member, snaps, 30)
+    expect(row.window_overshoot).toBe(false)
+    expect(row.data_complete).toBe(false)
+    expect(row.data_partial_reason).toMatch(/Only 10d of 30d/)
+  })
+
+  it('never overshoots the All window, which has no edge to overshoot', () => {
+    const snaps = [snap(daysAgo(0), 1450), snap(daysAgo(400), 1000)]
+    const row = buildMemberRow(member, snaps, null)
+    expect(row.window_overshoot).toBe(false)
+    expect(row.data_complete).toBe(true)
+  })
+})
+
+describe('classifyRow — a wrong denominator is not a verdict (#764)', () => {
+  const thresholds = { xantaken: 1 }
+
+  it('⚠️ will not fail a member on a window measured over the wrong days', () => {
+    // The rate exists and is below the bar, so the old code called it a
+    // confirmed failure. It is a real number over the wrong 45 days.
+    const snaps = [snap(daysAgo(0), 1000), snap(daysAgo(45), 999)]
+    const row = buildMemberRow(member, snaps, 30)
+    const out = classifyRow(row, thresholds)
+    expect(row.window_overshoot).toBe(true)
+    expect(out.threshold_failures).toBeNull()
+    expect(out.compliance_status).toBe('inconclusive')
+  })
+
+  it('⚠️ will not PASS a member on stale data either', () => {
+    // The dangerous direction. A member who stopped playing ten days ago still
+    // carries their old rate, and the module's own rule is that missing data is
+    // never a silent pass.
+    const snaps = [snap(daysAgo(10), 1000), snap(daysAgo(40), 900)]
+    const row = buildMemberRow(member, snaps, 30)
+    const out = classifyRow(row, thresholds)
+    expect(out.compliance_status).toBe('inconclusive')
+  })
+
+  it('⚠️ still flags a real failure on a sound window', () => {
+    // The guard must not swallow the thing the page exists to find.
+    const snaps = [snap(daysAgo(0), 1000), snap(daysAgo(30), 999)]
+    const row = buildMemberRow(member, snaps, 30)
+    const out = classifyRow(row, thresholds)
+    expect(out.threshold_failures?.has('xantaken')).toBe(true)
+    expect(out.compliance_status).toBe('flagged')
+  })
+
+  it('⚠️ a non-threshold red flag survives a doubtful window', () => {
+    // Inactivity, a missing donator status and the wrong property are observed
+    // on the NEWEST snapshot — they do not depend on the delta at all, so a bad
+    // window is no reason to stop reporting them.
+    const stale = { last_action_timestamp: NOW_S - 86400 * 5 }
+    const snaps = [snap(daysAgo(0), 1000, stale), snap(daysAgo(45), 999, stale)]
+    const row = buildMemberRow(member, snaps, 30)
+    expect(classifyRow(row, null).compliance_status).toBe('flagged')
   })
 })
