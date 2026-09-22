@@ -100,6 +100,10 @@ jobs:
     # ⚠️ AFTER the bind, never before — that ordering is the fix. `port` reports
     # what the kernel actually handed out, so there is no reservation to lose
     # and no window in which another run can take it.
+    #
+    # ⚠️ This is NOT the last bind. The faction bring-up below recreates nginx
+    # and the kernel assigns again, so these values are re-read there. Reading
+    # once here is what broke the first run after the port-0 change.
     - name: Record the ports the kernel assigned
       run: |
         set -euo pipefail
@@ -128,6 +132,27 @@ jobs:
       run: >
         docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml
         --project-directory deploy up -d --build --wait api-forge nginx
+
+    # ⚠️ nginx was just RECREATED — the override file and the new forge vhost
+    # change its config, so compose tears the container down and starts a new
+    # one. `HTTP_PORT=0` means the kernel hands out a FRESH port on that second
+    # bind, and the number recorded above is now pointing at nothing. The first
+    # run after the port-0 change failed exactly here: every probe hit 32779
+    # with `Couldn't connect to server` while nginx sat healthy on another port.
+    #
+    # So the port is re-read after the last thing that can rebind it, not once
+    # after the first. Postgres is untouched by this `up`, so PGPORT still holds
+    # — and it is re-read anyway rather than relying on that staying true.
+    - name: Re-record the ports after the recreate
+      run: |
+        set -euo pipefail
+        compose() { docker compose -f deploy/docker-compose.yml --project-directory deploy "$@"; }
+        WEB_PORT=$(compose port nginx 80 | head -1 | sed 's/.*://')
+        PG_PORT=$(compose port postgres 5432 | head -1 | sed 's/.*://')
+        test -n "$WEB_PORT" && test -n "$PG_PORT"
+        echo "CI_HTTP_PORT=$WEB_PORT" >> "$GITHUB_ENV"
+        echo "PGPORT=$PG_PORT" >> "$GITHUB_ENV"
+        echo "nginx on $WEB_PORT  postgres on $PG_PORT (after recreate)"
 
     - name: Probe API health through nginx
       run: |
