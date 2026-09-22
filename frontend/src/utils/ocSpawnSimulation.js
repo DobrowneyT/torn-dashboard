@@ -95,7 +95,7 @@ function unfillableReason(scenario, readings) {
 
 export function simulateSpawns({
   scenarios = [], readings = {}, days = 30, spawnsPerDay = 1,
-  gap, rosterSize = null, scope: scopeOpts = {},
+  slackPerSeat, rosterSize = null, scope: scopeOpts = {},
 } = {}) {
   const scope = { ...DEFAULT_SCOPE, ...scopeOpts }
   const order = spawnSchedule(scenarios, Math.max(0, Math.round(days * spawnsPerDay)))
@@ -219,7 +219,7 @@ export function simulateSpawns({
   const shortfallPerDay = Math.max(0, scopeDrainPerDay - scope.regenPerDay)
 
   const sampleRoles = scenarios[0]?.positionIds?.length ?? 0
-  const truePerCrime = personDays(sampleRoles, gap)
+  const truePerCrime = personDays(sampleRoles, slackPerSeat)
 
   return {
     days, spawned, filled, unfilled, unfillReasons, perScenario,

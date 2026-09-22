@@ -10,6 +10,17 @@ const DAY_MS = 86400_000
 export const ACTIVE_THRESHOLD_HOURS = 48   // last action older than this → inactive
 export const PI_NAME = 'Private Island'    // the property we require
 
+/**
+ * How old the newest snapshot may be before the window stops describing now.
+ *
+ * ⚠️ A stated tunable, not a magic number. `member-stats` sweeps once a day, so
+ * a snapshot from yesterday is normal and calling it stale would paint the whole
+ * roster amber every morning before the job runs. Two days allows for that plus
+ * one missed run; beyond it the figures describe a member who may already have
+ * stopped playing (#764).
+ */
+export const MAX_SNAPSHOT_AGE_DAYS = 2
+
 // snapshots are newest-first. Pick the oldest snapshot within `days` of now
 // (the delta's far end). days == null ("All") → the very oldest snapshot.
 export function pickOldestInWindow(snapshots, days) {
@@ -43,22 +54,58 @@ export function isInactive(unixTs, nowMs = Date.now()) {
 // (member_id, member_name, tier, total_days_in_faction, streak_days); `snaps`
 // are that member's snapshots newest-first; `windowDays` is the selected window
 // (null = All).
-export function buildMemberRow(member, snaps = [], windowDays) {
+export function buildMemberRow(member, snaps = [], windowDays, { nowMs = Date.now() } = {}) {
   const newest = snaps[0]
   const oldest = pickOldestInWindow(snaps, windowDays)
   const haveTwoSnaps = !!(newest && oldest && newest !== oldest)
   const daysCovered = haveTwoSnaps ? daysBetween(oldest.snapshot_date, newest.snapshot_date) : 0
 
-  const dataComplete = windowDays == null ? haveTwoSnaps : daysCovered >= windowDays
+  // ⚠️ The delta can reach PAST the window (#764). pickOldestInWindow returns
+  // the first snapshot at or before the boundary, and with a scraper gap that
+  // can be far older — so a column headed "30d" was showing 45 days of gain.
+  // `daysCovered >= windowDays` was the completeness test, which meant
+  // overshooting made a row look MORE complete, and a member could pass a
+  // 30-day requirement on 45 days of activity.
+  const windowOvershoot = haveTwoSnaps && windowDays != null && daysCovered > windowDays
+
+  // ⚠️ And the near end is not anchored to today (#764). `newest` is whatever
+  // snaps[0] happens to be, so a member whose key died ten days ago reported
+  // "the 30 days ending 10 days ago" as the last 30 — the case that most looks
+  // like somebody going quiet.
+  const newestMs = newest
+    // db-time-safe: snapshot_date is a DATE column ("2026-08-03"), not a
+    // timestamptz — the bare "+00" offset from #140 cannot appear here.
+    ? new Date(newest.snapshot_date).getTime()
+    : null
+  const staleDays = newestMs == null ? null : Math.max(0, Math.round((nowMs - newestMs) / DAY_MS))
+  const dataStale = staleDays != null && staleDays > MAX_SNAPSHOT_AGE_DAYS
+
+  const windowSound = windowDays == null
+    ? haveTwoSnaps
+    : haveTwoSnaps && daysCovered >= windowDays && !windowOvershoot
+  const dataComplete = windowSound && !dataStale
   const dataPartial = !dataComplete && haveTwoSnaps
   const dataMissing = !haveTwoSnaps
   const noData = snaps.length === 0
+
+  // ⚠️ Ordered by what the reader should DO about it, and each cause named
+  // separately: "too short" means wait, "spans longer" means the scraper has a
+  // gap, "stale" means this member is no longer being measured. Collapsing
+  // them into one "partial" sends someone hunting the wrong fault.
+  const reasons = []
+  if (windowOvershoot) {
+    reasons.push(`Spans ${daysCovered}d, not ${windowDays}d — no snapshot near the window edge.`)
+  } else if (haveTwoSnaps && windowDays != null && daysCovered < windowDays) {
+    reasons.push(`Only ${daysCovered}d of ${windowDays}d of data.`)
+  }
+  if (dataStale) reasons.push(`Newest snapshot is ${staleDays}d old — this is not the last ${windowDays ?? 'available'} days.`)
+
   const dataPartialReason = dataMissing
     ? (noData
         ? 'No snapshots yet — nothing to assess.'
         : 'Only one snapshot — need at least two days of data to compute a delta.')
-    : dataPartial
-      ? `Only ${daysCovered}d of ${windowDays}d of data.`
+    : reasons.length > 0
+      ? reasons.join(' ')
       : null
 
   const row = {
@@ -73,7 +120,18 @@ export function buildMemberRow(member, snaps = [], windowDays) {
     donator_label: getByPath(newest?.profile, 'donator_status'),
     property_name: newest?.property_name,
     snapshot_count: snaps.length,
+    window_days: windowDays ?? null,
+    /**
+     * ⚠️ The SPAN between the two endpoints, not a count of days observed. A
+     * member with 2 snapshots 30 days apart and one with 30 daily snapshots
+     * both read 30 here; `snapshot_count` is what tells them apart. Most stats
+     * are cumulative counters, so endpoints are sufficient for the delta —
+     * what the span cannot tell you is how confident to be (#764).
+     */
     days_covered: daysCovered,
+    window_overshoot: windowOvershoot,
+    stale_days: staleDays,
+    data_stale: dataStale,
     data_complete: dataComplete,
     data_partial: !dataComplete,
     data_missing: dataMissing,
@@ -134,11 +192,29 @@ function thresholdValue(row, statKey) {
 export function classifyRow(row, thresholds, { piName = PI_NAME, nowMs = Date.now() } = {}) {
   const failures = new Set()
   const inconclusive = new Set()
+
+  // ⚠️ A rate measured over the wrong days is not a verdict (#764). Two ways a
+  // window stops describing what it claims:
+  //
+  //   - it reached PAST the edge, so a "30d" rate is really a 45d one;
+  //   - its newest end is stale, so it describes the member as they were ten
+  //     days ago.
+  //
+  // The second is the dangerous direction: somebody who stopped playing still
+  // carries their old rate, and this module's rule is that missing data is
+  // never a silent pass. Both go to inconclusive — amber asks a human to look,
+  // which is the correct response to "we cannot tell".
+  const windowDoubtful = row.window_overshoot === true || row.data_stale === true
+
   if (thresholds) {
     for (const [statKey, min] of Object.entries(thresholds)) {
       if (min == null || !Number.isFinite(Number(min))) continue
       const value = thresholdValue(row, statKey)
       if (value == null) inconclusive.add(statKey)
+      // ⚠️ Tenure thresholds are point-in-time, not rates — they do not depend
+      // on the delta at all, so a doubtful window is no reason to stop
+      // checking them.
+      else if (windowDoubtful && !POINT_IN_TIME_THRESHOLDS[statKey]) inconclusive.add(statKey)
       else if (value < Number(min)) failures.add(statKey)
     }
   }

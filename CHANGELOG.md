@@ -18,6 +18,144 @@ surface it automatically.
 
 ---
 
+## [3.136.0] - 2026-09-22
+
+### Fixed
+- **Member Overview: the window's delta could cover the wrong days and still
+  report itself complete (#764).** Two defects, both silent — the row showed
+  `data_complete: true` with no amber flag in each case.
+  - ⚠️ **The delta could reach PAST the window.** `pickOldestInWindow` returns
+    the first snapshot at or before the boundary, and with a scraper gap that
+    can be far older. Snapshots today and 45 days ago under a 30-day window gave
+    `days_covered: 45, data_complete: true` — **a column headed "30d" showing 45
+    days of gain**. Because `daysCovered >= windowDays` was the completeness
+    test, overshooting made a row look *more* complete, and a member could pass
+    a 30-day requirement on 45 days of activity.
+  - ⚠️ **The window was not anchored to today.** `newest` is whatever
+    `snaps[0]` happens to be, so a member whose key died ten days ago reported
+    "the 30 days ending 10 days ago" as the last 30 — the case that most looks
+    like somebody going quiet.
+  - ⚠️ **`classifyRow` no longer turns either into a confirmed failure.** A rate
+    measured over the wrong days is not a verdict about a person. Both now land
+    in *inconclusive* (amber), which asks a human to look. The stale case is the
+    dangerous direction: somebody who stopped playing still carries their old
+    rate, and this module's rule is that missing data is never a silent pass.
+    Point-in-time thresholds (tenure, streak) are unaffected — they do not
+    depend on the delta — and so are the non-threshold red flags.
+  - The reasons are named separately rather than collapsed into "partial":
+    *too short* means wait, *spans longer* means the scraper has a gap, *stale*
+    means this member is no longer being measured. Three different actions.
+  - `MAX_SNAPSHOT_AGE_DAYS = 2` is a stated tunable: `member-stats` sweeps once
+    a day, so calling a one-day-old snapshot stale would paint the whole roster
+    amber every morning before the job runs.
+
+## [3.135.0] - 2026-09-22
+
+### Added
+- **The OC Simulator shows when we actually take our seats (#744).** Slice 3,
+  which closes the issue's scope.
+  - The headline is the thing nothing surfaced before: *"Our 6th seat in a
+    6-role crime is taken 55h before it is needed — about 5.7 person-days per
+    crime, freed with no training and no scope cost."* ⚠️ It says what the
+    earliness **buys**, not just that it exists: "55h early" is a fact, and the
+    person-days are the reason to act on it.
+  - Each seat is drawn on one axis against the hour it is needed, because the
+    distance between the two marks *is* the finding.
+  - ⚠️ **Late seats are shown, not hidden.** capacityx's first two seats are
+    late. A panel drawing only the early side would imply a faction is
+    uniformly early and make the advice wrong for exactly the seats it is wrong
+    about.
+  - ⚠️ A faction already on schedule is told so rather than handed a number to
+    chase, and seats dropped for too few runs are named — a table missing seat 4
+    with no explanation reads as "nobody ever sits there", which is a far more
+    alarming claim than "we could not look".
+  - Placed **above** the crime cards: seat timing is a property of how the
+    faction runs crimes rather than of any crime, and it is the only lever on
+    the page that costs nothing. Burying it under six cards would put the
+    cheapest win last.
+  - ⚠️ Its own file and its state in the outer component, per the v3.97.0 crash
+    — a panel declared inside the view it serves is a temporal-dead-zone throw
+    that builds cleanly and dies on render.
+
+## [3.134.0] - 2026-09-20
+
+### Changed
+- **`g` was never a "join gap" — renamed to `slackPerSeat`, and the published
+  guidance now says the right thing (#744).** Slice 2.
+  - ⚠️ **The published wording was backwards.** The guidance table said
+    *"Join gap of 12h between members"*, explained in `docs/oc-cpr-algorithm.md`
+    as "nobody joins the instant the previous role's 24h expires" — people
+    arriving **late**. Measured, the opposite happens: capacityx takes its sixth
+    seat at hour 65 for a slot not needed until 120. The old wording sent a
+    reader hunting for a way to fill faster; the real lever is to stop taking a
+    seat before it is needed. It now reads *"Each seat after the first held 12h
+    beyond its schedule"*, and says whether that is measured or assumed.
+  - `GAP_DEFAULT_DAYS` → `SLACK_DEFAULT_DAYS`, `GAP_MAX_DAYS` →
+    `SLACK_MAX_DAYS`, and the `gap` / `gapIsAssumed` fields → `slackPerSeat` /
+    `slackIsAssumed` through the person-day model, the guidance pipeline, the
+    guidance table and the spawn simulation. No arithmetic changed.
+  - `docs/oc-cpr-algorithm.md` carries the correction as its own section, with
+    the measured seat table for all three factions and the two reasons one
+    number cannot stand in for two mechanisms: tnl's wall-clock excess is
+    *larger* than forge's while its person-day excess is far smaller, and
+    netting early against late calls tnl's 11.3h of early seating "2.6h".
+  - The test guarding the published wording was tightened: it matched
+    `/12h|gap/i`, which the corrected string passes and the wrong one does too.
+    It now asserts the new phrasing **and** that "join gap" is absent.
+
+## [3.133.0] - 2026-09-20
+
+### Added
+- **Seat timing: when members actually sit down, against when the seat is
+  needed (#744).** Slice 1 — the measurement and its endpoint; no UI yet.
+  - ⚠️ #687's `g` conflates two mechanisms — members queueing up at the front of
+    a crime, and the crime itself running long — and **only the first is
+    something a faction can change tomorrow**. One number cannot separate them:
+    tnl's wall-clock excess is *larger* than forge's while its person-day excess
+    is far smaller. This measures the seating on its own.
+  - A crime completes `24h × n` after the first join and all slots are open from
+    the start, so seat `s` is not needed until hour `24 × (s − 1)`. capacityx
+    takes its sixth seat at hour 65 for a slot not needed until 120 — 55 hours
+    of lock-in that buys nothing, because a member cannot be in two organized
+    crimes at once.
+  - ⚠️ **Early and late are reported separately, never netted.** tnl is the case
+    that shows why: seats 2 and 6 are 11.3h early between them and the rest are
+    8.7h late, so a signed sum calls the whole thing 2.6h and reports a faction
+    as nearly fine when it is not.
+  - ⚠️ Seat 1 is never counted early — that join *starts* the clock, so there is
+    no earlier hour it could have been taken.
+  - ⚠️ Seat order comes from `joined_at`, and the baseline is `min(joined_at)`
+    over the crime's own slots rather than `planning_at` or `created_at`.
+    Measuring from `created_at` reports recruitment lag instead, which is the
+    mistake an earlier draft of #744 made.
+
+### Fixed
+- **#744 contradicted itself and has been corrected.** It carried both a
+  "pausing IS real" correction and the first draft's "not pausing,
+  `ready_at → executed_at` is 0.0h median" claim that the correction refutes.
+  The stale section is rewritten: pausing is real, it lives in
+  `planning → ready`, and the 0.0h median was a useless statistic on a
+  long-tailed distribution rather than a wrong one.
+
+## [3.132.1] - 2026-09-20
+
+### Fixed
+- **CI's Compose job raced itself for a host port.** ⚠️ PR #746 failed with
+  `failed to bind host port 0.0.0.0:36580/tcp: address already in use` during a
+  run of back-to-back merges — not a code failure, and an error that looks
+  nothing like its cause. The workflow picked a random port and checked it with
+  `ss`, then spent minutes building images before Compose actually bound it: a
+  time-of-check/time-of-use window a concurrent run can walk straight into. The
+  same code also let both services draw the **same** port, since neither was
+  bound when either was checked.
+  Both host ports are now published as `0`, so the kernel assigns them **at bind
+  time** and there is no reservation to lose; `docker compose port` reports what
+  was actually handed out. ⚠️ The Postgres port reaches `new-faction.mjs` as an
+  exported `PGPORT` rather than being written back into `deploy/.env` — that
+  file is the container's published-port config, and rewriting it mid-run would
+  have the next `compose up` want to recreate the very database the step had
+  just provisioned into.
+
 ## [3.132.0] - 2026-09-20
 
 ### Changed

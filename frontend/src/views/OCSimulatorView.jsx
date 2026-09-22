@@ -45,6 +45,7 @@ import { computeGuidance } from '../utils/ocGuidancePipeline'
 import { GuidancePanel } from './OCGuidancePanel'
 import { ChainPanel } from './OCChainPanel'
 import { ObservedPanel } from './OCObservedPanel'
+import { SeatTimingPanel } from './OCSeatTimingPanel'
 import { JointPanel } from './OCJointPanel'
 import { solveForSelection } from '../utils/ocJointPipeline'
 import { computeChainEconomics, meanCpr } from '../utils/ocChainPipeline'
@@ -76,6 +77,13 @@ export default function OCSimulatorView() {
   // solve below and each CrimeCard need it, and the card gets it as a PROP
   // rather than fetching its own copy per crime.
   const [joinGap, setJoinGap] = useState(null)
+  // #744: WHEN members take their seats, which `joinGap` above cannot say.
+  // One reconciled number cannot separate a faction that queues up at the
+  // front from one whose crimes simply run long, and only the first is a
+  // behaviour anyone can change. Declared here with joinGap, in the OUTER
+  // component — the v3.97.0 crash was a state hook named from a callback that
+  // could not see it.
+  const [seatTiming, setSeatTiming] = useState(null)
   // #609 slice 7: whether the item catalogue behind every dollar figure below
   // is fresh enough to use. The server withholds prices rather than serving
   // stale ones, so without this the page would show a fleet of "unpriced"
@@ -119,6 +127,9 @@ export default function OCSimulatorView() {
     apiGet('/api/oc-simulator/join-gap')
       .then((res) => { if (!cancelled) setJoinGap(res) })
       .catch(() => { if (!cancelled) setJoinGap(null) })
+    apiGet('/api/oc-simulator/seat-timing')
+      .then((res) => { if (!cancelled) setSeatTiming(res) })
+      .catch(() => { if (!cancelled) setSeatTiming(null) })
     return () => { cancelled = true }
   }, [])
 
@@ -151,7 +162,7 @@ export default function OCSimulatorView() {
         call: (name, parameters) =>
           apiPost('/api/oc-simulator/calculate', { scenario: name, parameters }),
         days: 30, spawnsPerDay: 4,
-        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
+        slackPerSeat: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
         spawns,
       }))
     } catch {
@@ -245,6 +256,13 @@ export default function OCSimulatorView() {
       </div>
 
       {rankingOpen && <CrimeRankingTable scenarios={scenarios} chains={chains} />}
+
+      {/* ⚠️ Above the crime cards, and deliberately not inside one. Seat timing
+          is a property of how this faction RUNS crimes, not of any crime, and
+          it is the only lever on this page that costs nothing: no training, no
+          scope, no change to which crimes we spawn. Burying it under six cards
+          would put the cheapest win last. */}
+      <SeatTimingPanel timing={seatTiming} />
 
       {chosen.length === 0 && (
         <div className="card text-sm text-gray-600 dark:text-gray-400">
@@ -417,8 +435,8 @@ export function CrimeCard({ scenario, scenarios = [], chainEdges = [], joinGap =
         // ⚠️ Measured where we have the history, assumed where we do not — and
         // the table says which, because "we measured 12h" and "we assumed 12h"
         // are different claims (#687).
-        gap: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
-        gapIsAssumed: !joinGap?.measured,
+        slackPerSeat: joinGap?.measured ? joinGap.gapHours / 24 : 0.5,
+        slackIsAssumed: !joinGap?.measured,
         // #713: a chain ROOT pays nothing itself, so it is valued at the whole
         // chain. Without these it would be refused — and it is the crime
         // members actually join.

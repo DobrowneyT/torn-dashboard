@@ -27,6 +27,7 @@ import { createProbabilityClient, normaliseKey } from './oc/probabilityClient.js
 import { matchRolesToPositions } from './oc/roleMatch.js'
 import { summariseObserved } from './oc/observedSuccess.js'
 import { summariseJoinGap } from './oc/joinGap.js'
+import { summariseSeatTiming } from './oc/seatTiming.js'
 import {
   buildItemCatalog, priceNodeItems, catalogFreshness, EMPTY_CATALOG,
   type ItemDropInput, type NodeItemDrop,
@@ -738,6 +739,71 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
             crimeId: String(r.crime_id),
             roles: Number(r.roles),
             personDays: Number(r.person_days),
+          }))
+        ),
+      }
+    }
+  )
+
+  // When members actually take their seats, against when the seat is needed (#744).
+  //
+  // ⚠️ #687's `g` conflates two mechanisms — members queueing up at the front of
+  // a crime, and the crime itself running long — and only the first is
+  // something a faction can change tomorrow. tnl's wall-clock excess is LARGER
+  // than forge's while its person-day excess is far smaller, so one number
+  // cannot tell them apart. This measures the seating on its own.
+  //
+  // ⚠️ Seat order comes from `joined_at`, not from the position label. The
+  // labels are the crime's ROLES; the question here is the order people sat
+  // down, and #744 established the two are unrelated — capacityx seats its
+  // fifth member at hour 34, which sequential opening would forbid before 96.
+  //
+  // ⚠️ The baseline is `min(joined_at)` over the crime's own slots, not
+  // `planning_at` and certainly not `created_at`. #744 found `planning_at` IS
+  // the first join in 732 of 750 crimes, but deriving it here makes the figure
+  // independent of that holding; measuring from `created_at` would report
+  // recruitment lag instead, which is what an earlier draft of #744 did.
+  app.get(
+    '/api/oc-simulator/seat-timing',
+    { preHandler: requireRole(...SIM_ROLES) },
+    async (req) => {
+      const days = Number((req.query as { days?: string })?.days ?? JOIN_GAP_WINDOW_DAYS)
+      const window = Number.isFinite(days) && days > 0 ? days : JOIN_GAP_WINDOW_DAYS
+
+      const rows = await deps.db.query(
+        `WITH done AS (
+           SELECT c.crime_id
+             FROM crimes c
+            WHERE c.executed_at IS NOT NULL
+              AND to_timestamp(c.executed_at) > now() - ($1 || ' days')::interval
+         ),
+         seated AS (
+           SELECT s.crime_id,
+                  count(*)      OVER (PARTITION BY s.crime_id) AS roles,
+                  row_number()  OVER (PARTITION BY s.crime_id ORDER BY s.joined_at) AS seat,
+                  (s.joined_at - min(s.joined_at) OVER (PARTITION BY s.crime_id)) / 3600.0 AS hours
+             FROM crime_slots s
+             JOIN done d ON d.crime_id = s.crime_id
+            WHERE s.joined_at IS NOT NULL
+         )
+         SELECT roles::int,
+                seat::int,
+                count(*)::int AS observations,
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY hours) AS median_hours
+           FROM seated
+          GROUP BY roles, seat
+          ORDER BY roles, seat`,
+        [String(window)]
+      )
+
+      return {
+        window_days: window,
+        ...summariseSeatTiming(
+          rows.rows.map((r) => ({
+            roles: Number(r.roles),
+            seat: Number(r.seat),
+            observations: Number(r.observations),
+            medianHours: Number(r.median_hours),
           }))
         ),
       }
