@@ -90,6 +90,21 @@ describe('the grid', () => {
     expect(within(hour('2027-10-26T15:00:00.000Z')).getAllByText('Sign up')).toHaveLength(3)
   })
 
+  it('⚠️ names the bold time as TCT on every row, not only in a heading', async () => {
+    // Without the unit the bold line reads as "some timezone", and the obvious
+    // guess is the reader's own — which is the grey line underneath it.
+    zoneRef.value = 'America/New_York'
+    try {
+      draw()
+      await waitFor(() => expect(screen.getByTestId('hour-2027-10-26T15:00:00.000Z')).toBeTruthy())
+      const cell = within(hour('2027-10-26T15:00:00.000Z')).getByText('15:00').parentElement
+      expect(cell.textContent).toMatch(/15:00\s*TCT/)
+      // and the viewer's own clock stays unlabelled-as-TCT on its own line
+      expect(within(hour('2027-10-26T15:00:00.000Z')).getByText(/New York/).textContent)
+        .toMatch(/^11:00/)
+    } finally { zoneRef.value = null }
+  })
+
   it('⚠️ renders a DST fold as two rows with the same local clock time', async () => {
     // The exact thing the sheet got wrong: the 2025 event crossed the US change
     // and rows 100-101 of the workbook list "2:00-3:00" twice, patched by hand.

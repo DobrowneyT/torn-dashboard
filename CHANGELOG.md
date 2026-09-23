@@ -18,6 +18,24 @@ surface it automatically.
 
 ---
 
+## [3.140.1] - 2026-09-23
+
+### Changed
+- **Chain Watch: the bold hour now says `TCT`.** The sign-up grid prints the
+  canonical hour in bold with the viewer's own clock in grey underneath, but the
+  bold line carried no unit — so it read as "some timezone", and the obvious
+  guess is the reader's own, which is the line *below* it. The unit is spelled
+  out on every row rather than in a column heading: the grid scrolls for a
+  twelve-day chain, so a heading is off-screen for all but the first few hours.
+
+### Fixed
+- **Member metrics: staleness no longer depends on the time of day.** `stale_days`
+  subtracted a DATE (`snapshot_date`, parsed to 00:00Z) from a live clock, so the
+  time of day rode along as a fraction of a day and `Math.round` tipped it at
+  12:00 UTC — the same snapshot read as 10 days old in the morning and 11 in the
+  afternoon. Both ends now snap to UTC midnight. Caught because the existing
+  `#764` test for it had started failing on `dev` every afternoon.
+
 ## [3.140.0] - 2026-09-23
 
 ### Added

@@ -7,6 +7,9 @@
 import { STAT_PATHS, getByPath } from './statPaths'
 
 const DAY_MS = 86400_000
+
+/** The UTC midnight an instant falls in, so a clock can be compared to a DATE. */
+const utcMidnight = (ms) => Math.floor(ms / DAY_MS) * DAY_MS
 export const ACTIVE_THRESHOLD_HOURS = 48   // last action older than this → inactive
 export const PI_NAME = 'Private Island'    // the property we require
 
@@ -77,7 +80,15 @@ export function buildMemberRow(member, snaps = [], windowDays, { nowMs = Date.no
     // timestamptz — the bare "+00" offset from #140 cannot appear here.
     ? new Date(newest.snapshot_date).getTime()
     : null
-  const staleDays = newestMs == null ? null : Math.max(0, Math.round((nowMs - newestMs) / DAY_MS))
+  // ⚠️ Both ends snapped to UTC midnight before subtracting. `snapshot_date` is
+  // a DATE, so it parses to 00:00Z, while `nowMs` is the actual clock — so a
+  // raw subtraction mixes a date with an instant and carries the time of day as
+  // a fraction of a day. `Math.round` then tipped it: the same snapshot read as
+  // 10 days old before noon UTC and 11 after, which is a test that passes all
+  // morning and fails all afternoon. Days between two DATES is what is meant.
+  const staleDays = newestMs == null
+    ? null
+    : Math.max(0, Math.round((utcMidnight(nowMs) - newestMs) / DAY_MS))
   const dataStale = staleDays != null && staleDays > MAX_SNAPSHOT_AGE_DAYS
 
   const windowSound = windowDays == null

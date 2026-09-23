@@ -52,13 +52,19 @@ export default function SignUpGrid({
               key={row.hourIso}
               id={`hour-${row.hourIso}`}
               data-testid={`hour-${row.hourIso}`}
-              className={`grid grid-cols-[5.5rem_1fr] items-center gap-3 px-3 py-1.5 ${
+              className={`grid grid-cols-[7rem_1fr] items-center gap-3 px-3 py-1.5 ${
                 row.isNow ? 'bg-blue-50 dark:bg-blue-900/20' : ''
               } ${row.isPast ? 'opacity-60' : ''}`}
             >
               <div className="flex flex-col leading-tight">
                 <span className="flex items-baseline gap-1 font-mono text-sm tabular-nums">
                   {row.tct}
+                  {/* ⚠️ Spelled out on every row, not just in a heading. The
+                      grid scrolls for a twelve-day chain, so a header naming
+                      the column is off-screen for all but the first few hours
+                      and the bold time reads as "some timezone" — most likely
+                      the reader's own, which is the row underneath. */}
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">TCT</span>
                   {/* ⚠️ `label` is the visible TRIGGER and `children` is the
                       panel — the other way round renders the explanation as
                       permanent body text and drops the badge entirely.
