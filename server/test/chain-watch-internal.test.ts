@@ -174,6 +174,31 @@ describe('the payload', () => {
   })
 })
 
+describe('the roster, for the identity map (#784)', () => {
+  it('carries current members so the bot can auto-match names', async () => {
+    await makeEvent()
+    const { body } = await get(TOKEN)
+    const names = body.members.map((m: any) => m.name)
+    expect(names).toContain('Goosey')
+    expect(body.members.every((m: any) => typeof m.member_id === 'string')).toBe(true)
+  })
+
+  it('⚠️ excludes members who have left', async () => {
+    // They should stop being pinged. The bot keeps their LINK — people rejoin,
+    // and re-linking by hand is the chore the auto-match exists to avoid — but
+    // a departed member is not roster.
+    await makeEvent()
+    await stack.db.query("UPDATE members SET is_current = false WHERE member_id = '7002'")
+    try {
+      const names = (await get(TOKEN)).body.members.map((m: any) => m.name)
+      expect(names).not.toContain('Muttley')
+      expect(names).toContain('Goosey')
+    } finally {
+      await stack.db.query("UPDATE members SET is_current = true WHERE member_id = '7002'")
+    }
+  })
+})
+
 describe('when nothing is running', () => {
   it('⚠️ answers 200 with a null event, never a 404', async () => {
     // "Nothing is running" is the correct answer most of the year. A 404 looks
@@ -187,6 +212,10 @@ describe('when nothing is running', () => {
     // ⚠️ Still served, so a bot booting during the quiet season does not fall
     // back to a hardcoded horizon it would then keep using.
     expect(body.gap_horizon_hours).toBe(GAP_HORIZON_HOURS)
+    // ⚠️ And the roster too — the identity map is standing state, not
+    // per-event. Linking only works during a chain would mean the first chain
+    // of the year starts with an empty map and pings that reach nobody.
+    expect(body.members.map((m: any) => m.name)).toContain('Goosey')
   })
 
   it('⚠️ goes quiet the moment the chain actually ends', async () => {
