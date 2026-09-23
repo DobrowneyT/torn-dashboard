@@ -175,6 +175,18 @@ describe('buildMemberRow — the window must mean what it says (#764)', () => {
     expect(row.data_partial_reason).toMatch(/10d old/)
   })
 
+  it('⚠️ reports the same staleness all day, not one more after noon UTC', () => {
+    // `snapshot_date` is a DATE and parses to 00:00Z; `nowMs` is a real clock.
+    // Subtracting one from the other carried the time of day as a fraction of a
+    // day, and Math.round tipped it at 12:00Z — so this very test passed every
+    // morning and failed every afternoon. Days between two DATES is the meaning.
+    const snaps = [snap('2026-09-13', 1200), snap('2026-08-14', 1000)]
+    const morning = buildMemberRow(member, snaps, 30, { nowMs: Date.parse('2026-09-23T00:05:00Z') })
+    const evening = buildMemberRow(member, snaps, 30, { nowMs: Date.parse('2026-09-23T23:55:00Z') })
+    expect(morning.stale_days).toBe(10)
+    expect(evening.stale_days).toBe(10)
+  })
+
   it('leaves a healthy window alone', () => {
     const snaps = [snap(daysAgo(0), 1450), snap(daysAgo(30), 1000)]
     const row = buildMemberRow(member, snaps, 30)
