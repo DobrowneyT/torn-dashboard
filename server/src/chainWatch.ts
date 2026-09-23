@@ -15,6 +15,7 @@ import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
 import { projectChain, type ChainReading } from './chain/chainProjection.js'
 import { flagFor, FLAG_REASON, type HourEvidence } from './chain/watchFlags.js'
+import { chainOutcome, type OutcomeSample } from './chain/chainOutcome.js'
 
 const TITLE_MAX = 120
 const REASON_MAX = 500
@@ -50,7 +51,12 @@ const SIGNUP_SELECT = `
   -- (No backticks in here: this comment lives inside a template literal.)
   (extract(epoch from s.hour_start) * 1000)::bigint AS hour_ms,
   (extract(hour from s.hour_start at time zone 'UTC')::int = ANY (e.bonus_hours)) AS is_bonus,
-  (s.hour_start < coalesce(e.actually_ended_at, e.ends_at))                       AS is_payable`
+  s.pay_decision, s.decided_by, s.decided_at,
+  -- ⚠️ Precedence matters: a leader's explicit actually_ended_at wins over the
+  -- end derived from chain_samples, which wins over the planned ends_at. One
+  -- expression, so the grid and the payout panel cannot disagree about which
+  -- hours were real.
+  (s.hour_start < coalesce(e.actually_ended_at, $2::timestamptz, e.ends_at))     AS is_payable`
 
 async function loadEvent(db: pg.Pool, id: number) {
   const { rows } = await db.query('SELECT * FROM chain_events WHERE id = $1', [id])
@@ -85,6 +91,22 @@ export function registerChainWatchRoutes(app: FastifyInstance, db: pg.Pool) {
     const event = await loadEvent(db, id)
     if (!event) return reply.status(404).send({ error: 'No such event' })
 
+    // ⚠️ When did the chain actually end? Read back out of chain_samples
+    // rather than caught in the moment — which is the entire reason that series
+    // is append-only. A leader's explicit `actually_ended_at` still wins.
+    const { rows: outcomeRows } = await db.query(
+      `SELECT (extract(epoch from sampled_at) * 1000)::bigint AS at,
+              chain_current, chain_cooldown
+         FROM chain_samples
+        WHERE sampled_at >= $1::timestamptz
+        ORDER BY sampled_at`, [event.starts_at])
+    const outcome = chainOutcome(outcomeRows.map((r): OutcomeSample => ({
+      at: Number(r.at),
+      chain: r.chain_current == null ? null : Number(r.chain_current),
+      cooldown: r.chain_cooldown == null ? null : Number(r.chain_cooldown),
+    })))
+    const derivedEnd = outcome.state === 'ended' ? new Date(outcome.endedAt).toISOString() : null
+
     // Live rows only. Removed ones are the payout panel's business (#773),
     // which asks for them explicitly — the grid showing both would double-count.
     const { rows } = await db.query(
@@ -93,7 +115,21 @@ export function registerChainWatchRoutes(app: FastifyInstance, db: pg.Pool) {
          JOIN chain_events e ON e.id = s.event_id
          LEFT JOIN members m ON m.member_id = s.member_id
         WHERE s.event_id = $1 AND s.removed_at IS NULL
-        ORDER BY s.hour_start, s.slot_index`, [id])
+        ORDER BY s.hour_start, s.slot_index`, [id, derivedEnd])
+
+    // ⚠️ Removed slots on hours that have RUN. A member who worked an hour and
+    // was later taken off it sees a smaller number with no explanation
+    // otherwise, which is the fastest way to lose trust in the whole sheet.
+    // "Removed" is not "never signed up", and this panel is the only place
+    // anyone will look.
+    const { rows: removed } = await db.query(
+      `SELECT ${SIGNUP_SELECT}, rb.member_name AS removed_by_name
+         FROM chain_watch_signups s
+         JOIN chain_events e ON e.id = s.event_id
+         LEFT JOIN members m ON m.member_id = s.member_id
+         LEFT JOIN members rb ON rb.member_id = s.removed_by
+        WHERE s.event_id = $1 AND s.removed_at IS NOT NULL AND s.hour_start < now()
+        ORDER BY s.hour_start, s.slot_index`, [id, derivedEnd])
     // ⚠️ Evidence for the review flags (#774), gathered per served hour. An
     // hour with NO samples yields no flag at all: "we were not looking" must
     // never render as "they were not there".
@@ -165,8 +201,27 @@ export function registerChainWatchRoutes(app: FastifyInstance, db: pg.Pool) {
     // still-claimable hours as past, or worse, offered a claim on an hour that
     // has gone. That viewer is the half-asleep person at 3am this page exists
     // for. The server's now travels with the payload.
+    // ⚠️ A dropped chain gets a post-mortem, not just a smaller payout. Two
+    // watchers per hour exist precisely so this should not happen; when it
+    // does, who was on must not depend on anybody's memory.
+    let finalHourWatchers: Array<{ member_id: string; member_name: string | null }> = []
+    if (outcome.state === 'ended') {
+      const { rows: onWatch } = await db.query(
+        `SELECT s.member_id, m.member_name
+           FROM chain_watch_signups s
+           LEFT JOIN members m ON m.member_id = s.member_id
+          WHERE s.event_id = $1 AND s.removed_at IS NULL
+            AND s.hour_start = date_trunc('hour', $2::timestamptz)
+          ORDER BY s.slot_index`, [id, new Date(outcome.endedAt).toISOString()])
+      finalHourWatchers = onWatch
+    }
+
     const { rows: clock } = await db.query('SELECT now() AS server_now')
-    return { event, signups: rows, projection, server_now: clock[0].server_now }
+    return {
+      event, signups: rows, removed, projection,
+      outcome: { ...outcome, derivedEnd, finalHourWatchers },
+      server_now: clock[0].server_now,
+    }
   })
 
   // ── The event ──────────────────────────────────────────────────────────────
@@ -389,6 +444,33 @@ export function registerChainWatchRoutes(app: FastifyInstance, db: pg.Pool) {
       `UPDATE chain_watch_signups
           SET removed_at = now(), removed_by = $2, removed_reason = nullif($3, '')
         WHERE id = $1 RETURNING *`, [row.id, me, reason])
+    return rows[0]
+  })
+
+  /**
+   * A leader's answer to a flag (#773).
+   *
+   * ⚠️ The app never decides. #774 records what it saw — absent, absent while
+   * the chain was at risk, abroad — and this is where the human's verdict
+   * lands. `null` clears it back to undecided, which is not the same as
+   * 'unpaid': an undecided flag still counts as payable, because the flag asks
+   * a question rather than withholding money on its own.
+   */
+  app.patch('/api/chain-events/:id/signups/:hour/:slot/decision', LEAD, async (req, reply) => {
+    const p = req.params as { id: string; hour: string; slot: string }
+    const decision = ((req.body ?? {}) as { decision?: unknown }).decision ?? null
+    if (decision !== null && decision !== 'paid' && decision !== 'unpaid') {
+      return reply.status(400).send({ error: 'decision must be paid, unpaid or null' })
+    }
+    const { rows } = await db.query(
+      `UPDATE chain_watch_signups
+          SET pay_decision = $4, decided_by = $5,
+              decided_at = CASE WHEN $4::text IS NULL THEN NULL ELSE now() END
+        WHERE event_id = $1 AND hour_start = $2::timestamptz AND slot_index = $3
+          AND removed_at IS NULL
+        RETURNING *`,
+      [Number(p.id), decodeURIComponent(p.hour), Number(p.slot), decision, actor(req)])
+    if (!rows[0]) return reply.status(404).send({ error: 'Nobody holds that slot' })
     return rows[0]
   })
 

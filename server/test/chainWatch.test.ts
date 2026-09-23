@@ -439,6 +439,78 @@ describe('the review flags, end to end (#774)', () => {
   })
 })
 
+describe('a leader\'s answer to a flag (#773)', () => {
+  async function flaggedSlot() {
+    const ev = await newEvent({ starts_at: new Date(Date.now() - 6 * 3600_000).toISOString() })
+    const hourMs = Math.floor((Date.now() - 5 * 3600_000) / 3600_000) * 3600_000
+    const hour = new Date(hourMs).toISOString()
+    await claim(ev.id, hour, 0, lead, { member_id: '9200' })
+    return { id: ev.id, hour, hourMs }
+  }
+  const decide = (id: number, hour: string, decision: unknown) =>
+    api('PATCH', `/api/chain-events/${id}/signups/${encodeURIComponent(hour)}/0/decision`,
+      lead, { decision })
+
+  it('records paid and unpaid, with who decided', async () => {
+    const { id, hour } = await flaggedSlot()
+    const paid = await decide(id, hour, 'paid')
+    expect(paid.status).toBe(200)
+    expect(paid.body.pay_decision).toBe('paid')
+    expect(paid.body.decided_by).toBe('9100')
+    expect((await decide(id, hour, 'unpaid')).body.pay_decision).toBe('unpaid')
+  })
+
+  it('⚠️ clears back to UNDECIDED, which is not the same as unpaid', async () => {
+    // An undecided flag still counts as payable: the flag asks a question, it
+    // does not withhold money on its own.
+    const { id, hour } = await flaggedSlot()
+    await decide(id, hour, 'unpaid')
+    const cleared = await decide(id, hour, null)
+    expect(cleared.body.pay_decision).toBeNull()
+    expect(cleared.body.decided_at).toBeNull()
+  })
+
+  it('refuses a decision that is neither', async () => {
+    const { id, hour } = await flaggedSlot()
+    expect((await decide(id, hour, 'maybe')).status).toBe(400)
+  })
+
+  it('is leadership only', async () => {
+    const { id, hour } = await flaggedSlot()
+    const res = await api('PATCH',
+      `/api/chain-events/${id}/signups/${encodeURIComponent(hour)}/0/decision`,
+      member, { decision: 'paid' })
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('reading the end of the chain back (#773)', () => {
+  it('⚠️ derives the end from the samples and stops paying past it', async () => {
+    // Nobody pressed a button: the cooldown transition is read back out of
+    // chain_samples hours later, which is the whole reason that series is
+    // append-only rather than a singleton.
+    const ev = await newEvent({ starts_at: new Date(Date.now() - 5 * 3600_000).toISOString() })
+    const endedMs = Math.floor((Date.now() - 3 * 3600_000) / 3600_000) * 3600_000
+    const afterMs = endedMs + 2 * 3600_000
+    await claim(ev.id, new Date(endedMs - 3600_000).toISOString(), 0, lead, { member_id: '9200' })
+    await claim(ev.id, new Date(afterMs).toISOString(), 0, lead, { member_id: '9300' })
+
+    await stack.db.query(
+      `INSERT INTO chain_samples (sampled_at, chain_current, chain_cooldown) VALUES
+         ($1::timestamptz, 61204, NULL), ($2::timestamptz, 61204, $3)`,
+      [new Date(endedMs - 1800_000).toISOString(), new Date(endedMs).toISOString(),
+       Math.floor(endedMs / 1000) + 1800])
+
+    const res = await api('GET', `/api/chain-events/${ev.id}`, lead)
+    expect(res.body.outcome.state).toBe('ended')
+    expect(res.body.outcome.dropped).toBe(true)     // 61,204 is short of 100k
+    const before = res.body.signups.find((x: any) => at(x.hour_start) === endedMs - 3600_000)
+    const after = res.body.signups.find((x: any) => at(x.hour_start) === afterMs)
+    expect(before.is_payable).toBe(true)
+    expect(after.is_payable).toBe(false)            // an hour that never happened
+  })
+})
+
 describe('the chain projection (#774)', () => {
   it('refuses to project from less than a day of chain', async () => {
     const ev = await newEvent({ starts_at: new Date(Date.now() - 6 * 3600_000).toISOString() })
