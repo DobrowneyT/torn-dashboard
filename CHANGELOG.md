@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.141.1] - 2026-09-23
+
+### Added
+- **Chain Watch: the roster rides along for the bot's identity map (#784).**
+  `/api/internal/chain-watch` now carries `members` — current faction members,
+  id and name.
+  - ⚠️ **Without it the auto-match can only read a Discord nickname that
+    literally contains `Name [123456]`**, and everyone else falls to the manual
+    `/chain link` escape hatch. Linking ~100 people by hand is the chore that
+    does not get done, and a half-populated map sends pings that reach some
+    members and not others — worse than none, because nobody can tell which.
+  - ⚠️ **Served even with no event running.** The identity map is standing
+    state, not per-event; linking that only worked mid-chain would mean the
+    first chain of the year starts with an empty map.
+  - ⚠️ **Current members only.** Someone who left stops being pinged — the bot
+    keeps their link, since people rejoin, but they are not roster.
+  - No new exposure: the same ids and names already ride in `hours[].watchers`,
+    and both are public Torn data.
+
 ## [3.141.0] - 2026-09-23
 
 ### Added

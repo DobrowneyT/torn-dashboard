@@ -64,6 +64,11 @@ export interface WatcherView {
   travel: TravelView | null
 }
 
+export interface MemberView {
+  member_id: string
+  name: string
+}
+
 export interface HourView {
   hour_start: number
   bonus: boolean
@@ -127,6 +132,27 @@ function travelViewFor(row: {
  * exactly one author.
  */
 export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now()) {
+  const memberView = (r: { member_id: string; member_name: string }): MemberView =>
+    ({ member_id: r.member_id, name: r.member_name })
+
+  // ⚠️ The roster, for the bot's identity auto-match (#784) — NOT for the board.
+  //
+  // Without it the only link the bot can make is a Discord nickname that
+  // literally contains "Name [123456]", and everyone else falls to the manual
+  // `/chain link` escape hatch. Linking ~100 people by hand is the chore that
+  // does not get done, and a half-populated map produces pings that reach some
+  // people and not others — worse than none, because nobody can tell which.
+  //
+  // ⚠️ Current members only. A member who left should stop being pinged; the
+  // bot keeps their LINK (people rejoin) but must not treat them as roster.
+  // Nothing here is new exposure: these ids and names already ride in
+  // `hours[].watchers`, and both are public Torn data.
+  const { rows: roster } = await db.query(
+    `SELECT member_id, member_name
+       FROM members
+      WHERE is_current IS TRUE AND member_name IS NOT NULL
+      ORDER BY member_name`)
+
   // The event the bot should be talking about: open, and not yet finished.
   // ⚠️ `actually_ended_at` wins over the planned end. A chain that hit 100k on
   // day nine of a twelve-day sheet must go quiet immediately — an empty-slot
@@ -158,6 +184,11 @@ export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now())
       projection: null,
       gap_horizon_hours: GAP_HORIZON_HOURS,
       hours: [] as HourView[],
+      // ⚠️ Served even with no event running. The identity map is standing
+      // state, not per-event — a bot booting in the quiet season should still
+      // be able to link people, so the first chain of the year does not begin
+      // with an empty map and pings that reach nobody.
+      members: roster.map(memberView),
     }
   }
 
@@ -259,6 +290,7 @@ export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now())
       nowMs),
     gap_horizon_hours: GAP_HORIZON_HOURS,
     hours,
+    members: roster.map(memberView),
   }
 }
 
