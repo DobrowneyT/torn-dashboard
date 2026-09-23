@@ -1220,7 +1220,14 @@ CREATE TABLE IF NOT EXISTS public.chain_watch_signups (
   -- read identically.
   removed_at     timestamptz,
   removed_by     text,
-  removed_reason text
+  removed_reason text,
+
+  -- #773: a leader's answer to a flag. ⚠️ NULL is "not looked at yet", which is
+  -- neither 'paid' nor 'unpaid' — a flagged slot with no decision still counts
+  -- as payable, because the flag asks a question rather than withholding money.
+  pay_decision   text CHECK (pay_decision IS NULL OR pay_decision IN ('paid', 'unpaid')),
+  decided_by     text,
+  decided_at     timestamptz
 );
 
 -- ⚠️ PARTIAL, and that is the whole point. A removal leaves the row behind, so

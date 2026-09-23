@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarPlus, CalendarMinus, LoaderCircle, RefreshCw } from 'lucide-react'
-import { apiGet, apiPost, apiPut, apiDelete } from '../../utils/apiClient'
+import { apiGet, apiPatch, apiPost, apiPut, apiDelete } from '../../utils/apiClient'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   hourRows, gapsAhead, gapSentence, coverage, viewerZone, GAP_HORIZON_HOURS,
@@ -9,6 +9,7 @@ import { parseDbTime } from '../../utils/time'
 import SignUpGrid from './SignUpGrid'
 import MemberPicker from './MemberPicker'
 import NewEventForm from './NewEventForm'
+import PayoutPanel from './PayoutPanel'
 
 /**
  * Members → Chain Watch (#772).
@@ -114,6 +115,13 @@ export default function ChainWatchSection({ isLeadership }) {
     apiDelete(`/api/chain-events/${eventId}/signups/${encodeURIComponent(row.hourIso)}/${i}`))
 
   const assign = (row, i) => setPicking({ row, slotIndex: i })
+
+  // ⚠️ A leader's answer to a flag. The app records; it never adjudicates.
+  const decide = (signup, decision) =>
+    run(`${signup.hour_start}:${signup.slot_index}:decide`, () =>
+      apiPatch(
+        `/api/chain-events/${eventId}/signups/${encodeURIComponent(signup.hour_start)}/${signup.slot_index}/decision`,
+        { decision }))
 
   const pick = (memberId) => {
     const { row, slotIndex } = picking
@@ -287,13 +295,20 @@ export default function ChainWatchSection({ isLeadership }) {
           </div>
         </>
       ) : (
-        <div className="card overflow-hidden p-0">
-          {/* #773 adds the payout table and the flag queue here. */}
-          <SignUpGrid
-            rows={elapsed} event={event} meId={user?.id} canEdit={canEdit} zone={zone}
-            onClaim={claim} onRelease={release} onAssign={assign} busyKey={busyKey}
-            emptyNote="Nothing has run yet."
-          />
+        <div className="space-y-4">
+          {canEdit && (
+            <PayoutPanel
+              event={event} signups={payload.signups ?? []} removed={payload.removed ?? []}
+              outcome={payload.outcome} canEdit={canEdit} onDecide={decide} busyKey={busyKey}
+            />
+          )}
+          <div className="card overflow-hidden p-0">
+            <SignUpGrid
+              rows={elapsed} event={event} meId={user?.id} canEdit={canEdit} zone={zone}
+              onClaim={claim} onRelease={release} onAssign={assign} busyKey={busyKey}
+              emptyNote="Nothing has run yet."
+            />
+          </div>
         </div>
       )}
 

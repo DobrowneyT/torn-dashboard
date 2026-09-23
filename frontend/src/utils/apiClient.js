@@ -146,6 +146,18 @@ export async function apiPut(path, payload) {
   return body
 }
 
+/** Authorized PATCH against the faction API. Throws with the server's error message. */
+export async function apiPatch(path, payload) {
+  const res = await authorizedFetch(path, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw apiError(res, body)
+  return body
+}
+
 /** Authorized DELETE against the faction API. Throws with the server's error message. */
 export async function apiDelete(path, payload) {
   const res = await authorizedFetch(path, {

@@ -18,6 +18,46 @@ surface it automatically.
 
 ---
 
+## [3.140.0] - 2026-09-23
+
+### Added
+- **Chain Watch: payout and raffle ranges (#773).** The last slice of the #768
+  epic — the half of the spreadsheet that turns served hours into money.
+  - One row per watcher: slots, bonus slots, raffle tickets, a contiguous ticket
+    range, and **one payout number** carried verbatim by the
+    `addMoneyTo` link. ⚠️ The sheet showed Warwinds `35,000,000` beside a link
+    paying `34,500,000`; two numbers on a row, one of which is never the amount
+    sent.
+  - ⚠️ **The total is computed from the rows.** The sheet's totals row read
+    `189.5` bonus slots — exactly half the slot count, a stray `/2` — where its
+    own member rows summed to 59.
+  - **Ticket ranges** cover `1..total` exactly once, assigned in a stated order
+    (slots descending, then member id) so the numbering does not reshuffle
+    between renders. Drawing the winner stays out of scope, as the sheet had it.
+  - **A flag queue**, at-risk rows first. ⚠️ `pay_decision` is nullable and
+    **null means "not looked at yet", which is neither paid nor unpaid** — an
+    undecided flagged slot still counts as payable, because a flag asks a
+    question rather than withholding money on its own. Only an explicit `unpaid`
+    and `abroad` withhold pay, and a leader can overrule even `abroad`: the app
+    records, it does not adjudicate.
+  - **Removed slots on hours that had already run** are shown struck through
+    with who removed them and why. ⚠️ Removed is not the same as never signed
+    up, and this panel is the only place anyone looks.
+  - ⚠️ **A dropped chain gets a post-mortem**, naming who was on watch for the
+    final hour, and **withdraws the raffle while still paying the slots**.
+
+### Fixed
+- ⚠️ **The chain's end is now derived from `chain_samples`, which #774 said it
+  would be and did not do.** `chainOutcome` reads the cooldown transition back
+  out of the series — the entire reason it is append-only rather than a
+  singleton — so the end can be established hours later, when the payout is
+  actually reconciled. A leader's explicit `actually_ended_at` still wins, and
+  both feed **one** SQL expression so the grid and the payout panel cannot
+  disagree about which hours were real.
+  ⚠️ "Dropped" is decided by the **peak**, not by which sample caught the
+  timer: Torn reports chain `0` once a chain closes, so reading the last sample
+  as the peak would call every completed chain a drop.
+
 ## [3.139.1] - 2026-09-23
 
 ### Added
