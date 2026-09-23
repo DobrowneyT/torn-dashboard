@@ -87,7 +87,13 @@ export function registerChainWatchRoutes(app: FastifyInstance, db: pg.Pool) {
          LEFT JOIN members m ON m.member_id = s.member_id
         WHERE s.event_id = $1 AND s.removed_at IS NULL
         ORDER BY s.hour_start, s.slot_index`, [id])
-    return { event, signups: rows }
+    // ⚠️ The client decides which hours have elapsed, and it must not do that
+    // from its own clock: a viewer with a skewed system time would be shown
+    // still-claimable hours as past, or worse, offered a claim on an hour that
+    // has gone. That viewer is the half-asleep person at 3am this page exists
+    // for. The server's now travels with the payload.
+    const { rows: clock } = await db.query('SELECT now() AS server_now')
+    return { event, signups: rows, server_now: clock[0].server_now }
   })
 
   // ── The event ──────────────────────────────────────────────────────────────

@@ -4,6 +4,21 @@
 
 const TOKEN_STORAGE_KEY = 'apiSession'
 
+/**
+ * An API failure carrying more than its sentence.
+ *
+ * ⚠️ Callers used to have to match on the message to tell "that slot was just
+ * taken" (a normal race, refresh and move on) from a real failure, and a
+ * structured refusal body — the hours blocking a day-trim, say — was thrown
+ * away entirely. `status` and `body` ride along; `message` is unchanged.
+ */
+function apiError(res, body) {
+  const err = new Error(body?.error ?? `API error ${res.status}`)
+  err.status = res.status
+  err.body = body
+  return err
+}
+
 export function getApiSession() {
   try {
     const raw = localStorage.getItem(TOKEN_STORAGE_KEY)
@@ -102,7 +117,7 @@ export async function apiGet(path) {
   const res = await authorizedFetch(path)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.error ?? `API error ${res.status}`)
+    throw apiError(res, body)
   }
   return res.json()
 }
@@ -115,7 +130,7 @@ export async function apiPost(path, payload) {
     body: JSON.stringify(payload),
   })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error ?? `API error ${res.status}`)
+  if (!res.ok) throw apiError(res, body)
   return body
 }
 
@@ -127,15 +142,20 @@ export async function apiPut(path, payload) {
     body: JSON.stringify(payload),
   })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error ?? `API error ${res.status}`)
+  if (!res.ok) throw apiError(res, body)
   return body
 }
 
 /** Authorized DELETE against the faction API. Throws with the server's error message. */
-export async function apiDelete(path) {
-  const res = await authorizedFetch(path, { method: 'DELETE' })
+export async function apiDelete(path, payload) {
+  const res = await authorizedFetch(path, {
+    method: 'DELETE',
+    ...(payload !== undefined
+      ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) }
+      : {}),
+  })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body.error ?? `API error ${res.status}`)
+  if (!res.ok) throw apiError(res, body)
   return body
 }
 
