@@ -18,6 +18,50 @@ surface it automatically.
 
 ---
 
+## [3.137.0] - 2026-09-22
+
+### Added
+- **Chain Watch: the schema and API behind the hourly sign-up sheet (#771).**
+  First slice of the #768 epic — nothing user-facing yet. It replaces a Google
+  Sheet that worked, so the shape is driven by the three things that sheet
+  could not do:
+  - ⚠️ **Sign-ups key on the Torn player ID, never a display name.** The
+    workbook matched watchers with `COUNTIF` over the grid; its own roster tab
+    now reads `Muttley_616` where its frozen 2025 grid says `Muttley`, and a
+    rename returned `0` with no error at all.
+  - ⚠️ **Bonus hours are hours-of-day, derived at read time.** The sheet pinned
+    its bonus to spreadsheet *columns* H:I — 05:00–07:00 TCT on one block and
+    17:00–19:00 on the next — and paid 59 slots where only 31 were marked.
+    Leadership can now correct the hours mid-event and the correction applies to
+    hours already served.
+  - ⚠️ **The window grows a day at a time, server-side.** The 2025 grid was
+    generated for 25 Oct 10:00 → 1 Nov 16:00 TCT and the chain outran it; the
+    real sheet carries sign-ups through 3 Nov, extended by hand. `POST /days`
+    moves `ends_at` forward 24h *preserving the start hour* — an event does not
+    begin at midnight, and snapping to one would have added 14h on the first
+    click.
+  - ⚠️ **Giving up a slot is a soft delete.** A sign-up drives money; deleting
+    the row destroys the only evidence that someone held the hour. `removed_by`
+    is what separates "I dropped it" from "I was dropped", which must not read
+    identically at payout. The slot uniqueness index is therefore **partial**
+    (`WHERE removed_at IS NULL`) so a freed slot can be re-claimed while the
+    history survives.
+  - ⚠️ **One member cannot hold both slots of an hour**, enforced by a second
+    partial unique index rather than a handler check — the race is real (two
+    tabs, or a leader assigning as the member claims). Consecutive hours stay
+    allowed. The 2025 sheet never doubled up: 0 of 211 served hours.
+  - ⚠️ **A member may always drop their own slot until the hour starts**, and
+    is refused after. Someone who knows at 22:00 they will not make 04:00 must
+    be able to say so while there is still time to refill it — otherwise the
+    silent no-show is the path of least resistance, and that is what costs a
+    chain.
+  - Every mutation of the event is `requireRole('leadership','admin')`, written
+    on each route with a test per route, because the bonus fields retroactively
+    change what members are owed.
+  - Also lands the append-only `chain_samples` and `member_activity_samples`
+    tables that #774 will write — deliberately **not** `war_room_chain_v2`,
+    which is a singleton with no history whose poller only runs during a war.
+
 ## [3.136.1] - 2026-09-22
 
 ### Fixed

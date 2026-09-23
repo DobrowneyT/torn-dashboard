@@ -92,6 +92,15 @@ const NEW_TABLES = [
   // in the shared `global` database; this table is only what a faction has
   // deliberately set for itself, and the row's existence is the "set" signal.
   'feature_flags',
+  // Chain Watch (#771): hourly chain-watcher sign-ups and their payout record,
+  // plus the two append-only sample series #774 writes.
+  //
+  // ⚠️ `chain_samples` is deliberately NOT a second war_room_chain_v2. That
+  // one is a singleton (CHECK (id = 1)) whose every poll overwrites the last,
+  // so the chain's end is a moment somebody had to catch rather than a fact
+  // that can be read back afterwards — which is exactly what the payout needs.
+  'chain_events', 'chain_watch_signups',
+  'chain_samples', 'member_activity_samples',
 ]
 
 let server

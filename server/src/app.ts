@@ -26,6 +26,7 @@ import { registerBrandingRoutes } from './branding.js'
 import { registerManifestRoute } from './manifest.js'
 import { registerCompetitionRoutes, resolveCompetition } from './competitions.js'
 import { registerCalendarRoutes } from './calendar.js'
+import { registerChainWatchRoutes } from './chainWatch.js'
 import { registerExportRoutes } from './exports.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
 import { createFlagResolver, type FlagResolver } from './featureFlags.js'
@@ -454,6 +455,7 @@ export async function buildServer(
     registerCompetitionRoutes(app, opts.db, { competitionTimers: app.competitionTimers })
     registerMemberNotesRoutes(app, opts.db)
     registerCalendarRoutes(app, opts.db)
+    registerChainWatchRoutes(app, opts.db)
     registerExportRoutes(app, opts.db)
     // In-app feedback → triaged GitHub issue (#253). Disabled (endpoint 501, nav
     // hidden) when no PAT is configured.
