@@ -18,6 +18,22 @@ surface it automatically.
 
 ---
 
+## [3.139.1] - 2026-09-23
+
+### Added
+- **Chain Watch: a way to open one (#772 follow-up).** The page could say "no
+  chain watch is open yet" and offer nothing to do about it — the only way to
+  create an event was a `POST` from a terminal, which is a dead end on a page
+  built for a leader at 2am.
+  - ⚠️ **Takes a number of DAYS and a TCT start, never an end date.** The
+    server derives `ends_at` keeping the start hour, and the window grows a day
+    at a time from there. The 2025 sheet was generated for 25 Oct 10:00 → 1 Nov
+    16:00 TCT and the chain outran it; sign-ups were extended through 3 Nov by
+    hand.
+  - The chosen TCT start is echoed back **in the viewer's own time**, so nobody
+    opens a fortnight of sign-ups twelve hours off by accident.
+  - Bonus hours are entered as **hours of the day** and are changeable later.
+
 ## [3.139.0] - 2026-09-23
 
 ### Added
