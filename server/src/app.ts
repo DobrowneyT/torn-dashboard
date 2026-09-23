@@ -27,6 +27,7 @@ import { registerManifestRoute } from './manifest.js'
 import { registerCompetitionRoutes, resolveCompetition } from './competitions.js'
 import { registerCalendarRoutes } from './calendar.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
+import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
 import { registerExportRoutes } from './exports.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
 import { createFlagResolver, type FlagResolver } from './featureFlags.js'
@@ -104,6 +105,21 @@ export interface ServerOptions {
    * is the right default for an addition the fleet can run without.
    */
   fleetMetricsToken?: string
+  /**
+   * This tenant's Chain Watch token (#782), derived as
+   * HMAC-SHA256(FLEET_METRICS_SECRET, "chain-watch:" + slug).
+   *
+   * ⚠️ **Deliberately NOT the fleet-metrics token, though the same secret is
+   * behind both.** The Discord bot is a different trust domain: it runs off
+   * this box, holds a Discord token, and is joined to servers full of people.
+   * Reusing FLEET_METRICS_TOKEN would hand it key-pool depth as a side effect —
+   * which #609 is explicit is reconnaissance handed over — for a feature that
+   * needs rosters and sign-up times. Scoping the HMAC costs one string and
+   * keeps a bot compromise to sign-up data.
+   *
+   * Unset disables the endpoint entirely.
+   */
+  chainWatchToken?: string
 }
 
 export interface RateLimitOptions {
@@ -249,6 +265,16 @@ export async function buildServer(
       }
       return collectFleetMetrics(metricsDb)
     })
+  }
+
+  // ── Chain Watch for the Discord bot (#782, part of #775) ─────────────────
+  //
+  // ⚠️ Same internet-reachable path as fleet-metrics above: the generated
+  // tenant vhost proxies `location /api/` wholesale, so living on the compose
+  // network protects nothing. Its own scoped token, so a bot compromise does
+  // not become a fleet-metrics compromise.
+  if (opts.db && opts.chainWatchToken) {
+    registerChainWatchInternalRoutes(app, opts.db, opts.chainWatchToken)
   }
 
   app.decorateRequest('session', null)

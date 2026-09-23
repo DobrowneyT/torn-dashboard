@@ -18,6 +18,36 @@ surface it automatically.
 
 ---
 
+## [3.141.0] - 2026-09-23
+
+### Added
+- **Chain Watch: a read endpoint for the Discord bot (#782).** `GET
+  /api/internal/chain-watch` serves the board the bot renders — the open event,
+  every hour in the next day *including the ones nobody signed up for*, each
+  watcher's travel state, the chain projection band, and the gap horizon.
+  - ⚠️ **It derives nothing new.** The projection comes from `projectChain`, the
+    travel facts from the same `member_activity_samples` series the review flags
+    read. Two implementations of "is this slot at risk" drift, and the one that
+    drifts is the one nobody is looking at.
+  - ⚠️ **`gap_horizon_hours` is served, not assumed.** `GAP_HORIZON_HOURS` now
+    has one definition (`server/src/chain/chainHorizon.ts`); the bot is
+    forbidden its own copy, so the page and the channel cannot disagree about
+    what "soon" means.
+  - ⚠️ **Its own scoped token**, `HMAC(FLEET_METRICS_SECRET, "chain-watch:"+slug)`,
+    deliberately *not* `FLEET_METRICS_TOKEN`. The bot runs off the box and sits
+    in servers full of people; reusing the metrics token would hand it key-pool
+    depth — reconnaissance, per #609 — as a side effect of wanting sign-up
+    times.
+  - ⚠️ **No event → 200 with a null event, never a 404.** "Nothing is running"
+    is the right answer most of the year; an error looks like an outage and puts
+    the bot in a retry loop. The same applies the moment `actually_ended_at` is
+    set: an empty-slot ping for a finished chain wakes somebody at 3am for
+    nothing, which is how a channel learns to mute a bot.
+  - ⚠️ **Every time crosses as epoch milliseconds.** The #140 trap bites Python
+    too — `datetime.fromisoformat` rejects Postgres' bare two-digit offset.
+  - `db/chain-watch-token.mjs` provisions tenants; runbook at
+    `docs/runbooks/chain-watch-discord.md`.
+
 ## [3.140.1] - 2026-09-23
 
 ### Changed

@@ -5,6 +5,7 @@
 // preservation cases below matter as much as the ones that change something.
 import { describe, expect, it } from 'vitest'
 import { setOverrideTokens } from '../fleetTokenFile.mjs'
+import { chainWatchScope } from '../chainWatchTokenLib.mjs'
 
 const HEX_A = 'a'.repeat(64)
 const HEX_B = 'b'.repeat(64)
@@ -112,5 +113,45 @@ describe('setOverrideTokens', () => {
     const r = setOverrideTokens(before, { forge: HEX_A })
     expect(r.updated).toEqual(['forge'])
     expect(r.text).toContain('FLEET_METRICS_TOKEN: nope')
+  })
+})
+
+// #782 — the same rewriter, now targeting CHAIN_WATCH_TOKEN for the Discord bot.
+describe('setOverrideTokens with a second token variable', () => {
+  it('adds CHAIN_WATCH_TOKEN alongside FLEET_METRICS_TOKEN, leaving it intact', () => {
+    // ⚠️ The two must coexist. A rewriter that replaced the fleet token — same
+    // block, similar name, one hex value per line — would silently 401 every
+    // tenant's metrics the moment somebody provisioned the bot, and #645 proved
+    // "not measured" reads as healthy to a human.
+    const r = setOverrideTokens(OVERRIDE, { forge: HEX_A }, 'CHAIN_WATCH_TOKEN')
+    expect(r.added).toEqual(['forge'])
+    expect(r.missing).toEqual([])
+    const forge = r.text.slice(r.text.indexOf('api-forge'), r.text.indexOf('api-tnl'))
+    expect(forge).toContain(`CHAIN_WATCH_TOKEN: ${HEX_A}`)
+    expect(forge).toContain(`FLEET_METRICS_TOKEN: ${'0'.repeat(64)}`)
+  })
+
+  it('replaces an existing CHAIN_WATCH_TOKEN in place', () => {
+    const once = setOverrideTokens(OVERRIDE, { forge: HEX_A }, 'CHAIN_WATCH_TOKEN')
+    const twice = setOverrideTokens(once.text, { forge: HEX_B }, 'CHAIN_WATCH_TOKEN')
+    expect(twice.updated).toEqual(['forge'])
+    expect(twice.added).toEqual([])
+    expect(twice.text).toContain(`CHAIN_WATCH_TOKEN: ${HEX_B}`)
+    expect(twice.text).not.toContain(HEX_A)
+  })
+
+  it('refuses a variable it does not have a comment for', () => {
+    // ⚠️ Fails closed rather than writing an uncommented key into a file that
+    // is hand-edited for years by somebody who will not know what it is.
+    expect(() => setOverrideTokens(OVERRIDE, { forge: HEX_A }, 'SOME_OTHER_TOKEN')).toThrow(/unknown token/)
+  })
+})
+
+describe('chainWatchScope', () => {
+  it('⚠️ scopes the HMAC so the bot token is not the fleet-metrics token', () => {
+    // The entire security argument for a second token is this prefix. If it
+    // ever equalled the bare slug, every bot would silently hold fleet metrics.
+    expect(chainWatchScope('forge')).toBe('chain-watch:forge')
+    expect(chainWatchScope('forge')).not.toBe('forge')
   })
 })
