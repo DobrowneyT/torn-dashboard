@@ -5,15 +5,15 @@
  * unlike hospital and jail — so every ETA is counted from a departure we had to
  * witness ourselves. This is the rule for deciding whether we witnessed it.
  *
- * ⚠️ **This is not an extraction of the War Room's version, and pretending
- * otherwise would be worse than the duplication.** `war_room_state_v2` latches
- * the same rule inside an `ON CONFLICT … DO UPDATE` `CASE`, against a row it
- * rewrites in place and only when something changed. `member_activity_samples`
- * is an append-only series with no row to update: the previous observation is a
- * previous *row*, so the decision has to happen before the insert rather than
- * inside it. Forcing one SQL expression to serve both would make both harder to
- * read than the rule itself. What is shared is stated here, in one place, in
- * words — see `server/src/warRoomTicker.ts` for the other implementation.
+ * ⚠️ **Chain Watch owns this outright and shares nothing with the War Room.**
+ * The War Room arrived at the same rule first, in a very different shape:
+ * `war_room_state_v2` latches it inside an `ON CONFLICT … DO UPDATE` `CASE`,
+ * against a row rewritten in place and only when something changed.
+ * `member_activity_samples` is an append-only series with no row to update —
+ * the previous observation is a previous *row* — so the decision happens before
+ * the insert. Two implementations of one idea, each owned by the feature it
+ * serves; #330 is worth reading for how the rule was learned, and is not a
+ * dependency.
  */
 
 /**

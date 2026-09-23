@@ -1,7 +1,8 @@
 // #774 — an append-only record of what the chain was doing.
 //
-// ⚠️ This deliberately does NOT reuse the War Room's chain poller, and the
-// reasons compound:
+// ⚠️ Chain Watch shares NOTHING with the War Room — no modules, no tables, no
+// jobs. The War Room was worth reading for how it handles Torn's chain payload;
+// it is not a dependency, and the reasons it cannot be one compound:
 //
 //   1. It only runs during a WAR. warRoomTicker returns early on `!cfg.enabled`
 //      and again on `!cfg.faction_id` — "no opponent faction set". A Halloween
@@ -24,7 +25,7 @@
 // right about which hour it died in.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
-import { absTimer } from '../../warRoomChain.js'
+import { toAbsoluteEpoch } from '../../chain/chainTimers.js'
 
 export async function chainSampleJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   const us = await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
@@ -38,12 +39,18 @@ export async function chainSampleJob({ db, pool, client }: JobDeps): Promise<Run
   const chain = data?.chain ?? {}
   const nowEpoch = Math.floor(Date.now() / 1000)
 
-  // Torn sends `timeout`/`cooldown` as RELATIVE seconds; stored absolute, the
-  // same conversion warRoomChain.ts does, so the two series are comparable.
+  // Torn sends `timeout`/`cooldown` as RELATIVE seconds; stored absolute so a
+  // sample means the same thing whenever it is read.
+  //
+  // ⚠️ Chain Watch's own conversion, deliberately not imported from the War
+  // Room. The two do the same arithmetic, which is a resemblance rather than a
+  // dependency: sharing it would tie a twelve-day payout record to a module
+  // whose job is a 1 Hz battle display.
   const { rows } = await db.query(
     `INSERT INTO chain_samples (chain_current, chain_timeout, chain_cooldown)
      VALUES ($1, $2, $3) RETURNING id`,
-    [chain.current ?? null, absTimer(chain.timeout, nowEpoch), absTimer(chain.cooldown, nowEpoch)],
+    [chain.current ?? null, toAbsoluteEpoch(chain.timeout, nowEpoch),
+     toAbsoluteEpoch(chain.cooldown, nowEpoch)],
   )
 
   return {

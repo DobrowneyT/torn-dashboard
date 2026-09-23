@@ -65,3 +65,20 @@ describe('away states', () => {
     expect(isTravelling('Abroad')).toBe(false)
   })
 })
+
+describe('chain timers', () => {
+  it('converts Torn’s relative seconds to an absolute epoch', async () => {
+    const { toAbsoluteEpoch } = await import('../src/chain/chainTimers.js')
+    expect(toAbsoluteEpoch(184, 1_000_000)).toBe(1_000_184)
+  })
+
+  it('⚠️ treats no-timer as null, never as "drops right now"', async () => {
+    // A zero that survives as the current time reads as a chain about to drop
+    // this instant, which is the opposite of what it means.
+    const { toAbsoluteEpoch } = await import('../src/chain/chainTimers.js')
+    expect(toAbsoluteEpoch(0, 1_000_000)).toBeNull()
+    expect(toAbsoluteEpoch(null, 1_000_000)).toBeNull()
+    expect(toAbsoluteEpoch(undefined, 1_000_000)).toBeNull()
+    expect(toAbsoluteEpoch('nonsense', 1_000_000)).toBeNull()
+  })
+})
