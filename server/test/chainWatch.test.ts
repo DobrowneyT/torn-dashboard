@@ -351,6 +351,17 @@ describe('what the bonus and the end date mean', () => {
   })
 })
 
+describe('the clock the client renders against', () => {
+  it('⚠️ travels with the payload, so "elapsed" is not the browser\'s opinion', async () => {
+    // A viewer with a skewed system clock would otherwise see still-claimable
+    // hours as past — or be offered a claim on an hour that has gone.
+    const ev = await newEvent()
+    const res = await api('GET', `/api/chain-events/${ev.id}`, member)
+    expect(res.body.server_now).toBeTruthy()
+    expect(Math.abs(at(res.body.server_now) - Date.now())).toBeLessThan(60_000)
+  })
+})
+
 describe('⚠️ every mutation is gated, one route at a time', () => {
   // Written per route rather than as a loop, so a route added later without a
   // guard fails a test that names it. The bonus fields matter most: the bonus

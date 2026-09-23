@@ -18,6 +18,57 @@ surface it automatically.
 
 ---
 
+## [3.138.0] - 2026-09-22
+
+### Added
+- **Chain Watch: the sign-up grid, in TCT and the viewer's own time (#772).**
+  Slice 2 of the #768 epic — a **Chain Watch** tab on the Members page, beside
+  Calendar. Two tabs: **Sign up** (the current hour onward) and **History**
+  (what has run, where #773's payout and flags will live).
+  - ⚠️ **The local-time column is formatted per row, from that row's own
+    instant** — never by adding a fixed offset. The spreadsheet typed three
+    zone rows by hand, the 2025 event crossed the US DST change, and rows
+    100–101 of the workbook still list `2:00-3:00` twice where somebody patched
+    the fold. Two rows showing the same local clock time across a fold is
+    **correct**, and there is a test pinning it: 05:00 and 06:00 TCT on 7 Nov
+    both read `01:00` in New York because they are two instants an hour apart.
+  - ⚠️ **"Elapsed" is decided by the server's clock, which now travels with
+    the event payload.** A viewer with a skewed system time would otherwise be
+    shown still-claimable hours as gone — and that viewer is the half-asleep
+    person at 3am this page exists for.
+  - **Add a day / Remove last day.** No confirmation on add (harmless,
+    reversible, and the most frequent action on the page); remove confirms, and
+    a server refusal names who is still on the last day rather than failing
+    generically. The reload is quiet, so the reader keeps their scroll position.
+  - ⚠️ **The coverage headline leads with the next unstaffed hour**, and any
+    count is scoped to a 48-hour horizon. An unbounded total would leap the
+    instant somebody clicks *Add a day*, reading as the roster collapsing at the
+    exact moment the window grew.
+  - **The six-hour warning counts slots, not hours**, at one severity — an hour
+    holding one of two watchers alerts exactly as an hour holding none does. The
+    sentence still marks the fully naked hours (`17:00 (both)`), because one
+    severity is a decision about alarm, not about information.
+  - **Leadership can assign, replace and remove anyone**, on elapsed hours too.
+    ⚠️ The picker keeps whoever holds the other slot of that hour in the list,
+    **disabled with the reason**, rather than dropping them — a leader hunting
+    for a missing name concludes the picker is broken.
+  - A member may drop their own slot until the hour starts, and the control is
+    not buried.
+
+### Changed
+- **API errors carry `status` and `body` (`frontend/src/utils/apiClient.js`).**
+  Callers had to match on the message text to tell a `409` "somebody just took
+  that" — a normal race — from a real failure, and a structured refusal body was
+  discarded entirely. `apiDelete` also takes an optional payload; existing
+  single-argument callers are unaffected.
+
+### Fixed
+- ⚠️ **`InfoTooltip`'s `label` is the visible trigger and `children` is the
+  panel.** Passing them the other way round renders the explanation as permanent
+  body text and drops the trigger altogether — caught here on the bonus-hour
+  badge, which had become the sentence "05:00 pays 2× raffle tickets" in the
+  grid.
+
 ## [3.137.0] - 2026-09-22
 
 ### Added
