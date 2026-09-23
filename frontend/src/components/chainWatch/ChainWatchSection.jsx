@@ -8,6 +8,7 @@ import {
 import { parseDbTime } from '../../utils/time'
 import SignUpGrid from './SignUpGrid'
 import MemberPicker from './MemberPicker'
+import NewEventForm from './NewEventForm'
 
 /**
  * Members → Chain Watch (#772).
@@ -44,6 +45,7 @@ export default function ChainWatchSection({ isLeadership }) {
   const [notice, setNotice] = useState(null)
   const [busyKey, setBusyKey] = useState(null)
   const [picking, setPicking] = useState(null)
+  const [creating, setCreating] = useState(false)
   const zone = useMemo(() => viewerZone(), [])
 
   const load = useCallback(async (opts = {}) => {
@@ -155,10 +157,31 @@ export default function ChainWatchSection({ isLeadership }) {
     </div>
   }
   if (error) return <p className="card text-sm text-red-600 dark:text-red-400">{error}</p>
+  const createEvent = (body) => {
+    setCreating(false)
+    return run('create-event', () => apiPost('/api/chain-events', body))
+  }
+
   if (!payload?.event) {
-    return <p className="card text-sm text-gray-500 dark:text-gray-400">
-      No chain event is set up yet.{canEdit ? ' Create one to open sign-ups.' : ''}
-    </p>
+    return (
+      <div className="card space-y-3">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          No chain watch is open yet.
+          {canEdit ? ' Open one and members can start claiming hours.' : ''}
+        </p>
+        {notice && <p className="text-sm text-amber-700 dark:text-amber-300">{notice}</p>}
+        {canEdit && (
+          <button type="button" className="btn-primary text-sm" data-testid="open-new-event"
+            onClick={() => setCreating(true)}>
+            Open a chain watch
+          </button>
+        )}
+        {creating && (
+          <NewEventForm onCreate={createEvent} onClose={() => setCreating(false)}
+            busy={busyKey === 'create-event'} />
+        )}
+      </div>
+    )
   }
 
   const event = payload.event

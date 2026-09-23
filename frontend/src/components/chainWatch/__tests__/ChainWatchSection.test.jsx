@@ -274,10 +274,59 @@ describe('leadership', () => {
 })
 
 describe('when there is nothing to show', () => {
+  const noEvent = () => api.get.mockImplementation(async (p) =>
+    p === '/api/chain-events' ? { events: [] } : { members: [] })
+
   it('says so rather than rendering an empty grid', async () => {
-    api.get.mockImplementation(async (p) =>
-      p === '/api/chain-events' ? { events: [] } : { members: [] })
+    noEvent()
     draw()
-    expect(await screen.findByText(/no chain event is set up yet/i)).toBeTruthy()
+    expect(await screen.findByText(/no chain watch is open yet/i)).toBeTruthy()
+  })
+
+  it('offers leadership a way out of the empty state, and a member none', async () => {
+    // ⚠️ Without this the page is a dead end: the grid says there is no event
+    // and the only way to make one is a POST from a terminal.
+    noEvent()
+    draw({ isLeadership: true })
+    expect(await screen.findByTestId('open-new-event')).toBeTruthy()
+    cleanup()
+    noEvent()
+    draw()
+    await screen.findByText(/no chain watch is open yet/i)
+    expect(screen.queryByTestId('open-new-event')).toBeNull()
+  })
+
+  it('⚠️ creates from a number of DAYS and a TCT start, not an end date', async () => {
+    // The window grows a day at a time as the chain proves it has legs. The
+    // 2025 sheet was generated to a guessed end and the chain outran it.
+    noEvent()
+    api.post.mockResolvedValue({ id: 9 })
+    draw({ isLeadership: true })
+    fireEvent.click(await screen.findByTestId('open-new-event'))
+
+    fireEvent.change(screen.getByLabelText(/starts \(TCT\)/i), { target: { value: '2027-10-25T10:00' } })
+    fireEvent.change(screen.getByLabelText(/^days$/i), { target: { value: '3' } })
+    fireEvent.click(screen.getByTestId('create-event'))
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/chain-events',
+      expect.objectContaining({
+        starts_at: '2027-10-25T10:00:00.000Z',   // the hour typed, read as TCT
+        days: 3,
+        bonus_hours: [5, 6],
+      })))
+    // ⚠️ No end date is sent at all — the server derives it, keeping the hour.
+    expect(api.post.mock.calls[0][1].ends_at).toBeUndefined()
+  })
+
+  it('⚠️ echoes the TCT start back in the viewer\'s own time', async () => {
+    // TCT is canonical, but a leader in Winnipeg typing 10:00 should see what
+    // that means locally before opening a fortnight of sign-ups on it.
+    noEvent()
+    draw({ isLeadership: true })
+    fireEvent.click(await screen.findByTestId('open-new-event'))
+    fireEvent.change(screen.getByLabelText(/starts \(TCT\)/i), { target: { value: '2027-10-25T10:00' } })
+    const echo = screen.getByTestId('start-echo').textContent
+    expect(echo).toMatch(/your time/)
+    expect(echo).toContain(new Date(Date.parse('2027-10-25T10:00:00Z')).toLocaleString())
   })
 })
