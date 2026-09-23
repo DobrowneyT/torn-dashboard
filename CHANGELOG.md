@@ -18,6 +18,54 @@ surface it automatically.
 
 ---
 
+## [3.139.0] - 2026-09-23
+
+### Added
+- **Chain Watch: chain and activity sampling, travel, and the review flags
+  (#774).** Slice 4 of the #768 epic — what turns "they signed up" into "they
+  were there", without letting the app decide.
+  - **Two samplers, both append-only.** `chain-sample` records the chain counter
+    and its timer every 4 minutes; `activity-sample` records the whole roster's
+    `last_action` and status every 5.
+    ⚠️ **Neither reuses the War Room's chain poller**, and the reasons compound:
+    it only runs during a war (`!cfg.faction_id` — a chain has no opponent),
+    `war_room_chain_v2` is a singleton whose every poll overwrites the last, and
+    its 5-second cadence would cost ~200,000 Torn calls over a twelve-day event.
+    4 minutes is enough *because payout is hourly*.
+  - ⚠️ **One roster call covers everything.** `/v2/faction/members` returns
+    `last_action` **and** the full status object (including `plane_image_type`),
+    so sampling costs the same whether 2 people signed up or 40 — and it records
+    who was awake at 04:00 and did **not** sign up, which is the recruiting list
+    for the next night's gaps.
+  - **The flags**, surfaced on the event read for a leader to confirm:
+    *absent*, *absent while the chain was at risk*, and *abroad*.
+    ⚠️ **Zero attacks is deliberately not a flag.** During a healthy chain a
+    watcher with no hits did the job; flagging on attacks would fire across most
+    of a *successful* event and leadership would click through hundreds of amber
+    rows without reading. The signal is activity, not attacks — and it detects
+    **absence, not attention**.
+    ⚠️ An hour with no samples yields **no flag**: "we were not looking" must
+    never render as "they were not there".
+    `abroad` is the only one that moves `is_payable`, because a watcher overseas
+    could not have hit anything.
+  - **The projected finish**, from the delta in `faction_attacks.chain` — the
+    chain counter itself, not a count of attacks, since only qualifying attacks
+    advance a chain. ⚠️ Measured over **whole days**, because hit rate is
+    violently diurnal and a six-hour window extrapolated at 03:00 says something
+    wildly different from the same chain at 19:00. Returned as a **band**, and
+    refused outright below a day of data — an absent projection is fine, a
+    confident wrong one is not.
+
+### Fixed
+- ⚠️ **The #140 trap, server-side (`server/src/chainWatch.ts`).** Flag evidence
+  was keyed on `new Date(row.hour_start)`, and Postgres serves timestamptz with
+  a bare two-digit offset (`2026-09-23T03:00:00-05`) that parses to **NaN**. Two
+  consequences, both silent: every flag was computed against an invalid hour, so
+  a watcher who *was* around read as absent; and because both sides of the
+  lookup stringify to `"NaN:9200"`, **one member's flagged hours collapsed into
+  a single key** — one hour's verdict could be stamped on another. Both queries
+  now hand epoch ms out of SQL and nothing parses a DB timestamp in JS.
+
 ## [3.138.0] - 2026-09-22
 
 ### Added

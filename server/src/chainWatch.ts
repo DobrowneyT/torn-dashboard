@@ -13,6 +13,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { projectChain, type ChainReading } from './chain/chainProjection.js'
+import { flagFor, FLAG_REASON, type HourEvidence } from './chain/watchFlags.js'
 
 const TITLE_MAX = 120
 const REASON_MAX = 500
@@ -42,6 +44,11 @@ const SIGNUP_SELECT = `
   s.id, s.event_id, s.hour_start, s.slot_index, s.member_id,
   s.created_at, s.created_by, s.removed_at, s.removed_by, s.removed_reason,
   m.member_name,
+  -- ⚠️ Epoch ms alongside the timestamp. Postgres serves timestamptz with a
+  -- BARE two-digit offset ("...-05"), which new Date() parses to NaN — the
+  -- #140 trap. Nothing downstream may parse hour_start in JS.
+  -- (No backticks in here: this comment lives inside a template literal.)
+  (extract(epoch from s.hour_start) * 1000)::bigint AS hour_ms,
   (extract(hour from s.hour_start at time zone 'UTC')::int = ANY (e.bonus_hours)) AS is_bonus,
   (s.hour_start < coalesce(e.actually_ended_at, e.ends_at))                       AS is_payable`
 
@@ -87,13 +94,79 @@ export function registerChainWatchRoutes(app: FastifyInstance, db: pg.Pool) {
          LEFT JOIN members m ON m.member_id = s.member_id
         WHERE s.event_id = $1 AND s.removed_at IS NULL
         ORDER BY s.hour_start, s.slot_index`, [id])
+    // ⚠️ Evidence for the review flags (#774), gathered per served hour. An
+    // hour with NO samples yields no flag at all: "we were not looking" must
+    // never render as "they were not there".
+    const { rows: evidence } = await db.query(
+      `WITH served AS (
+         SELECT DISTINCT s.hour_start, s.member_id
+           FROM chain_watch_signups s
+          WHERE s.event_id = $1 AND s.removed_at IS NULL AND s.hour_start < now()
+       )
+       SELECT v.hour_start, (extract(epoch from v.hour_start) * 1000)::bigint AS hour_ms,
+              v.member_id,
+              coalesce(array_agg(DISTINCT a.last_action_epoch)
+                       FILTER (WHERE a.last_action_epoch IS NOT NULL), '{}') AS last_actions,
+              coalesce(array_agg(a.status_state ORDER BY a.sampled_at)
+                       FILTER (WHERE a.status_state IS NOT NULL), '{}') AS states,
+              count(a.id) > 0 AS sampled,
+              (SELECT min(c.chain_timeout - extract(epoch from c.sampled_at))
+                 FROM chain_samples c
+                WHERE c.sampled_at >= v.hour_start
+                  AND c.sampled_at < v.hour_start + interval '1 hour'
+                  AND c.chain_timeout IS NOT NULL) AS min_timeout
+         FROM served v
+         LEFT JOIN member_activity_samples a
+           ON a.member_id = v.member_id
+          AND a.sampled_at >= v.hour_start
+          AND a.sampled_at < v.hour_start + interval '1 hour'
+        GROUP BY v.hour_start, v.member_id`, [id])
+
+    const flags = new Map<string, { flag: string; reason: string }>()
+    for (const e of evidence) {
+      const hourStart = Number(e.hour_ms)
+      const ev: HourEvidence = {
+        hourStart,
+        // Torn's last_action is epoch SECONDS; the flag rules work in ms.
+        lastActions: (e.last_actions ?? []).map((n: string) => Number(n) * 1000),
+        states: e.states ?? [],
+        minTimeoutSeconds: e.min_timeout == null ? null : Number(e.min_timeout),
+        sampled: e.sampled === true,
+      }
+      const flag = flagFor(ev)
+      if (flag) flags.set(`${hourStart}:${e.member_id}`, { flag, reason: FLAG_REASON[flag] })
+    }
+    for (const row of rows) {
+      const key = `${Number(row.hour_ms)}:${row.member_id}`
+      const hit = flags.get(key)
+      row.flag = hit?.flag ?? null
+      row.flag_reason = hit?.reason ?? null
+      // ⚠️ Abroad is the one finding that is not a judgment call: a watcher
+      // overseas could not have hit anything, so the slot was not served.
+      // Everything else stays payable until a leader says otherwise.
+      if (hit?.flag === 'abroad') row.is_payable = false
+    }
+
+    // ⚠️ Where the chain is going, from the chain COUNTER — not from a count of
+    // attacks. Only qualifying attacks advance a chain, so counting rows
+    // measures effort while the delta in `chain` measures the thing itself.
+    const { rows: readings } = await db.query(
+      `SELECT chain, extract(epoch from to_timestamp(started)) * 1000 AS at
+         FROM faction_attacks
+        WHERE chain IS NOT NULL AND started IS NOT NULL
+          AND to_timestamp(started) >= $1::timestamptz
+        ORDER BY started`, [event.starts_at])
+    const projection = projectChain(
+      readings.map((r): ChainReading => ({ chain: Number(r.chain), at: Number(r.at) })),
+      Date.now())
+
     // ⚠️ The client decides which hours have elapsed, and it must not do that
     // from its own clock: a viewer with a skewed system time would be shown
     // still-claimable hours as past, or worse, offered a claim on an hour that
     // has gone. That viewer is the half-asleep person at 3am this page exists
     // for. The server's now travels with the payload.
     const { rows: clock } = await db.query('SELECT now() AS server_now')
-    return { event, signups: rows, server_now: clock[0].server_now }
+    return { event, signups: rows, projection, server_now: clock[0].server_now }
   })
 
   // ── The event ──────────────────────────────────────────────────────────────

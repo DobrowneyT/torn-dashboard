@@ -351,6 +351,103 @@ describe('what the bonus and the end date mean', () => {
   })
 })
 
+describe('the review flags, end to end (#774)', () => {
+  // ⚠️ `member_activity_samples` and `chain_samples` are NOT scoped to an
+  // event — they are one faction-wide series. Two cases that pick the same
+  // hour therefore read each other's samples, which is how three of these
+  // first passed against evidence the test never wrote. Each case takes its
+  // own hour.
+  let hourCursor = 2
+
+  /** A served hour in the past, with samples around it and nothing else's. */
+  async function servedHour(opts: {
+    actions?: number[]; states?: string[]; timeoutAt?: number | null
+  }) {
+    const back = hourCursor++
+    const ev = await newEvent({
+      starts_at: new Date(Date.now() - (back + 2) * 3600_000).toISOString(),
+      days: 3,
+    })
+    const hourMs = Math.floor((Date.now() - back * 3600_000) / 3600_000) * 3600_000
+    const hour = new Date(hourMs).toISOString()
+    await claim(ev.id, hour, 0, lead, { member_id: '9200' })
+
+    for (const [i, state] of (opts.states ?? ['Okay']).entries()) {
+      await stack.db.query(
+        `INSERT INTO member_activity_samples (sampled_at, member_id, last_action_epoch, status_state)
+         VALUES ($1::timestamptz, '9200', $2, $3)`,
+        [new Date(hourMs + (i + 1) * 600_000).toISOString(),
+         // Relative to the HOUR, not to now: an action "10 minutes in" has to
+         // mean that whichever hour the case happens to draw.
+         opts.actions?.[i] ?? null, state])
+    }
+    if (opts.timeoutAt !== undefined && opts.timeoutAt !== null) {
+      await stack.db.query(
+        `INSERT INTO chain_samples (sampled_at, chain_current, chain_timeout)
+         VALUES ($1::timestamptz, 5000, $2)`,
+        [new Date(hourMs + 900_000).toISOString(),
+         Math.floor(hourMs / 1000) + 900 + opts.timeoutAt])
+    }
+    const res = await api('GET', `/api/chain-events/${ev.id}`, lead)
+    return res.body.signups.find((x: any) => at(x.hour_start) === hourMs)
+  }
+
+
+  it('⚠️ does NOT flag a watcher who was around but made no hits', async () => {
+    // The case the whole design turns on: during a healthy chain, zero attacks
+    // means nothing needed doing.
+    const row = await servedHour({
+      actions: [Math.floor(Math.floor((Date.now() - hourCursor * 3600_000) / 3600_000) * 3600_000 / 1000) + 600],
+      states: ['Okay'], timeoutAt: 600,
+    })
+    expect(row.flag).toBeNull()
+    expect(row.is_payable).toBe(true)
+  })
+
+  it('flags an absent watcher, and escalates when the chain was at risk', async () => {
+    const quiet = await servedHour({ states: ['Okay'], timeoutAt: 600 })
+    expect(quiet.flag).toBe('absent')
+    const risky = await servedHour({ states: ['Okay'], timeoutAt: 30 })
+    expect(risky.flag).toBe('absent-at-risk')
+  })
+
+  it('⚠️ marks an hour spent abroad as not payable, and says why', async () => {
+    const row = await servedHour({ states: ['Abroad', 'Abroad'], timeoutAt: 600 })
+    expect(row.flag).toBe('abroad')
+    expect(row.is_payable).toBe(false)
+    expect(row.flag_reason).toMatch(/not paid/i)
+  })
+
+  it('⚠️ keeps two flagged hours for one member apart', async () => {
+    // The evidence is keyed by hour. Parsing `hour_start` in JS returns NaN on
+    // Postgres' bare "-05" offset (#140), every hour stringifies to the same
+    // "NaN:9200" key, and one member's hours collapse into each other — which
+    // is how the first version of this endpoint produced a flag computed
+    // against an invalid date and applied it to the wrong row.
+    const quiet = await servedHour({ states: ['Okay'], timeoutAt: 600 })
+    const away = await servedHour({ states: ['Abroad'], timeoutAt: 600 })
+    expect(quiet.flag).toBe('absent')
+    expect(away.flag).toBe('abroad')
+    expect(quiet.hour_start).not.toBe(away.hour_start)
+  })
+
+  it('⚠️ says nothing about an hour it never sampled', async () => {
+    // "We were not looking" must not render as "they were not there".
+    const row = await servedHour({ states: [], timeoutAt: null })
+    expect(row.flag).toBeNull()
+    expect(row.is_payable).toBe(true)
+  })
+})
+
+describe('the chain projection (#774)', () => {
+  it('refuses to project from less than a day of chain', async () => {
+    const ev = await newEvent({ starts_at: new Date(Date.now() - 6 * 3600_000).toISOString() })
+    const res = await api('GET', `/api/chain-events/${ev.id}`, lead)
+    expect(res.body.projection.measured).toBe(false)
+    expect(['too-early', 'no-readings']).toContain(res.body.projection.reason)
+  })
+})
+
 describe('the clock the client renders against', () => {
   it('⚠️ travels with the payload, so "elapsed" is not the browser\'s opinion', async () => {
     // A viewer with a skewed system clock would otherwise see still-claimable
