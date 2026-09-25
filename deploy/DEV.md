@@ -287,15 +287,19 @@ valid first move.
 The bot polls a dashboard; pointing it at this instance lets the whole Chain
 Watch feature be exercised without the endpoint existing on a live tenant.
 
+Set it **once**, in `deploy/.env` (the durable, operator-owned file):
+
 ```bash
-DEV_CHAIN_WATCH_TOKEN=$(openssl rand -hex 32) ./deploy/dev-deploy.sh dev
-grep DEV_CHAIN_WATCH_TOKEN deploy/.env.dev        # the value to give the bot
+echo "DEV_CHAIN_WATCH_TOKEN=$(openssl rand -hex 32)" >> deploy/.env
+./deploy/dev-deploy.sh dev
+grep '^DEV_CHAIN_WATCH_TOKEN=' deploy/.env        # the value to give the bot
 ```
 
-⚠️ **`.env.dev` is regenerated on every deploy**, so a token passed once does not
-survive the next one. Either pass it on every `dev-deploy.sh`, or export it in
-the cron's environment — otherwise the board goes stale after the next auto-deploy
-and the cause is invisible.
+⚠️ **`.env.dev` is regenerated on every deploy**, so this must not live only
+there. Passing the token on the command line appears to work — and then the
+`--if-changed` cron redeploys on the next push, rewrites `.env.dev` without it,
+and the endpoint returns to 404 with nothing to say why. The board simply stops
+updating. `deploy/.env` is read on every run, so the cron keeps it too.
 
 Then in the bot's `.env`, point the tenant at this instance:
 
