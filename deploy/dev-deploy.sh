@@ -153,6 +153,11 @@ DEV_FEEDBACK_GITHUB_REPO=${DEV_FEEDBACK_GITHUB_REPO:-}
 # Chain Watch bot endpoint (#782) — empty means the route is not registered.
 #   DEV_CHAIN_WATCH_TOKEN=$(openssl rand -hex 32) ./deploy/dev-deploy.sh dev
 DEV_CHAIN_WATCH_TOKEN=${DEV_CHAIN_WATCH_TOKEN:-}
+# Push-to-Discord socket. Set the DIRECTORY the bot listens in; the socket path
+# inside the container is always /run/chain-notify/notify.sock.
+#   DEV_CHAIN_NOTIFY_DIR=/run/chain-notify ./deploy/dev-deploy.sh dev
+DEV_CHAIN_NOTIFY_DIR=${DEV_CHAIN_NOTIFY_DIR:-}
+DEV_CHAIN_NOTIFY_SOCKET=${DEV_CHAIN_NOTIFY_DIR:+/run/chain-notify/notify.sock}
 EOF
 chmod 600 deploy/.env.dev
 

@@ -18,6 +18,30 @@ surface it automatically.
 
 ---
 
+## [3.142.0] - 2026-09-24
+
+### Added
+- **Chain Watch: the dashboard nudges the Discord bot when a sign-up changes
+  (#785 follow-up).** The board redraws in seconds instead of on the bot's
+  5-minute poll — somebody claiming a slot sees it appear rather than staring at
+  an unchanged board wondering whether it worked.
+  - ⚠️ **Over a bind-mounted unix socket, not a TCP port.** A container cannot
+    reach the host's `127.0.0.1`, and the obvious fix — binding `0.0.0.0` —
+    would put a control channel for a process holding a Discord token and five
+    tenant bearers on the public internet. A socket has no port, needs no
+    firewall rule, and carries no credential that could leak.
+  - ⚠️ **Fire and forget.** A member clicking "sign up" never sees an error, or
+    waits, because the bot is down. Every failure is swallowed and the bot's
+    polling remains the backstop, so the worst case is the board being one poll
+    stale — where it was before this existed.
+  - ⚠️ **One `onResponse` hook, not a call per route.** There are eight mutating
+    routes and more will be added; a nudge that must be remembered per-route
+    gets forgotten, and the symptom — a board stale only after one particular
+    action — is invisible in testing. Fires on success only, so contention on a
+    slot does not generate Discord load.
+  - `CHAIN_NOTIFY_SOCKET` unset disables it on both sides. Staging wiring and the
+    reasoning are in `deploy/DEV.md`.
+
 ## [3.141.2] - 2026-09-24
 
 ### Added

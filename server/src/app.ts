@@ -481,7 +481,7 @@ export async function buildServer(
     registerCompetitionRoutes(app, opts.db, { competitionTimers: app.competitionTimers })
     registerMemberNotesRoutes(app, opts.db)
     registerCalendarRoutes(app, opts.db)
-    registerChainWatchRoutes(app, opts.db)
+    registerChainWatchRoutes(app, opts.db, opts.factionSlug)
     registerExportRoutes(app, opts.db)
     // In-app feedback → triaged GitHub issue (#253). Disabled (endpoint 501, nav
     // hidden) when no PAT is configured.

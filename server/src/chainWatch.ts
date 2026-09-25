@@ -16,6 +16,7 @@ import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
 import { projectChain, type ChainReading } from './chain/chainProjection.js'
 import { flagFor, FLAG_REASON, type HourEvidence } from './chain/watchFlags.js'
 import { chainOutcome, type OutcomeSample } from './chain/chainOutcome.js'
+import { notifyBoardChanged, notifyEnabled } from './chainWatchNotify.js'
 
 const TITLE_MAX = 120
 const REASON_MAX = 500
@@ -78,7 +79,29 @@ function conflictFor(err: unknown): { status: number; error: string } | null {
   return null
 }
 
-export function registerChainWatchRoutes(app: FastifyInstance, db: pg.Pool) {
+export function registerChainWatchRoutes(
+  app: FastifyInstance, db: pg.Pool, factionSlug = '',
+) {
+  // ⚠️ One hook rather than a call at every return point. There are eight
+  // mutating routes and more will be added; a nudge that has to be remembered
+  // per-route is one that gets forgotten, and the symptom — a board that is
+  // stale only after THIS particular action — is invisible in testing.
+  //
+  // ⚠️ Fires only on success. A 409 "that slot was just taken" changed nothing,
+  // and redrawing for it would put load on Discord proportional to contention,
+  // which is exactly backwards.
+  if (notifyEnabled() && factionSlug) {
+    app.addHook('onResponse', async (req, reply) => {
+      if (req.method === 'GET' || reply.statusCode >= 300) return
+      const url = req.url.split('?')[0]
+      if (!url.startsWith('/api/chain-events')) return
+      // The pay decision is a payout-panel concern and never reaches the
+      // board; a bulk review would otherwise redraw once per row.
+      if (url.endsWith('/decision')) return
+      void notifyBoardChanged(factionSlug)
+    })
+  }
+
   // ── Reads ──────────────────────────────────────────────────────────────────
 
   app.get('/api/chain-events', { preHandler: requireAuth() }, async () => {
