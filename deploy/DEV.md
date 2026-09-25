@@ -315,3 +315,42 @@ CHAIN_WATCH_TOKEN_FORGE=<the value above>
 projection come from `activity-sample` and `chain-sample`; until you enable them
 in Global Admin the board renders with no travel and "not enough chain yet",
 which reads as broken rather than as switched off.
+
+
+## Pushing board updates to the bot (#785 follow-up)
+
+The bot redraws its board on its own interval (default 5 minutes). That is right
+for the chain counter and travel state, and far too slow for a sign-up — somebody
+claims a slot and stares at an unchanged board. The dashboard can nudge the bot
+instead, and the board redraws within seconds.
+
+⚠️ **A unix socket, not a port.** A container cannot reach the host's
+`127.0.0.1` — its traffic arrives via the bridge gateway — and the obvious fix
+for that, binding `0.0.0.0`, would put a control channel for a process holding a
+Discord token and five tenant bearers on the public internet. A bind-mounted
+socket has no port, needs no firewall rule, and carries no credential.
+
+```bash
+mkdir -p /run/chain-notify          # the bot listens here
+DEV_CHAIN_NOTIFY_DIR=/run/chain-notify \
+DEV_CHAIN_WATCH_TOKEN=<as before> ./deploy/dev-deploy.sh dev
+```
+
+In the bot's `.env`:
+
+```
+CHAIN_NOTIFY_SOCKET=/run/chain-notify/notify.sock
+```
+
+⚠️ **The DIRECTORY is mounted, not the socket file.** The bot deletes and
+recreates the file on each start; a bind mount of the file itself would leave the
+container holding the old inode, and the push would silently stop working after
+the first bot restart.
+
+⚠️ **Entirely optional, and never load-bearing.** Unset, or the bot not
+listening, means the board updates on its poll interval exactly as before. A
+dropped nudge costs one poll of staleness, nothing more.
+
+Debounce is `/chain set board_debounce_seconds` (default 5). Leadership filling a
+rota assigns eight slots in twenty seconds; coalescing turns that into one
+redraw instead of eight Discord edits and a flickering board.
