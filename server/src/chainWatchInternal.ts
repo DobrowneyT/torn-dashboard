@@ -94,14 +94,34 @@ const LATEST_ACTIVITY = `
     FROM member_activity_samples
    ORDER BY member_id, sampled_at DESC`
 
-/** "Traveling to South Africa" / "Returning to Torn from Canada" → the place. */
+/**
+ * Where this member is headed, from Torn's own status text.
+ *
+ * ⚠️ **Torn writes "Traveling from Torn to UAE", not "Traveling to UAE".**
+ * This was written against the second form, which Torn never sends, so every
+ * traveller rendered as "somewhere" on the board — and it looked like a data
+ * problem rather than a parsing one. Observed forms, from live `/v2/faction/members`:
+ *
+ *     Traveling from Torn to UAE            → UAE       (outbound)
+ *     Traveling from UAE to Torn            → Torn      (coming home)
+ *     Traveling from Torn to South Africa   → South Africa
+ *     In Switzerland                        → Switzerland (landed)
+ *
+ * ⚠️ On the way home the destination is **Torn**, not the country being left.
+ * Reporting the country would tell a lead somebody is flying OUT at the exact
+ * moment they are flying back in. (The country still matters for the flight
+ * TIME, which is the bot's job and reads `description` itself.)
+ */
 export function destinationFrom(description: string | null | undefined): string | null {
   if (!description) return null
-  const to = /(?:Traveling to|In)\s+(.+)$/i.exec(description)
+  const leg = /Traveling from\s+(.+?)\s+to\s+(.+)$/i.exec(description)
+  if (leg) return leg[2].trim()
+  const abroad = /^In\s+(.+)$/i.exec(description.trim())
+  if (abroad) return abroad[1].trim()
+  // Older/other phrasings, kept because they cost nothing and a silent null
+  // here is a board that says "somewhere".
+  const to = /Traveling to\s+(.+)$/i.exec(description)
   if (to) return to[1].trim()
-  // ⚠️ Returning home is still "away", but the destination is Torn, not the
-  // country being left. Reading the country here would tell a lead somebody is
-  // flying OUT when they are flying back in.
   if (/Returning to Torn/i.test(description)) return 'Torn'
   return null
 }

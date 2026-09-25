@@ -312,16 +312,35 @@ describe('travel', () => {
 })
 
 describe('destinationFrom', () => {
-  it('reads the place out of Torn\'s status text', () => {
-    expect(destinationFrom('Traveling to South Africa')).toBe('South Africa')
-    expect(destinationFrom('In Switzerland')).toBe('Switzerland')
-    expect(destinationFrom(null)).toBeNull()
-    expect(destinationFrom('Okay')).toBeNull()
+  // ⚠️ These four strings are copied from live /v2/faction/members, not
+  // invented. The original parser was written against "Traveling to X", which
+  // Torn never sends — so every traveller rendered as "somewhere" on the board
+  // and it read as missing data rather than a broken regex.
+  it('⚠️ reads Torn\'s ACTUAL travel format, "Traveling from X to Y"', () => {
+    expect(destinationFrom('Traveling from Torn to UAE')).toBe('UAE')
+    expect(destinationFrom('Traveling from Torn to South Africa')).toBe('South Africa')
   })
 
-  it('⚠️ calls a return flight "Torn", not the country being left', () => {
-    // "Returning to Torn from Canada" naively yields Canada, which tells a lead
-    // somebody is flying OUT at the exact moment they are flying back in.
+  it('⚠️ calls a flight home "Torn", not the country being left', () => {
+    // Reporting the country would tell a lead somebody is flying OUT at the
+    // exact moment they are flying back in.
+    expect(destinationFrom('Traveling from UAE to Torn')).toBe('Torn')
+  })
+
+  it('reads a landed member out of "In X"', () => {
+    expect(destinationFrom('In Switzerland')).toBe('Switzerland')
+  })
+
+  it('never returns a phantom place', () => {
+    expect(destinationFrom(null)).toBeNull()
+    expect(destinationFrom('Okay')).toBeNull()
+    expect(destinationFrom('')).toBeNull()
+    // ⚠️ The old regex was unanchored, so "In" could match mid-sentence.
+    expect(destinationFrom('Traveling')).toBeNull()
+  })
+
+  it('still handles the phrasings it was originally written for', () => {
+    expect(destinationFrom('Traveling to South Africa')).toBe('South Africa')
     expect(destinationFrom('Returning to Torn from Canada')).toBe('Torn')
   })
 })
