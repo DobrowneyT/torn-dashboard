@@ -150,6 +150,9 @@ DEV_VAPID_PRIVATE_KEY=${DEV_VAPID_PRIVATE_KEY:-}
 DEV_VAPID_SUBJECT=${DEV_VAPID_SUBJECT:-}
 DEV_FEEDBACK_GITHUB_TOKEN=${DEV_FEEDBACK_GITHUB_TOKEN:-}
 DEV_FEEDBACK_GITHUB_REPO=${DEV_FEEDBACK_GITHUB_REPO:-}
+# Chain Watch bot endpoint (#782) — empty means the route is not registered.
+#   DEV_CHAIN_WATCH_TOKEN=$(openssl rand -hex 32) ./deploy/dev-deploy.sh dev
+DEV_CHAIN_WATCH_TOKEN=${DEV_CHAIN_WATCH_TOKEN:-}
 EOF
 chmod 600 deploy/.env.dev
 

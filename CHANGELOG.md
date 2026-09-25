@@ -18,6 +18,22 @@ surface it automatically.
 
 ---
 
+## [3.141.2] - 2026-09-24
+
+### Added
+- **Staging can serve the Chain Watch bot endpoint (#782).** `DEV_CHAIN_WATCH_TOKEN`
+  passes a token through `dev-deploy.sh` to the staging instance, so the Discord
+  bot can be tested against the `_dev` copy instead of waiting for the endpoint
+  to reach a live tenant.
+  - ⚠️ **Unset leaves the route unregistered**, not merely unauthenticated — a
+    staging instance nobody asked to expose exposes nothing.
+  - ⚠️ Use a value of its own, not the live tenant's token: both read the same
+    faction's data, but a token that only opens the copy cannot be turned on
+    production.
+  - ⚠️ `.env.dev` is regenerated on every deploy, so the token must be passed on
+    each `dev-deploy.sh` or exported in the cron's environment. Documented in
+    `deploy/DEV.md`, including in the blast-radius table.
+
 ## [3.141.1] - 2026-09-23
 
 ### Added

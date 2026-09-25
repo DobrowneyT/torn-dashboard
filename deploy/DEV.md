@@ -84,6 +84,7 @@ Three things reach the outside world. Read this before you go clicking.
 | **Torn API** | Login and any scraper you enable make real calls with the copied key pool, spending real key quota. Responses are written **only to the copy**. | Scrapers **off** in every fresh clone |
 | **Web Push** | If VAPID keys are set, a dev notification is delivered to **real members' real browsers**. They cannot tell it came from staging. | **Off** — `DEV_VAPID_*` unset |
 | **In-app feedback** | If a GitHub token is set, submitting feedback opens a **real issue** in the real repo. | **Off** — `DEV_FEEDBACK_*` unset |
+| **Chain Watch bot endpoint** (#782) | Serves this copy's sign-up data to the Discord bot when `DEV_CHAIN_WATCH_TOKEN` is set. Unset leaves the route **unregistered**, not merely unauthenticated. Give it a value of its own rather than the live tenant's token, so a staging token cannot open production. | **Off** unless you set it |
 | **Revive requests** (#308) | Clicking revive POSTs to the **real** service (UHC/WTF/Nuke) and summons **real revivers** to a real player. There is no test mode and no toggle — the service is whatever URL the copied config holds. | **On** — always live |
 
 **Revive is the one live path with no off switch.** Testing it end-to-end necessarily
@@ -279,3 +280,34 @@ valid first move.
 **Tunnel connects but the page is blank** — the SPA is baked into the
 `nginx-dev` image at build time; `./deploy/dev-deploy.sh` rebuilds it. A plain
 `docker compose up` without `--build` will serve a stale bundle.
+
+
+## Testing the Discord bot against the copy (#782, #785)
+
+The bot polls a dashboard; pointing it at this instance lets the whole Chain
+Watch feature be exercised without the endpoint existing on a live tenant.
+
+```bash
+DEV_CHAIN_WATCH_TOKEN=$(openssl rand -hex 32) ./deploy/dev-deploy.sh dev
+grep DEV_CHAIN_WATCH_TOKEN deploy/.env.dev        # the value to give the bot
+```
+
+⚠️ **`.env.dev` is regenerated on every deploy**, so a token passed once does not
+survive the next one. Either pass it on every `dev-deploy.sh`, or export it in
+the cron's environment — otherwise the board goes stale after the next auto-deploy
+and the cause is invisible.
+
+Then in the bot's `.env`, point the tenant at this instance:
+
+```
+CHAIN_WATCH_TOKEN_FORGE=<the value above>
+```
+
+```
+/chain tenant add slug:forge base_url:https://dev.monchoon.me board_channel:#chain-test
+```
+
+⚠️ **The scrapers are disabled in a fresh clone.** Travel state and the chain
+projection come from `activity-sample` and `chain-sample`; until you enable them
+in Global Admin the board renders with no travel and "not enough chain yet",
+which reads as broken rather than as switched off.
