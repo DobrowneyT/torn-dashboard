@@ -18,6 +18,23 @@ surface it automatically.
 
 ---
 
+## [3.142.1] - 2026-09-25
+
+### Fixed
+- **Staging's Chain Watch config now survives a redeploy.**
+  `DEV_CHAIN_WATCH_TOKEN` and `DEV_CHAIN_NOTIFY_DIR` are read from
+  `deploy/.env` (and, failing that, the previous `.env.dev`) rather than only
+  from the command line.
+  - ⚠️ **Passing the token once appeared to work and then silently stopped.**
+    `.env.dev` is regenerated on every deploy, so the `--if-changed` cron wiped
+    it on the next push to `dev`; the endpoint returned to 404 and the Discord
+    board simply stopped updating, with nothing to say why. Hit live.
+  - Same precedence the sticky `DEV_SLUG` and `DEV_HTTP_PORT` already use:
+    environment, then `deploy/.env`, then the previous `.env.dev`.
+  - ⚠️ `DEV_CHAIN_NOTIFY_DIR` should be a directory the bot's own user owns.
+    `/run` is root-owned, so creating it needs `sudo` — and it is a tmpfs, so it
+    is empty again after a reboot and the socket would vanish on restart.
+
 ## [3.142.0] - 2026-09-24
 
 ### Added
