@@ -77,6 +77,9 @@ export function rosterColumns(side) {
     // success chance only on revives our own faction received, so there is no
     // enemy equivalent to show.
     reviveChance: us,
+    // Roll call is our own members answering about themselves (#793); there is
+    // no enemy equivalent to show.
+    rollCall: us,
   }
 }
 
@@ -92,6 +95,8 @@ export function rosterColumns(side) {
 const OUR_ROSTER_SORT_COLS = new Set([
   'energy', 'cooldown_drug', 'cooldown_medical', 'cooldown_booster',
   'revive_chance',
+  // #793 — same trap as energy: our-roster only, and sortCol is persisted.
+  'roll_call',
 ])
 
 /**
