@@ -72,6 +72,44 @@ export function isOverdosedAnySource(member, stats) {
  * has no bearing on whether they can be hit or revived, and it was crowding
  * the column (#339).
  */
+/**
+ * The order the Flags column sorts in.
+ *
+ * ⚠️ Severity, not alphabet. Sorting the glyphs or the keys by name would put
+ * "early discharge" above "overdosed", and the whole point of grouping this
+ * column is to find the people who are out of action — so the ordering has to
+ * mean something rather than just be consistent.
+ *
+ * ⚠️ A member carries several flags at once, so the sort keys on their MOST
+ * significant one. Somebody flying AND overdosed belongs with the overdosed.
+ */
+export const FLAG_SORT_ORDER = [
+  'od',              // out of action, and for far longer than a hospital stay
+  'flying',          // cannot be hit, cannot hit, and not coming back soon
+  'wall',            // committed elsewhere
+  'revive-anyone',   // actionable: we can get them up
+  'revive-friends',  // less actionable: only their own side can
+  'ed',              // a detail about a hospital stay, not a state
+]
+
+/**
+ * A sortable rank for a member's flags — lower sorts first.
+ *
+ * Returns `null` when a member has no flags at all. ⚠️ That is not rank zero
+ * and not the bottom rank: the caller sinks unflagged members in BOTH
+ * directions, the same rule `ff` follows, so that reversing the sort still
+ * shows the interesting rows first instead of a screen of blanks.
+ */
+export function flagRank(flags) {
+  let best = null
+  for (const f of flags ?? []) {
+    const i = FLAG_SORT_ORDER.indexOf(f.key)
+    if (i === -1) continue
+    if (best === null || i < best) best = i
+  }
+  return best
+}
+
 export function memberFlags(member, { isFlying = false, stats = null } = {}) {
   const flags = []
 
