@@ -1,12 +1,75 @@
-import { availabilityLabel, rollCallTally } from '../../utils/rollCall'
+import { useMemo, useState } from 'react'
+import { availabilityLabel, rollCallTally, compareRollCall } from '../../utils/rollCall'
 
-// Shared table of roll-call responses (sorted alphabetically by name). Edited
-// responses (revised=true) are highlighted. A yes/no tally of who'll be on at
-// the start sits above it. Used by the leadership notes panel and the summary
-// "responded" modal.
+// Shared table of roll-call responses. Edited responses (revised=true) are
+// highlighted. A yes/no tally of who'll be on at the start sits above it. Used
+// by the leadership notes panel and the summary "responded" modal.
+//
+// ⚠️ Sort state lives HERE, not in the callers (#793). Two callers render this
+// — the notes panel and RollCallResultsModal — and threading it through both
+// would mean one of them quietly not getting it.
+
+const SORTERS = {
+  name: (a, b) => (a.member_name || '').localeCompare(b.member_name || '', undefined, { sensitivity: 'base' }),
+  // Yes first when ascending: the people turning up are what a lead is counting.
+  start: (a, b) => Number(!!b.on_at_start) - Number(!!a.on_at_start),
+  // ⚠️ Self-hosp only means anything for a "no" — the column renders "—" for
+  // everybody who IS on at the start, and sorting those into the middle would
+  // scatter the rows the column exists to compare.
+  selfHosp: (a, b) => selfHospRank(a) - selfHospRank(b),
+  // ⚠️ By availability ORDER, never by label text. Alphabetical gives
+  // "1–2 Hours Late, 3–5, 6+, On time, Will not be available" — which buries
+  // the people who are turning up in the middle of the list.
+  availability: (a, b) => compareRollCall(a, b, 1),
+}
+
+function selfHospRank(r) {
+  if (r.on_at_start) return 3            // not applicable
+  if (r.can_self_hospital) return 0      // can put themselves in
+  if (r.needs_merc) return 1             // needs a merc
+  return 2                               // answered neither
+}
+
+function SortableTh({ col, sortCol, sortDir, onSort, children }) {
+  const active = sortCol === col
+  return (
+    <th className="px-3 py-1.5 font-medium">
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        aria-label={`Sort by ${children}`}
+        className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
+      >
+        {children}
+        <span className={active ? '' : 'opacity-0'} aria-hidden="true">
+          {sortDir === 'asc' ? '▲' : '▼'}
+        </span>
+      </button>
+    </th>
+  )
+}
+
 export default function RollCallResultsTable({ rows = [] }) {
-  const sorted = [...rows].sort((a, b) =>
-    (a.member_name || '').localeCompare(b.member_name || '', undefined, { sensitivity: 'base' }))
+  const [sortCol, setSortCol] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
+
+  const onSort = (col) => {
+    if (col === sortCol) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortCol(col); setSortDir('asc') }
+  }
+
+  const sorted = useMemo(() => {
+    const cmp = SORTERS[sortCol] ?? SORTERS.name
+    const d = sortDir === 'asc' ? 1 : -1
+    // ⚠️ Name breaks every tie, in a FIXED direction. Without it the order
+    // within a group depends on whatever order the rows arrived in, so the
+    // table reshuffles under a lead as responses come in.
+    return [...rows].sort((a, b) => {
+      const primary = d * cmp(a, b)
+      return primary !== 0 ? primary : SORTERS.name(a, b)
+    })
+  }, [rows, sortCol, sortDir])
+
   const tally = rollCallTally(rows)
 
   return (
@@ -25,10 +88,10 @@ export default function RollCallResultsTable({ rows = [] }) {
       <table className="w-full text-xs">
         <thead>
           <tr className="bg-gray-50 dark:bg-slate-700/40 text-left text-gray-500 dark:text-gray-400">
-            <th className="px-3 py-1.5 font-medium">Member</th>
-            <th className="px-3 py-1.5 font-medium">Start</th>
-            <th className="px-3 py-1.5 font-medium">Self-hosp</th>
-            <th className="px-3 py-1.5 font-medium">Availability</th>
+            <SortableTh col="name"         sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Member</SortableTh>
+            <SortableTh col="start"        sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Start</SortableTh>
+            <SortableTh col="selfHosp"     sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Self-hosp</SortableTh>
+            <SortableTh col="availability" sortCol={sortCol} sortDir={sortDir} onSort={onSort}>Availability</SortableTh>
           </tr>
         </thead>
         <tbody>

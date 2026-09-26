@@ -18,6 +18,40 @@ surface it automatically.
 
 ---
 
+## [3.143.0] - 2026-09-26
+
+### Added
+- **War Room: each member's roll call answer, on their roster row (#793).** A new
+  sortable **Roll Call** column between Name and Activity, so "who is actually
+  turning up at opening, and how big are they" stops being two pages and a
+  memory. Reported by Goosey.
+  - ⚠️ **Seven states, not six.** `RollCallOverlay` submits
+    `availability || null`, so a member can answer "not on at start" and never
+    pick how late — that renders as **Late**, not **N/A**. They *did* respond,
+    and a lead chasing non-responders would otherwise chase them for nothing.
+  - Order is `Here → 1-2 → 3-5 → 6+ → Late → Unavailable → N/A`, with the full
+    wording in a tooltip: `3-5` means nothing to anybody who has not filled the
+    survey in.
+  - ⚠️ **`N/A` sinks in BOTH directions**, the rule `ff` and the member-stat
+    columns already follow. A non-response is not "least available", it is
+    unknown, and parking it at either end asserts something untrue.
+  - ⚠️ Our-roster only, and registered in `OUR_ROSTER_SORT_COLS` — `sortCol` is
+    persisted, so sorting by it and toggling to the opponent would otherwise
+    leave every row comparing equal with no header arrow.
+- **The roll-call results table sorts by every header (#793).** Member, Start,
+  Self-hosp and Availability, in the leadership notes panel and the "responded"
+  modal alike.
+  - ⚠️ **Availability sorts by how late, never by label text.** Alphabetical
+    gives `1–2 Hours Late, 3–5, 6+, On time, Will not be available` — which
+    buries the people who are turning up in the middle of the list.
+  - ⚠️ Sort state lives in the component, so both callers get it; and name
+    breaks every tie in a fixed direction, or the table reshuffles under a lead
+    as responses arrive.
+  - One shared ordering in `rollCall.js` serves both surfaces — two orderings of
+    the same seven states would drift, and the one that drifts is the one
+    nobody is looking at.
+  - Stats filtering and sorting were already shipped; no change there.
+
 ## [3.142.2] - 2026-09-25
 
 ### Fixed

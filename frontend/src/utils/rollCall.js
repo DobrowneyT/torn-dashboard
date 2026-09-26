@@ -17,6 +17,80 @@ export function availabilityLabel(v) {
   return AVAILABILITY_OPTIONS.find(o => o.value === v)?.label ?? '—'
 }
 
+/**
+ * A member's roll-call answer, as one short token for a narrow column (#793).
+ *
+ * ⚠️ Seven states, not six. A member can answer "not on at start" and never
+ * pick how late — `RollCallOverlay` submits `availability || null` — so
+ * `late` is a real answer and must not render as `na`. They DID respond, and
+ * a lead chasing non-responders would chase them for nothing.
+ *
+ * ⚠️ Ordered most-available first, so ascending puts the people you can count
+ * on at the top. `na` is deliberately last in the list but is NOT ranked with
+ * the others — see `rollCallRank`.
+ */
+export const ROLL_CALL_STATES = [
+  { key: 'here',        short: 'Here',        full: 'On at the start' },
+  { key: '1_2h',        short: '1-2',         full: '1–2 hours late' },
+  { key: '3_5h',        short: '3-5',         full: '3–5 hours late' },
+  { key: '6_plus',      short: '6+',          full: '6+ hours late' },
+  { key: 'late',        short: 'Late',        full: 'Late — did not say how long' },
+  { key: 'unavailable', short: 'Unavailable', full: 'Will not be available at all' },
+  { key: 'na',          short: 'N/A',         full: 'No roll-call response' },
+]
+
+const BY_KEY = new Map(ROLL_CALL_STATES.map(s => [s.key, s]))
+
+/** Which of the seven states a roll-call row represents. Null row → 'na'. */
+export function rollCallState(row) {
+  if (!row) return 'na'
+  if (row.on_at_start === true) return 'here'
+  const a = row.availability
+  if (a === '1_2h' || a === '3_5h' || a === '6_plus' || a === 'unavailable') return a
+  // ⚠️ Responded, not on at start, no duration given. Distinct from 'na'.
+  return 'late'
+}
+
+/** The short token for the column, e.g. `3-5`. */
+export function rollCallLabel(row) {
+  return BY_KEY.get(rollCallState(row))?.short ?? 'N/A'
+}
+
+/** The full wording, for a tooltip — `1-2` means nothing on its own. */
+export function rollCallTitle(row) {
+  return BY_KEY.get(rollCallState(row))?.full ?? 'No roll-call response'
+}
+
+/**
+ * Sortable rank — lower is more available.
+ *
+ * ⚠️ Returns `null` for a member who never responded. That is not "the worst
+ * availability", it is unknown, and parking it at either end of the order
+ * asserts something untrue about those members. Callers sink nulls in BOTH
+ * directions, the rule `ff` and the member-stat columns already follow.
+ */
+export function rollCallRank(row) {
+  const key = rollCallState(row)
+  if (key === 'na') return null
+  const i = ROLL_CALL_STATES.findIndex(s => s.key === key)
+  return i === -1 ? null : i
+}
+
+/**
+ * Comparator shared by the roster column and the results table (#793).
+ *
+ * ⚠️ One ordering, used twice. Two orderings of the same seven states will
+ * drift, and the one that drifts is the one nobody is looking at.
+ */
+export function compareRollCall(a, b, dir = 1) {
+  const ar = rollCallRank(a)
+  const br = rollCallRank(b)
+  if (ar === null && br === null) return 0
+  if (ar === null) return 1
+  if (br === null) return -1
+  return dir * (ar - br)
+}
+
 // Tally roll-call responses by whether the member will be on at the war start,
 // so leadership can see at a glance how many are confirmed online. `total` is
 // the count of definite yes/no answers.
