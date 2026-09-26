@@ -18,6 +18,22 @@ surface it automatically.
 
 ---
 
+## [3.142.2] - 2026-09-25
+
+### Fixed
+- **Chain Watch: travellers no longer render as "somewhere" (#785).**
+  ⚠️ **Torn writes `Traveling from Torn to UAE`, not `Traveling to UAE`.** The
+  parser was written against a form Torn never sends, so every traveller on the
+  board showed as "✈️ somewhere" — which read as missing data rather than a
+  broken regex. Caught only by dumping the raw `status_description` from a live
+  faction.
+  - ⚠️ A flight **home** still reports `Torn`, not the country being left:
+    naming the country would tell a lead somebody is flying OUT at the exact
+    moment they are flying back in.
+  - The old regex was also unanchored, so `In` could match mid-sentence.
+  - The phrasings it was originally written for still parse, since a silent
+    null here is a board that says "somewhere".
+
 ## [3.142.1] - 2026-09-25
 
 ### Fixed
