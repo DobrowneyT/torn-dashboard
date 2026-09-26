@@ -38,7 +38,7 @@ import {
   formatEnergy, energyHue, energyBand, formatCooldown, remainingCooldown,
   overdosedByDrugCooldown, statsAgeSeconds, hasStatsError, compareMemberStat, cooldownHue,
 } from '../utils/warRoomMemberStats'
-import { memberFlags, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
+import { memberFlags, flagRank, reviveAudience, isOverdosedAnySource } from '../utils/warRoomFlags'
 import InfoTooltip, { InfoDot, tipLines } from '../components/InfoTooltip'
 import { travelEta, formatTravelEta } from '../utils/warRoomTravel'
 import {
@@ -2412,6 +2412,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       return [[...main, ...abroad], main.length]
     }
 
+    // ⚠️ Built exactly as the cell builds it, from the same two inputs — so
+    // what the column SHOWS and what it SORTS BY cannot drift apart. Computing
+    // "is this member flying" a second way here is how a row ends up grouped
+    // under a flag it is not displaying.
+    const flagsFor = (m) => memberFlags(m, {
+      isFlying: stateToFilterKey(m.status_state, m.status_description) === 'Flying',
+      stats: memberStats[String(m.member_id)],
+    })
+
     const d = sortDir === 'asc' ? 1 : -1
     // `now` from the farm tracker above is reused deliberately (#351):
     // cooldowns are aged against it, and letting each comparison read its own
@@ -2445,6 +2454,24 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         }
         case 'stats':
           return d * ((a.bsp_total ?? -1) - (b.bsp_total ?? -1))
+        // Group the roster by what is WRONG with somebody (#339 flags).
+        //
+        // ⚠️ Ranked by severity, not alphabetically — see FLAG_SORT_ORDER. A
+        // member carries several flags at once, so this keys on their most
+        // significant one: flying AND overdosed belongs with the overdosed.
+        //
+        // ⚠️ Unflagged members sink in BOTH directions, the same rule `ff`
+        // follows. Reversing the sort should show the other end of the
+        // interesting rows, not a screen of people with nothing wrong.
+        case 'flags': {
+          const ar = flagRank(flagsFor(a))
+          const br = flagRank(flagsFor(b))
+          if (ar === null && br === null) return a.member_name.localeCompare(b.member_name)
+          if (ar === null) return 1
+          if (br === null) return -1
+          if (ar === br) return a.member_name.localeCompare(b.member_name)
+          return d * (ar - br)
+        }
         // #422. Nulls sink in BOTH directions (#351): a target we cannot
         // compute FF for is not "the worst" or "the best" one, it is unknown,
         // and parking it at either end of the order says something untrue.
@@ -3150,7 +3177,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     <SortTh col="activity" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
                     <SortTh col="status"   sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
                     <SortTh col="timer"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
-                    <th className="py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 whitespace-nowrap">Flags</th>
+                    <SortTh col="flags" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Flags</SortTh>
                     <SortTh col="stats"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="text-right">Stats</SortTh>
                     {columns.ff && (
                       <SortTh
