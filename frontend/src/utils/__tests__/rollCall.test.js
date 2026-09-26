@@ -13,6 +13,8 @@ import {
   notePointsToText,
   isRollCallDismissed,
   markRollCallDismissed,
+  rollCallLabel, rollCallTitle, rollCallRank, rollCallState,
+  compareRollCall, ROLL_CALL_STATES, AVAILABILITY_OPTIONS,
 } from '../rollCall'
 
 const HOUR = 3600
@@ -189,5 +191,78 @@ describe('rollCallTally', () => {
   it('ignores rows without a definite answer', () => {
     expect(rollCallTally([{ on_at_start: true }, { on_at_start: undefined }, {}]))
       .toEqual({ yes: 1, no: 0, total: 1 })
+  })
+})
+
+// #793 — one member's roll-call answer, as a column token and a sort rank.
+describe('roll call states (#793)', () => {
+  const row = (over = {}) => ({ member_id: '1', on_at_start: false, availability: null, ...over })
+
+  it('maps each answer to its short token', () => {
+    expect(rollCallLabel(row({ on_at_start: true, availability: 'on_time' }))).toBe('Here')
+    expect(rollCallLabel(row({ availability: '1_2h' }))).toBe('1-2')
+    expect(rollCallLabel(row({ availability: '3_5h' }))).toBe('3-5')
+    expect(rollCallLabel(row({ availability: '6_plus' }))).toBe('6+')
+    expect(rollCallLabel(row({ availability: 'unavailable' }))).toBe('Unavailable')
+  })
+
+  it('shows N/A only for a member who never responded', () => {
+    expect(rollCallLabel(null)).toBe('N/A')
+    expect(rollCallLabel(undefined)).toBe('N/A')
+  })
+
+  it('⚠️ a response with no duration is Late, not N/A', () => {
+    // RollCallOverlay submits `availability || null`, so a member can answer
+    // "not on at start" and never pick how late. They DID respond — rendering
+    // that as N/A would have a lead chase them as a non-responder.
+    expect(rollCallLabel(row({ on_at_start: false, availability: null }))).toBe('Late')
+    expect(rollCallState(row({ on_at_start: false, availability: null }))).toBe('late')
+  })
+
+  it('carries the full wording for a tooltip', () => {
+    // "1-2" means nothing to anybody who has not filled the survey in.
+    expect(rollCallTitle(row({ availability: '1_2h' }))).toMatch(/1–2 hours late/)
+    expect(rollCallTitle(null)).toMatch(/No roll-call response/)
+  })
+
+  it('ranks most-available first', () => {
+    const rank = (a) => rollCallRank(row(a))
+    expect(rank({ on_at_start: true })).toBeLessThan(rank({ availability: '1_2h' }))
+    expect(rank({ availability: '1_2h' })).toBeLessThan(rank({ availability: '3_5h' }))
+    expect(rank({ availability: '3_5h' })).toBeLessThan(rank({ availability: '6_plus' }))
+    expect(rank({ availability: '6_plus' })).toBeLessThan(rank({ availability: null }))
+    expect(rank({ availability: null })).toBeLessThan(rank({ availability: 'unavailable' }))
+  })
+
+  it('⚠️ a non-response has no rank at all', () => {
+    // Not "the worst availability" — unknown. The comparator sinks it in both
+    // directions rather than asserting something untrue about those members.
+    expect(rollCallRank(null)).toBeNull()
+  })
+
+  it('⚠️ sinks non-responders in BOTH directions', () => {
+    const here = row({ on_at_start: true })
+    expect(compareRollCall(null, here, 1)).toBeGreaterThan(0)
+    expect(compareRollCall(null, here, -1)).toBeGreaterThan(0)
+    expect(compareRollCall(here, null, 1)).toBeLessThan(0)
+    expect(compareRollCall(here, null, -1)).toBeLessThan(0)
+  })
+
+  it('sorts a mixed list into the documented order', () => {
+    const rows = [
+      row({ availability: 'unavailable' }), null, row({ on_at_start: true }),
+      row({ availability: '6_plus' }), row({ availability: '1_2h' }),
+      row({ availability: null }), row({ availability: '3_5h' }),
+    ]
+    const order = rows.slice().sort((a, b) => compareRollCall(a, b, 1)).map(rollCallLabel)
+    expect(order).toEqual(['Here', '1-2', '3-5', '6+', 'Late', 'Unavailable', 'N/A'])
+  })
+
+  it('⚠️ every state AVAILABILITY_OPTIONS can produce has a rank', () => {
+    // The guard that keeps this honest as options are added: an unranked
+    // answer sorts as a non-response, which reads as "never replied".
+    for (const opt of AVAILABILITY_OPTIONS) {
+      expect(rollCallRank(row({ availability: opt.value }))).not.toBeNull()
+    }
   })
 })

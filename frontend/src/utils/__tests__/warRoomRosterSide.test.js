@@ -59,7 +59,7 @@ describe('rosterColumnCount', () => {
   it('counts the columns actually rendered for each side', () => {
     // Drives the empty-state colSpan; a wrong number visibly breaks that row.
     expect(rosterColumnCount(THEM)).toBe(9)  // +1 for FF (#422)
-    expect(rosterColumnCount(US)).toBe(11)
+    expect(rosterColumnCount(US)).toBe(12)  // +1 for Roll Call (#793)
   })
 
   it('stays in step with rosterColumns', () => {
@@ -340,7 +340,7 @@ describe('fair-fight column (#422)', () => {
     // The empty-state row uses colSpan={rosterColumnCount(side)}; a stale count
     // leaves "No members match" short of the table width.
     expect(rosterColumnCount(THEM)).toBe(9)
-    expect(rosterColumnCount(US)).toBe(11)
+    expect(rosterColumnCount(US)).toBe(12)  // +1 for Roll Call (#793)
   })
 
   it('falls back when an FF sort is carried onto our own roster', () => {
@@ -350,5 +350,24 @@ describe('fair-fight column (#422)', () => {
     // exactly the trap #351 fixed for energy, in the other direction.
     expect(effectiveSortCol('ff', US)).toBe(DEFAULT_SORT_COL)
     expect(effectiveSortCol('ff', THEM)).toBe('ff')
+  })
+})
+
+// #793 — the roll-call column is our-roster only, and so is its sort key.
+describe('roll call column (#793)', () => {
+  it('renders on our roster and not the enemy\'s', () => {
+    // Roll call is our own members answering about themselves; there is no
+    // enemy equivalent to show.
+    expect(rosterColumns(US).rollCall).toBe(true)
+    expect(rosterColumns(THEM).rollCall).toBe(false)
+  })
+
+  it('⚠️ falls back when sorting by it on the enemy side', () => {
+    // The same trap energy hit (#351): sortCol is persisted, so a lead who
+    // sorts by roll call, toggles to the opponent and reloads would otherwise
+    // be sorting a column that is not rendered — every row compares equal, the
+    // order looks arbitrary, and no header carries the arrow.
+    expect(effectiveSortCol('roll_call', US)).toBe('roll_call')
+    expect(effectiveSortCol('roll_call', THEM)).toBe(DEFAULT_SORT_COL)
   })
 })

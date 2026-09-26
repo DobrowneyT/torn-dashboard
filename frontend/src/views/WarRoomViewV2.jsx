@@ -71,7 +71,8 @@ import WarRoomPushPrompt from '../components/warroom/WarRoomPushPrompt'
 import { setWarHeadline } from '../utils/warRoomApiV2'
 import { useWarRoomAlerts } from '../hooks/useWarRoomAlerts'
 import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlerts'
-import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed } from '../utils/rollCall'
+import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed,
+  rollCallLabel, rollCallTitle, compareRollCall } from '../utils/rollCall'
 import { isGreenTarget, splitFarmAbroad } from '../utils/warRoomFarmSort'
 import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon, CloudFog, Droplet, LifeBuoy } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
@@ -2334,6 +2335,17 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // `filtered`), but in farm mode the Abroad rows are pushed to the tail and
   // `farmAbroadStart` records where that section begins so the table body
   // can drop a divider row there. Non-farm columns leave it null.
+  // Roll-call answers by member (#793), shared by the sort comparator and the
+  // column that renders them.
+  //
+  // ⚠️ A map, not a `find` per lookup. `sort` calls the comparator O(n log n)
+  // times, and a linear scan inside it turns a 100-row roster into thousands of
+  // passes over the response list on every re-render.
+  const rollCallById = useMemo(
+    () => new Map(rollCallRows.map(r => [String(r.member_id), r])),
+    [rollCallRows],
+  )
+
   const [filtered, farmAbroadStart] = useMemo(() => {
     // Update farm-mode transition tracker as a side effect of recomputing.
     // Cheap and safe — the refs are only read by the sort below.
@@ -2416,6 +2428,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     // what the column SHOWS and what it SORTS BY cannot drift apart. Computing
     // "is this member flying" a second way here is how a row ends up grouped
     // under a flag it is not displaying.
+    const rollCallFor = (m) => rollCallById.get(String(m.member_id)) ?? null
+
     const flagsFor = (m) => memberFlags(m, {
       isFlying: stateToFilterKey(m.status_state, m.status_description) === 'Flying',
       stats: memberStats[String(m.member_id)],
@@ -2432,6 +2446,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         case 'activity': {
           const order = { Online: 0, Idle: 1, Offline: 2 }
           return d * ((order[a.last_action_status] ?? 3) - (order[b.last_action_status] ?? 3))
+        }
+        // #793 — group the roster by who actually said they are turning up.
+        //
+        // ⚠️ The ordering lives in rollCall.js and is shared with the results
+        // table. Two orderings of the same seven states will drift, and the one
+        // that drifts is the one nobody is looking at.
+        case 'roll_call': {
+          const cmp = compareRollCall(rollCallFor(a), rollCallFor(b), d)
+          return cmp !== 0 ? cmp : a.member_name.localeCompare(b.member_name)
         }
         case 'status':
           return d * (a.status_state ?? '').localeCompare(b.status_state ?? '')
@@ -2508,7 +2531,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       }
     })
     return [sorted, null]
-  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, ffMaxOnly, ffFilterUsable, ffFor, activeSortCol, sortDir, memberStats, reviveHistory, revivesByTarget])
+  }, [members, rosterMembers, statusFilter, activityFilter, statsFilterEnabled, statsFilterUsable, statsFilterMin, statsFilterMax, ffMaxOnly, ffFilterUsable, ffFor, activeSortCol, sortDir, memberStats, reviveHistory, revivesByTarget, rollCallById])
 
   // ── Mobile War Room adapters ──────────────────────────────────────────────
   // Project the desktop's flat enemy `members` rows onto the prop shape that
@@ -3174,6 +3197,22 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 <thead>
                   <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                     <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-2">Name</SortTh>
+                    {columns.rollCall && (
+                      <SortTh col="roll_call" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
+                        title={
+                          <>
+                            <div>What this member said in the roll call for this war.</div>
+                            <div className="mt-1.5">
+                              <b>Here</b> — on at the start · <b>1-2</b> / <b>3-5</b> / <b>6+</b> — hours late ·
+                              {' '}<b>Late</b> — late but did not say how long · <b>Unavailable</b> — not at all
+                            </div>
+                            <div className="mt-1.5">
+                              <b>N/A</b> means no response, which sorts to the bottom in BOTH directions —
+                              not answering is unknown, not "least available".
+                            </div>
+                          </>
+                        }>Roll Call</SortTh>
+                    )}
                     <SortTh col="activity" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Activity</SortTh>
                     <SortTh col="status"   sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Status</SortTh>
                     <SortTh col="timer"    sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}>Timer</SortTh>
@@ -3311,6 +3350,33 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             />
                           </div>
                         </td>
+
+                        {/* Roll Call (#793) — what this member said about
+                            turning up, on the same row as their stats and
+                            energy, so "who is actually here at opening, and how
+                            big are they" stops being two pages and a memory. */}
+                        {columns.rollCall && (() => {
+                          const rc = rollCallById.get(String(m.member_id)) ?? null
+                          const label = rollCallLabel(rc)
+                          const tone = !rc
+                            ? 'text-gray-400 dark:text-gray-500'
+                            : rc.on_at_start
+                              ? 'text-green-600 dark:text-green-400'
+                              : rc.availability === 'unavailable'
+                                ? 'text-red-600 dark:text-red-400'
+                                : 'text-amber-600 dark:text-amber-400'
+                          return (
+                            <td className="py-2.5 px-3 whitespace-nowrap">
+                              {/* ⚠️ The full wording lives in the tooltip: "3-5"
+                                  is meaningless to anybody who has not filled
+                                  the survey in, and the column has to stay
+                                  narrow enough not to push Stats off a phone. */}
+                              <InfoTooltip decoration="no-underline" label={
+                                <span className={`text-xs font-medium ${tone}`}>{label}</span>
+                              }>{rollCallTitle(rc)}</InfoTooltip>
+                            </td>
+                          )
+                        })()}
 
                         {/* Activity */}
                         <td className="py-2.5 px-3 whitespace-nowrap">
