@@ -113,6 +113,21 @@ fi
 
 POSTGRES_USER="$(env_value deploy/.env POSTGRES_USER)"
 DEV_HTTP_PORT="${DEV_HTTP_PORT:-$(env_value deploy/.env.dev DEV_HTTP_PORT)}"
+
+# ⚠️ Chain Watch's staging config has to SURVIVE A REDEPLOY, and .env.dev is
+# rewritten from scratch every run. Passing the token once on the command line
+# looked like it worked — and then the --if-changed cron redeployed on the next
+# push, regenerated .env.dev without it, and the endpoint went back to 404 with
+# nothing to indicate why. The board just quietly stopped updating.
+#
+# Precedence: the environment, then deploy/.env (durable, operator-owned, the
+# right home for a secret), then the previous .env.dev (sticky, the same trick
+# DEV_SLUG and DEV_HTTP_PORT already use). Set it once in deploy/.env and no
+# deploy ever has to be told again.
+DEV_CHAIN_WATCH_TOKEN="${DEV_CHAIN_WATCH_TOKEN:-$(env_value deploy/.env DEV_CHAIN_WATCH_TOKEN)}"
+DEV_CHAIN_WATCH_TOKEN="${DEV_CHAIN_WATCH_TOKEN:-$(env_value deploy/.env.dev DEV_CHAIN_WATCH_TOKEN)}"
+DEV_CHAIN_NOTIFY_DIR="${DEV_CHAIN_NOTIFY_DIR:-$(env_value deploy/.env DEV_CHAIN_NOTIFY_DIR)}"
+DEV_CHAIN_NOTIFY_DIR="${DEV_CHAIN_NOTIFY_DIR:-$(env_value deploy/.env.dev DEV_CHAIN_NOTIFY_DIR)}"
 DEV_HTTP_PORT="${DEV_HTTP_PORT:-8090}"
 
 # Host-side CLI deps for db/migrate.mjs (and db/clone-tenant-dev.mjs, which the
@@ -150,6 +165,14 @@ DEV_VAPID_PRIVATE_KEY=${DEV_VAPID_PRIVATE_KEY:-}
 DEV_VAPID_SUBJECT=${DEV_VAPID_SUBJECT:-}
 DEV_FEEDBACK_GITHUB_TOKEN=${DEV_FEEDBACK_GITHUB_TOKEN:-}
 DEV_FEEDBACK_GITHUB_REPO=${DEV_FEEDBACK_GITHUB_REPO:-}
+# Chain Watch bot endpoint (#782) — empty means the route is not registered.
+# Set it once in deploy/.env so every deploy, including the cron, keeps it.
+DEV_CHAIN_WATCH_TOKEN=${DEV_CHAIN_WATCH_TOKEN:-}
+# Push-to-Discord socket. Set the DIRECTORY the bot listens in; the socket path
+# inside the container is always /run/chain-notify/notify.sock.
+#   DEV_CHAIN_NOTIFY_DIR=/run/chain-notify ./deploy/dev-deploy.sh dev
+DEV_CHAIN_NOTIFY_DIR=${DEV_CHAIN_NOTIFY_DIR:-}
+DEV_CHAIN_NOTIFY_SOCKET=${DEV_CHAIN_NOTIFY_DIR:+/run/chain-notify/notify.sock}
 EOF
 chmod 600 deploy/.env.dev
 

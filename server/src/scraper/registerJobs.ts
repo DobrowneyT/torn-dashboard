@@ -25,6 +25,8 @@ import { revivesContinuousJob } from './jobs/revivesSync.js'
 import { factionsSyncJob } from './jobs/factionsSync.js'
 import { warLifecycleJob } from './jobs/warLifecycle.js'
 import { competitionsResolveJob } from './jobs/competitionsResolve.js'
+import { chainSampleJob } from './jobs/chainSample.js'
+import { activitySampleJob } from './jobs/activitySample.js'
 import { factionUpgradesSyncJob } from './jobs/factionUpgradesSync.js'
 import { memberEventWindowsJob } from './jobs/memberEventWindows.js'
 
@@ -78,6 +80,19 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // stacking a per-minute job on the same second would have it queue behind
   // the half-hourly sweeps once every 30 runs.
   ['crime-occupancy', '30 * * * * *', crimeOccupancyJob],
+  // #774 — Chain Watch sampling. Both append-only, both OFF by default in the
+  // sense that they cost nothing useful outside an event; leadership edits the
+  // cadence in Global Admin (#756) when a chain starts.
+  //
+  // ⚠️ 4 minutes is enough for the chain BECAUSE PAYOUT IS HOURLY: a detection
+  // error only changes what anybody is paid when the chain dies within four
+  // minutes of an hour boundary. The War Room's 5-second poll would cost
+  // ~200,000 calls over a twelve-day event to answer the same question.
+  //
+  // Offset off :00 and off each other so a 5-minute roster sweep and a
+  // 4-minute chain poll never claim a key in the same second.
+  ['chain-sample', '10 */4 * * * *', chainSampleJob],
+  ['activity-sample', '40 */5 * * * *', activitySampleJob],
   ['cpr-scan', '0 30 5,17 * * *', cprScanJob],
   ['members-sync', '0 5 * * * *', membersSyncJob],
   // Member stats ONCE A DAY. Each run appends a slim sample to

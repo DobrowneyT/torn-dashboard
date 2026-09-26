@@ -18,6 +18,344 @@ surface it automatically.
 
 ---
 
+## [3.142.2] - 2026-09-25
+
+### Fixed
+- **Chain Watch: travellers no longer render as "somewhere" (#785).**
+  ⚠️ **Torn writes `Traveling from Torn to UAE`, not `Traveling to UAE`.** The
+  parser was written against a form Torn never sends, so every traveller on the
+  board showed as "✈️ somewhere" — which read as missing data rather than a
+  broken regex. Caught only by dumping the raw `status_description` from a live
+  faction.
+  - ⚠️ A flight **home** still reports `Torn`, not the country being left:
+    naming the country would tell a lead somebody is flying OUT at the exact
+    moment they are flying back in.
+  - The old regex was also unanchored, so `In` could match mid-sentence.
+  - The phrasings it was originally written for still parse, since a silent
+    null here is a board that says "somewhere".
+
+## [3.142.1] - 2026-09-25
+
+### Fixed
+- **Staging's Chain Watch config now survives a redeploy.**
+  `DEV_CHAIN_WATCH_TOKEN` and `DEV_CHAIN_NOTIFY_DIR` are read from
+  `deploy/.env` (and, failing that, the previous `.env.dev`) rather than only
+  from the command line.
+  - ⚠️ **Passing the token once appeared to work and then silently stopped.**
+    `.env.dev` is regenerated on every deploy, so the `--if-changed` cron wiped
+    it on the next push to `dev`; the endpoint returned to 404 and the Discord
+    board simply stopped updating, with nothing to say why. Hit live.
+  - Same precedence the sticky `DEV_SLUG` and `DEV_HTTP_PORT` already use:
+    environment, then `deploy/.env`, then the previous `.env.dev`.
+  - ⚠️ `DEV_CHAIN_NOTIFY_DIR` should be a directory the bot's own user owns.
+    `/run` is root-owned, so creating it needs `sudo` — and it is a tmpfs, so it
+    is empty again after a reboot and the socket would vanish on restart.
+
+## [3.142.0] - 2026-09-24
+
+### Added
+- **Chain Watch: the dashboard nudges the Discord bot when a sign-up changes
+  (#785 follow-up).** The board redraws in seconds instead of on the bot's
+  5-minute poll — somebody claiming a slot sees it appear rather than staring at
+  an unchanged board wondering whether it worked.
+  - ⚠️ **Over a bind-mounted unix socket, not a TCP port.** A container cannot
+    reach the host's `127.0.0.1`, and the obvious fix — binding `0.0.0.0` —
+    would put a control channel for a process holding a Discord token and five
+    tenant bearers on the public internet. A socket has no port, needs no
+    firewall rule, and carries no credential that could leak.
+  - ⚠️ **Fire and forget.** A member clicking "sign up" never sees an error, or
+    waits, because the bot is down. Every failure is swallowed and the bot's
+    polling remains the backstop, so the worst case is the board being one poll
+    stale — where it was before this existed.
+  - ⚠️ **One `onResponse` hook, not a call per route.** There are eight mutating
+    routes and more will be added; a nudge that must be remembered per-route
+    gets forgotten, and the symptom — a board stale only after one particular
+    action — is invisible in testing. Fires on success only, so contention on a
+    slot does not generate Discord load.
+  - `CHAIN_NOTIFY_SOCKET` unset disables it on both sides. Staging wiring and the
+    reasoning are in `deploy/DEV.md`.
+
+## [3.141.2] - 2026-09-24
+
+### Added
+- **Staging can serve the Chain Watch bot endpoint (#782).** `DEV_CHAIN_WATCH_TOKEN`
+  passes a token through `dev-deploy.sh` to the staging instance, so the Discord
+  bot can be tested against the `_dev` copy instead of waiting for the endpoint
+  to reach a live tenant.
+  - ⚠️ **Unset leaves the route unregistered**, not merely unauthenticated — a
+    staging instance nobody asked to expose exposes nothing.
+  - ⚠️ Use a value of its own, not the live tenant's token: both read the same
+    faction's data, but a token that only opens the copy cannot be turned on
+    production.
+  - ⚠️ `.env.dev` is regenerated on every deploy, so the token must be passed on
+    each `dev-deploy.sh` or exported in the cron's environment. Documented in
+    `deploy/DEV.md`, including in the blast-radius table.
+
+## [3.141.1] - 2026-09-23
+
+### Added
+- **Chain Watch: the roster rides along for the bot's identity map (#784).**
+  `/api/internal/chain-watch` now carries `members` — current faction members,
+  id and name.
+  - ⚠️ **Without it the auto-match can only read a Discord nickname that
+    literally contains `Name [123456]`**, and everyone else falls to the manual
+    `/chain link` escape hatch. Linking ~100 people by hand is the chore that
+    does not get done, and a half-populated map sends pings that reach some
+    members and not others — worse than none, because nobody can tell which.
+  - ⚠️ **Served even with no event running.** The identity map is standing
+    state, not per-event; linking that only worked mid-chain would mean the
+    first chain of the year starts with an empty map.
+  - ⚠️ **Current members only.** Someone who left stops being pinged — the bot
+    keeps their link, since people rejoin, but they are not roster.
+  - No new exposure: the same ids and names already ride in `hours[].watchers`,
+    and both are public Torn data.
+
+## [3.141.0] - 2026-09-23
+
+### Added
+- **Chain Watch: a read endpoint for the Discord bot (#782).** `GET
+  /api/internal/chain-watch` serves the board the bot renders — the open event,
+  every hour in the next day *including the ones nobody signed up for*, each
+  watcher's travel state, the chain projection band, and the gap horizon.
+  - ⚠️ **It derives nothing new.** The projection comes from `projectChain`, the
+    travel facts from the same `member_activity_samples` series the review flags
+    read. Two implementations of "is this slot at risk" drift, and the one that
+    drifts is the one nobody is looking at.
+  - ⚠️ **`gap_horizon_hours` is served, not assumed.** `GAP_HORIZON_HOURS` now
+    has one definition (`server/src/chain/chainHorizon.ts`); the bot is
+    forbidden its own copy, so the page and the channel cannot disagree about
+    what "soon" means.
+  - ⚠️ **Its own scoped token**, `HMAC(FLEET_METRICS_SECRET, "chain-watch:"+slug)`,
+    deliberately *not* `FLEET_METRICS_TOKEN`. The bot runs off the box and sits
+    in servers full of people; reusing the metrics token would hand it key-pool
+    depth — reconnaissance, per #609 — as a side effect of wanting sign-up
+    times.
+  - ⚠️ **No event → 200 with a null event, never a 404.** "Nothing is running"
+    is the right answer most of the year; an error looks like an outage and puts
+    the bot in a retry loop. The same applies the moment `actually_ended_at` is
+    set: an empty-slot ping for a finished chain wakes somebody at 3am for
+    nothing, which is how a channel learns to mute a bot.
+  - ⚠️ **Every time crosses as epoch milliseconds.** The #140 trap bites Python
+    too — `datetime.fromisoformat` rejects Postgres' bare two-digit offset.
+  - `db/chain-watch-token.mjs` provisions tenants; runbook at
+    `docs/runbooks/chain-watch-discord.md`.
+
+## [3.140.1] - 2026-09-23
+
+### Changed
+- **Chain Watch: the bold hour now says `TCT`.** The sign-up grid prints the
+  canonical hour in bold with the viewer's own clock in grey underneath, but the
+  bold line carried no unit — so it read as "some timezone", and the obvious
+  guess is the reader's own, which is the line *below* it. The unit is spelled
+  out on every row rather than in a column heading: the grid scrolls for a
+  twelve-day chain, so a heading is off-screen for all but the first few hours.
+
+### Fixed
+- **Member metrics: staleness no longer depends on the time of day.** `stale_days`
+  subtracted a DATE (`snapshot_date`, parsed to 00:00Z) from a live clock, so the
+  time of day rode along as a fraction of a day and `Math.round` tipped it at
+  12:00 UTC — the same snapshot read as 10 days old in the morning and 11 in the
+  afternoon. Both ends now snap to UTC midnight. Caught because the existing
+  `#764` test for it had started failing on `dev` every afternoon.
+
+## [3.140.0] - 2026-09-23
+
+### Added
+- **Chain Watch: payout and raffle ranges (#773).** The last slice of the #768
+  epic — the half of the spreadsheet that turns served hours into money.
+  - One row per watcher: slots, bonus slots, raffle tickets, a contiguous ticket
+    range, and **one payout number** carried verbatim by the
+    `addMoneyTo` link. ⚠️ The sheet showed Warwinds `35,000,000` beside a link
+    paying `34,500,000`; two numbers on a row, one of which is never the amount
+    sent.
+  - ⚠️ **The total is computed from the rows.** The sheet's totals row read
+    `189.5` bonus slots — exactly half the slot count, a stray `/2` — where its
+    own member rows summed to 59.
+  - **Ticket ranges** cover `1..total` exactly once, assigned in a stated order
+    (slots descending, then member id) so the numbering does not reshuffle
+    between renders. Drawing the winner stays out of scope, as the sheet had it.
+  - **A flag queue**, at-risk rows first. ⚠️ `pay_decision` is nullable and
+    **null means "not looked at yet", which is neither paid nor unpaid** — an
+    undecided flagged slot still counts as payable, because a flag asks a
+    question rather than withholding money on its own. Only an explicit `unpaid`
+    and `abroad` withhold pay, and a leader can overrule even `abroad`: the app
+    records, it does not adjudicate.
+  - **Removed slots on hours that had already run** are shown struck through
+    with who removed them and why. ⚠️ Removed is not the same as never signed
+    up, and this panel is the only place anyone looks.
+  - ⚠️ **A dropped chain gets a post-mortem**, naming who was on watch for the
+    final hour, and **withdraws the raffle while still paying the slots**.
+
+### Fixed
+- ⚠️ **The chain's end is now derived from `chain_samples`, which #774 said it
+  would be and did not do.** `chainOutcome` reads the cooldown transition back
+  out of the series — the entire reason it is append-only rather than a
+  singleton — so the end can be established hours later, when the payout is
+  actually reconciled. A leader's explicit `actually_ended_at` still wins, and
+  both feed **one** SQL expression so the grid and the payout panel cannot
+  disagree about which hours were real.
+  ⚠️ "Dropped" is decided by the **peak**, not by which sample caught the
+  timer: Torn reports chain `0` once a chain closes, so reading the last sample
+  as the peak would call every completed chain a drop.
+
+## [3.139.1] - 2026-09-23
+
+### Added
+- **Chain Watch: a way to open one (#772 follow-up).** The page could say "no
+  chain watch is open yet" and offer nothing to do about it — the only way to
+  create an event was a `POST` from a terminal, which is a dead end on a page
+  built for a leader at 2am.
+  - ⚠️ **Takes a number of DAYS and a TCT start, never an end date.** The
+    server derives `ends_at` keeping the start hour, and the window grows a day
+    at a time from there. The 2025 sheet was generated for 25 Oct 10:00 → 1 Nov
+    16:00 TCT and the chain outran it; sign-ups were extended through 3 Nov by
+    hand.
+  - The chosen TCT start is echoed back **in the viewer's own time**, so nobody
+    opens a fortnight of sign-ups twelve hours off by accident.
+  - Bonus hours are entered as **hours of the day** and are changeable later.
+
+## [3.139.0] - 2026-09-23
+
+### Added
+- **Chain Watch: chain and activity sampling, travel, and the review flags
+  (#774).** Slice 4 of the #768 epic — what turns "they signed up" into "they
+  were there", without letting the app decide.
+  - **Two samplers, both append-only.** `chain-sample` records the chain counter
+    and its timer every 4 minutes; `activity-sample` records the whole roster's
+    `last_action` and status every 5.
+    ⚠️ **Neither reuses the War Room's chain poller**, and the reasons compound:
+    it only runs during a war (`!cfg.faction_id` — a chain has no opponent),
+    `war_room_chain_v2` is a singleton whose every poll overwrites the last, and
+    its 5-second cadence would cost ~200,000 Torn calls over a twelve-day event.
+    4 minutes is enough *because payout is hourly*.
+  - ⚠️ **One roster call covers everything.** `/v2/faction/members` returns
+    `last_action` **and** the full status object (including `plane_image_type`),
+    so sampling costs the same whether 2 people signed up or 40 — and it records
+    who was awake at 04:00 and did **not** sign up, which is the recruiting list
+    for the next night's gaps.
+  - **The flags**, surfaced on the event read for a leader to confirm:
+    *absent*, *absent while the chain was at risk*, and *abroad*.
+    ⚠️ **Zero attacks is deliberately not a flag.** During a healthy chain a
+    watcher with no hits did the job; flagging on attacks would fire across most
+    of a *successful* event and leadership would click through hundreds of amber
+    rows without reading. The signal is activity, not attacks — and it detects
+    **absence, not attention**.
+    ⚠️ An hour with no samples yields **no flag**: "we were not looking" must
+    never render as "they were not there".
+    `abroad` is the only one that moves `is_payable`, because a watcher overseas
+    could not have hit anything.
+  - **The projected finish**, from the delta in `faction_attacks.chain` — the
+    chain counter itself, not a count of attacks, since only qualifying attacks
+    advance a chain. ⚠️ Measured over **whole days**, because hit rate is
+    violently diurnal and a six-hour window extrapolated at 03:00 says something
+    wildly different from the same chain at 19:00. Returned as a **band**, and
+    refused outright below a day of data — an absent projection is fine, a
+    confident wrong one is not.
+
+### Fixed
+- ⚠️ **The #140 trap, server-side (`server/src/chainWatch.ts`).** Flag evidence
+  was keyed on `new Date(row.hour_start)`, and Postgres serves timestamptz with
+  a bare two-digit offset (`2026-09-23T03:00:00-05`) that parses to **NaN**. Two
+  consequences, both silent: every flag was computed against an invalid hour, so
+  a watcher who *was* around read as absent; and because both sides of the
+  lookup stringify to `"NaN:9200"`, **one member's flagged hours collapsed into
+  a single key** — one hour's verdict could be stamped on another. Both queries
+  now hand epoch ms out of SQL and nothing parses a DB timestamp in JS.
+
+## [3.138.0] - 2026-09-22
+
+### Added
+- **Chain Watch: the sign-up grid, in TCT and the viewer's own time (#772).**
+  Slice 2 of the #768 epic — a **Chain Watch** tab on the Members page, beside
+  Calendar. Two tabs: **Sign up** (the current hour onward) and **History**
+  (what has run, where #773's payout and flags will live).
+  - ⚠️ **The local-time column is formatted per row, from that row's own
+    instant** — never by adding a fixed offset. The spreadsheet typed three
+    zone rows by hand, the 2025 event crossed the US DST change, and rows
+    100–101 of the workbook still list `2:00-3:00` twice where somebody patched
+    the fold. Two rows showing the same local clock time across a fold is
+    **correct**, and there is a test pinning it: 05:00 and 06:00 TCT on 7 Nov
+    both read `01:00` in New York because they are two instants an hour apart.
+  - ⚠️ **"Elapsed" is decided by the server's clock, which now travels with
+    the event payload.** A viewer with a skewed system time would otherwise be
+    shown still-claimable hours as gone — and that viewer is the half-asleep
+    person at 3am this page exists for.
+  - **Add a day / Remove last day.** No confirmation on add (harmless,
+    reversible, and the most frequent action on the page); remove confirms, and
+    a server refusal names who is still on the last day rather than failing
+    generically. The reload is quiet, so the reader keeps their scroll position.
+  - ⚠️ **The coverage headline leads with the next unstaffed hour**, and any
+    count is scoped to a 48-hour horizon. An unbounded total would leap the
+    instant somebody clicks *Add a day*, reading as the roster collapsing at the
+    exact moment the window grew.
+  - **The six-hour warning counts slots, not hours**, at one severity — an hour
+    holding one of two watchers alerts exactly as an hour holding none does. The
+    sentence still marks the fully naked hours (`17:00 (both)`), because one
+    severity is a decision about alarm, not about information.
+  - **Leadership can assign, replace and remove anyone**, on elapsed hours too.
+    ⚠️ The picker keeps whoever holds the other slot of that hour in the list,
+    **disabled with the reason**, rather than dropping them — a leader hunting
+    for a missing name concludes the picker is broken.
+  - A member may drop their own slot until the hour starts, and the control is
+    not buried.
+
+### Changed
+- **API errors carry `status` and `body` (`frontend/src/utils/apiClient.js`).**
+  Callers had to match on the message text to tell a `409` "somebody just took
+  that" — a normal race — from a real failure, and a structured refusal body was
+  discarded entirely. `apiDelete` also takes an optional payload; existing
+  single-argument callers are unaffected.
+
+### Fixed
+- ⚠️ **`InfoTooltip`'s `label` is the visible trigger and `children` is the
+  panel.** Passing them the other way round renders the explanation as permanent
+  body text and drops the trigger altogether — caught here on the bonus-hour
+  badge, which had become the sentence "05:00 pays 2× raffle tickets" in the
+  grid.
+
+## [3.137.0] - 2026-09-22
+
+### Added
+- **Chain Watch: the schema and API behind the hourly sign-up sheet (#771).**
+  First slice of the #768 epic — nothing user-facing yet. It replaces a Google
+  Sheet that worked, so the shape is driven by the three things that sheet
+  could not do:
+  - ⚠️ **Sign-ups key on the Torn player ID, never a display name.** The
+    workbook matched watchers with `COUNTIF` over the grid; its own roster tab
+    now reads `Muttley_616` where its frozen 2025 grid says `Muttley`, and a
+    rename returned `0` with no error at all.
+  - ⚠️ **Bonus hours are hours-of-day, derived at read time.** The sheet pinned
+    its bonus to spreadsheet *columns* H:I — 05:00–07:00 TCT on one block and
+    17:00–19:00 on the next — and paid 59 slots where only 31 were marked.
+    Leadership can now correct the hours mid-event and the correction applies to
+    hours already served.
+  - ⚠️ **The window grows a day at a time, server-side.** The 2025 grid was
+    generated for 25 Oct 10:00 → 1 Nov 16:00 TCT and the chain outran it; the
+    real sheet carries sign-ups through 3 Nov, extended by hand. `POST /days`
+    moves `ends_at` forward 24h *preserving the start hour* — an event does not
+    begin at midnight, and snapping to one would have added 14h on the first
+    click.
+  - ⚠️ **Giving up a slot is a soft delete.** A sign-up drives money; deleting
+    the row destroys the only evidence that someone held the hour. `removed_by`
+    is what separates "I dropped it" from "I was dropped", which must not read
+    identically at payout. The slot uniqueness index is therefore **partial**
+    (`WHERE removed_at IS NULL`) so a freed slot can be re-claimed while the
+    history survives.
+  - ⚠️ **One member cannot hold both slots of an hour**, enforced by a second
+    partial unique index rather than a handler check — the race is real (two
+    tabs, or a leader assigning as the member claims). Consecutive hours stay
+    allowed. The 2025 sheet never doubled up: 0 of 211 served hours.
+  - ⚠️ **A member may always drop their own slot until the hour starts**, and
+    is refused after. Someone who knows at 22:00 they will not make 04:00 must
+    be able to say so while there is still time to refill it — otherwise the
+    silent no-show is the path of least resistance, and that is what costs a
+    chain.
+  - Every mutation of the event is `requireRole('leadership','admin')`, written
+    on each route with a test per route, because the bonus fields retroactively
+    change what members are owed.
+  - Also lands the append-only `chain_samples` and `member_activity_samples`
+    tables that #774 will write — deliberately **not** `war_room_chain_v2`,
+    which is a singleton with no history whose poller only runs during a war.
 ## [3.136.2] - 2026-09-26
 
 ### Added

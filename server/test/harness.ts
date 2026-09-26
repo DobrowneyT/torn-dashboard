@@ -128,6 +128,7 @@ export interface StackOverrides {
    *  unregistered, which is the production default until an operator sets
    *  FLEET_METRICS_SECRET. */
   fleetMetricsToken?: string
+  chainWatchToken?: string
 }
 
 /** Boot embedded Postgres + templated faction DB + Torn fixture + GitHub fixture + API. */
@@ -263,6 +264,7 @@ export async function startTestStack(
     // never coupled to the dataset committed in the image.
     ocModel: overrides.ocModel,
     fleetMetricsToken: overrides.fleetMetricsToken,
+    chainWatchToken: overrides.chainWatchToken,
     factionSlug: TEST_FACTION.slug,
     db,
     tornBaseUrl,

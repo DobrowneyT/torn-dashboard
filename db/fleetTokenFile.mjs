@@ -22,13 +22,33 @@
  */
 
 /** The comment new-faction.mjs writes above the value, reused on insert. */
-const TOKEN_COMMENT = (slug) => [
+const FLEET_COMMENT = (slug) => [
   '      # ⚠️ THIS faction\'s own fleet-metrics token (#632), not the fleet secret.',
   '      # Putting FLEET_METRICS_SECRET in every tenant would mean a leak from any',
   '      # one faction reads every faction\'s metrics; the admin container holds the',
   '      # secret and derives what it needs. Regenerate with',
   `      # \`node db/fleet-metrics-token.mjs ${slug}\`.`,
 ]
+
+/**
+ * The same note for the Chain Watch token (#782).
+ *
+ * ⚠️ A SECOND token from the same secret, not a copy of the first. The Discord
+ * bot holds this one and runs off this box; giving it FLEET_METRICS_TOKEN would
+ * hand it key-pool depth as a side effect of wanting sign-up times.
+ */
+const CHAIN_WATCH_COMMENT = (slug) => [
+  '      # ⚠️ THIS faction\'s Chain Watch token (#782) for the Discord bot.',
+  '      # Scoped separately from FLEET_METRICS_TOKEN on purpose: the bot is a',
+  '      # different trust domain, and should not gain fleet metrics by holding',
+  `      # this. Regenerate with \`node db/chain-watch-token.mjs ${slug}\`.`,
+]
+
+/** Which env var a rewrite targets, and the comment that introduces it. */
+export const TOKEN_VARS = {
+  FLEET_METRICS_TOKEN: FLEET_COMMENT,
+  CHAIN_WATCH_TOKEN: CHAIN_WATCH_COMMENT,
+}
 
 /**
  * Set `FLEET_METRICS_TOKEN` on each `api-<slug>` service.
@@ -43,7 +63,9 @@ const TOKEN_COMMENT = (slug) => [
  * reformatted it would make every future diff unreadable and would be trusted
  * by nobody.
  */
-export function setOverrideTokens(text, tokensBySlug) {
+export function setOverrideTokens(text, tokensBySlug, varName = 'FLEET_METRICS_TOKEN') {
+  const comment = TOKEN_VARS[varName]
+  if (!comment) throw new Error(`unknown token variable "${varName}"`)
   const wanted = new Map(Object.entries(tokensBySlug))
   for (const [slug, token] of wanted) {
     // ⚠️ Hex only, and checked here rather than at the call site. Compose
@@ -66,8 +88,8 @@ export function setOverrideTokens(text, tokensBySlug) {
   let wroteForService = false
 
   const flushInsert = (forSlug) => {
-    out.push(...TOKEN_COMMENT(forSlug))
-    out.push(`      FLEET_METRICS_TOKEN: ${wanted.get(forSlug)}`)
+    out.push(...comment(forSlug))
+    out.push(`      ${varName}: ${wanted.get(forSlug)}`)
     added.push(forSlug)
   }
 
@@ -99,8 +121,8 @@ export function setOverrideTokens(text, tokensBySlug) {
       continue
     }
 
-    if (inEnv && wanted.has(slug) && /^ {6}FLEET_METRICS_TOKEN:/.test(line)) {
-      out.push(`      FLEET_METRICS_TOKEN: ${wanted.get(slug)}`)
+    if (inEnv && wanted.has(slug) && new RegExp(`^ {6}${varName}:`).test(line)) {
+      out.push(`      ${varName}: ${wanted.get(slug)}`)
       wroteForService = true
       updated.push(slug)
       continue

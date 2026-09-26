@@ -77,6 +77,21 @@ export const SCRAPER_JOB_INFO = {
   'competitions-resolve':
     'Auto-resolves competitions at day-boundary closes and interval draws. ' +
     'Feeds competition leaderboards and prize payouts. No API calls (DB only).',
+  'chain-sample':
+    'Chain Watch (#774): the chain counter and its timer, every 4 minutes ' +
+    '(GET /v2/faction/{id}/chain). Append-only, unlike the War Room singleton ' +
+    'it deliberately does not reuse — that one overwrites every poll, so the ' +
+    'chain\'s end becomes a moment you had to catch rather than a fact the ' +
+    'payout can read back hours later. 4 minutes is enough because payout is ' +
+    'HOURLY: a detection error only matters when the chain dies within 4 ' +
+    'minutes of an hour boundary. 1 API call per run (~360/day).',
+  'activity-sample':
+    'Chain Watch (#774): who was around and who was in the air, every 5 ' +
+    'minutes (GET /v2/faction/members). ONE call covers the whole roster — ' +
+    'last_action and the full status object, including plane_image_type — so ' +
+    'the cost is the same whether 2 people signed up or 40, and it also ' +
+    'records who was awake at 04:00 and did NOT sign up. Feeds the watch ' +
+    'flags and the travel warnings. 1 API call per run (~288/day).',
   'crime-occupancy':
     'Observed OC occupancy, every minute at the :30 mark ' +
     '(GET /v2/faction/crimes?cat=available). Records when each member was ' +

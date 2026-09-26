@@ -47,7 +47,30 @@ services:
       FEEDBACK_GITHUB_TOKEN: ${DEV_FEEDBACK_GITHUB_TOKEN:-}
       FEEDBACK_GITHUB_REPO: ${DEV_FEEDBACK_GITHUB_REPO:-}
       FEEDBACK_LABEL: ${FEEDBACK_LABEL:-}
+      # ⚠ Chain Watch's bot endpoint (#782). Unset leaves the route
+      # UNREGISTERED, which is the right default — a staging instance nobody
+      # asked to expose exposes nothing. Set DEV_CHAIN_WATCH_TOKEN to test the
+      # Discord bot against the copy instead of against a live tenant.
+      #
+      # ⚠ Use a value of its own (openssl rand -hex 32), NOT the live tenant's
+      # token. They read the same faction's data, but a token that only opens
+      # the copy cannot be turned on production.
+      CHAIN_WATCH_TOKEN: ${DEV_CHAIN_WATCH_TOKEN:-}
+      # ⚠ Push a redraw to the Discord bot when a sign-up changes, over a
+      # bind-mounted unix socket. A container cannot reach the host's
+      # 127.0.0.1, and binding 0.0.0.0 would put a control channel for a
+      # process holding a Discord token on the public internet — a socket has
+      # no port and needs no firewall rule.
+      #
+      # ⚠ Entirely optional. Unset, or the bot not listening, means the board
+      # updates on its poll interval as before. Nothing here is load-bearing.
+      CHAIN_NOTIFY_SOCKET: ${DEV_CHAIN_NOTIFY_SOCKET:-}
       PUBLIC_BASE_URL: http://localhost:${DEV_HTTP_PORT:-8090}
+    volumes:
+      # The directory, not the socket: the bot creates and deletes the file, and
+      # a bind mount of a file that is replaced leaves the container holding the
+      # old inode — a push that silently stops working after a bot restart.
+      - ${DEV_CHAIN_NOTIFY_DIR:-/tmp/chain-notify-unused}:/run/chain-notify
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
