@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   REVIVE_EVERYONE, REVIVE_FRIENDS, REVIVE_NO_ONE,
   reviveAudience, isOverdosedAnySource, memberFlags,
+  flagRank, FLAG_SORT_ORDER,
 } from '../warRoomFlags'
 
 const keys = (member, opts) => memberFlags(member, opts).map(f => f.key)
@@ -141,4 +142,53 @@ describe('memberFlags', () => {
   // #528 Part 2's loadout flag was removed from here (2026-08-23) — the
   // shield icon next to the member's name (LoadoutShieldIcon.test.jsx) is
   // the only place that observation renders now.
+})
+
+// Sorting the Flags column — grouping the roster by what is wrong with people.
+describe('flagRank', () => {
+  it('⚠️ ranks by severity, not alphabetically', () => {
+    // Alphabetical would put "ed" (a detail about a hospital stay) above "od"
+    // (out of action for far longer than one), and finding the people who
+    // cannot fight is the entire reason to group this column.
+    expect(FLAG_SORT_ORDER.indexOf('od')).toBeLessThan(FLAG_SORT_ORDER.indexOf('ed'))
+    expect(FLAG_SORT_ORDER.indexOf('od')).toBeLessThan(FLAG_SORT_ORDER.indexOf('flying'))
+  })
+
+  it('⚠️ keys on a member\'s MOST significant flag, not their first', () => {
+    // memberFlags pushes flying before od, so taking the first would file
+    // somebody flying-and-overdosed under "flying".
+    const both = memberFlags({ drug_cooldown: 1, status_state: 'Hospital' }, { isFlying: true })
+    const rank = flagRank([{ key: 'flying' }, { key: 'od' }])
+    expect(rank).toBe(FLAG_SORT_ORDER.indexOf('od'))
+    expect(Array.isArray(both)).toBe(true)
+  })
+
+  it('returns null for a member with nothing wrong', () => {
+    // ⚠️ Null, not a large number: the caller sinks these in BOTH directions,
+    // so reversing the sort shows the other end of the interesting rows rather
+    // than a screen of blanks.
+    expect(flagRank([])).toBeNull()
+    expect(flagRank(undefined)).toBeNull()
+  })
+
+  it('ignores a flag it does not know how to rank', () => {
+    // A new flag added to memberFlags without a rank must not sort ABOVE
+    // overdosed by accident — it ranks as nothing until somebody places it.
+    expect(flagRank([{ key: 'brand-new-flag' }])).toBeNull()
+    expect(flagRank([{ key: 'brand-new-flag' }, { key: 'wall' }]))
+      .toBe(FLAG_SORT_ORDER.indexOf('wall'))
+  })
+
+  it('every flag memberFlags can emit has a rank', () => {
+    // ⚠️ The guard that keeps this honest as flags are added: an unranked flag
+    // makes its members sort as unflagged, which reads as "nothing wrong".
+    const everything = memberFlags(
+      { has_early_discharge: true, is_on_wall: true, drug_cooldown: 100000,
+        status_state: 'Hospital', status_description: 'In hospital' },
+      { isFlying: true },
+    )
+    for (const f of everything) {
+      expect(FLAG_SORT_ORDER).toContain(f.key)
+    }
+  })
 })

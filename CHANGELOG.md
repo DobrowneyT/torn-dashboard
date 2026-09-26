@@ -18,6 +18,24 @@ surface it automatically.
 
 ---
 
+## [3.136.2] - 2026-09-26
+
+### Added
+- **War Room: the Flags column sorts.** Click it to group the roster by what is
+  wrong with somebody — everyone overdosed together, everyone flying together.
+  - ⚠️ **Ranked by severity, not alphabetically.** Alphabetical would put
+    "early discharge" above "overdosed", and finding the people who cannot
+    fight is the entire reason to group this column.
+  - ⚠️ **Keys on a member's MOST significant flag**, not their first.
+    `memberFlags` pushes flying before overdosed, so taking the first would
+    file somebody flying-and-overdosed under "flying".
+  - ⚠️ **Unflagged members sink in both directions**, the same rule `ff`
+    follows — reversing the sort shows the other end of the interesting rows
+    rather than a screen of people with nothing wrong.
+  - The comparator builds each member's flags exactly as the cell does, from
+    the same two inputs, so what the column shows and what it sorts by cannot
+    drift apart.
+
 ## [3.136.1] - 2026-09-22
 
 ### Fixed
