@@ -26,7 +26,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
 import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
-import { formatWarDateRange } from '../utils/warPayoutCalculations'
+import { formatWarDateRange, WIN_RESULTS, LOSS_RESULTS, ASSIST_RESULT } from '../utils/warPayoutCalculations'
 import { apiPost } from '../utils/apiClient'
 import { getFactionId } from '../utils/factionIdentity'
 import { parseDbTime } from '../utils/time'
@@ -35,12 +35,18 @@ import { parseDbTime } from '../utils/time'
 // calculator uses so "attack / assist / loss" mean the same thing here as
 // they do in the Hit Report. Wins (leave/mug/hosp) collapse to 'attack' for
 // the member-inspector breakdown.
-const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted', 'Special'])
-const LOSS_RESULTS = new Set(['Lost', 'Timeout', 'Interrupted', 'Stalemate', 'Escape'])
+// ⚠️ `LOSS_RESULTS` and `ASSIST_RESULT` are IMPORTED, not redeclared — this
+// file used to carry its own copy of the loss list, so "loss" could drift
+// between the timeline and the Hit Report with nothing failing.
+//
+// ⚠️ The win list stays local because it differs on purpose: a `Special` reads
+// as an attack ON THE TIMELINE, but the payout paths exclude it, so the
+// exported `WIN_RESULTS` must not gain it. See the note on that export.
+const TIMELINE_WIN_RESULTS = new Set([...WIN_RESULTS, 'Special'])
 function classifyEventType(result) {
   if (!result) return null
-  if (result === 'Assist') return 'assist'
-  if (WIN_RESULTS.has(result)) return 'attack'
+  if (result === ASSIST_RESULT) return 'assist'
+  if (TIMELINE_WIN_RESULTS.has(result)) return 'attack'
   if (LOSS_RESULTS.has(result)) return 'loss'
   return null
 }

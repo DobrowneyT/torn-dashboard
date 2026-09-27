@@ -2,6 +2,10 @@
 // place on every sweep — this is the only place "what was their energy right
 // before the war" survives past the next tick.
 //
+// ⚠️ The capture window is [start_at - 60s, start_at), so "at the snapshot" and
+// "at war start" are the same question to within a minute. That is why the
+// activity reading taken here can honestly be labelled against the war start.
+//
 // ⚠️ All timing comparisons stay in SQL. server/src/db.ts deliberately
 // returns timestamptz as a raw string, not a JS Date (to match legacy
 // PostgREST payload shapes) — and Postgres's default text offset (`-05`,
@@ -51,7 +55,8 @@ export async function captureStacksSnapshotIfDue(db: pg.Pool): Promise<StacksSna
 
   const inserted = await db.query(
     `INSERT INTO war_stacks_snapshot
-       (war_id, member_id, member_name, energy_current, energy_maximum, has_reading, od_flagged_prewar, captured_at)
+       (war_id, member_id, member_name, energy_current, energy_maximum, has_reading,
+        od_flagged_prewar, last_action_epoch, status_state, captured_at)
      SELECT $1, m.member_id::bigint, m.member_name,
             s.energy_current, s.energy_maximum,
             (s.member_id IS NOT NULL AND s.last_error IS NULL) AS has_reading,
@@ -60,9 +65,20 @@ export async function captureStacksSnapshotIfDue(db: pg.Pool): Promise<StacksSna
             -- it before AUTO-ENABLE can fire): 'infinity' makes the >= always
             -- false rather than NULL, defaulting to "not flagged".
             (s.overdose_until IS NOT NULL AND s.overdose_until >= COALESCE($2::timestamptz, 'infinity')) AS od_flagged_prewar,
+            -- Who was actually awake. ⚠️ Read from war_room_state_v2, which the
+            -- ticker already refreshes every sweep — no new Torn call, and
+            -- nothing borrowed from Chain Watch's sampler, which is a separate
+            -- feature with its own table on purpose.
+            --
+            -- ⚠️ This row is overwritten in place on every sweep, so THIS is the
+            -- only moment the value can be preserved. Miss it and the answer is
+            -- gone for that war permanently.
+            NULLIF(w.state -> 'last_action' ->> 'timestamp', '')::bigint,
+            w.state -> 'status' ->> 'state',
             now()
        FROM members m
        LEFT JOIN war_room_member_stats_v2 s ON s.member_id = m.member_id::bigint
+       LEFT JOIN war_room_state_v2 w ON w.member_id = m.member_id::bigint AND w.deleted_at IS NULL
       WHERE m.is_current = true AND COALESCE(m.is_fallen, false) = false
      ON CONFLICT (war_id, member_id) DO NOTHING
      RETURNING member_id`,
