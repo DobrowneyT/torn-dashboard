@@ -5,7 +5,7 @@
  */
 
 import { apiGet } from './apiClient'
-import { BONUS_HITS, WIN_RESULTS } from './warPayoutCalculations'
+import { BONUS_HITS, WIN_RESULTS, LOSS_RESULTS, ASSIST_RESULT } from './warPayoutCalculations'
 import { getFactionId } from './factionIdentity'
 
 /**
@@ -114,7 +114,10 @@ export async function loadLiveContributionsFromAttacks(war) {
         member_name: m.member_name,
         level:       null,
         attacks:     0,
+        assists:     0,
+        losses:      0,
         score:       0,
+        score_raw:   0,
         faction_id:  OUR_FACTION_ID,
       })
     }
@@ -126,11 +129,14 @@ export async function loadLiveContributionsFromAttacks(war) {
   // war-win filters below (ours, outgoing, ranked, win results) stay
   // client-side to keep the scoring rules next to the payout math.
   const windowAttacks = await loadFactionAttacksByWindow(war.start_at, war.end_at)
+  // ⚠️ The result filter moved INTO the loop. Assists and losses have to reach
+  // the aggregator to be counted, and filtering them out here is what used to
+  // make them invisible — a member with forty assists and no wins read as
+  // having done nothing at all.
   const all = windowAttacks.filter((a) =>
     Number(a.attacker_faction_id) === OUR_FACTION_ID &&
     a.is_ranked_war === true &&
-    a.is_incoming === false &&
-    WIN_RESULTS.has(a.result)
+    a.is_incoming === false
   )
 
   // Aggregate per attacker with bonus-hit cap. If an attacker isn't in the
@@ -139,6 +145,12 @@ export async function loadLiveContributionsFromAttacks(war) {
   for (const a of all) {
     const id = Number(a.attacker_id)
     if (!id) continue
+    const result = a.result || ''
+    const isWin = WIN_RESULTS.has(result)
+    // ⚠️ Anything Torn reports that is none of the three — a result type added
+    // after this was written — is counted in NO column rather than guessed
+    // into one. A wrong column reads as fact; an absent one reads as a gap.
+    if (!isWin && result !== ASSIST_RESULT && !LOSS_RESULTS.has(result)) continue
     const raw = parseFloat(a.respect_gain) || 0
     const chain = Number(a.chain) || 0
     const score = BONUS_HITS.has(chain) ? Math.min(raw, 10) : raw
@@ -149,7 +161,10 @@ export async function loadLiveContributionsFromAttacks(war) {
         member_name: a.attacker_name,
         level:       null,
         attacks:     0,
+        assists:     0,
+        losses:      0,
         score:       0,
+        score_raw:   0,
         faction_id:  OUR_FACTION_ID,
       }
       agg.set(id, row)
@@ -157,8 +172,15 @@ export async function loadLiveContributionsFromAttacks(war) {
     // Prefer the live attack's name (catches mid-war renames) over the
     // possibly-stale members.member_name.
     row.member_name = a.attacker_name ?? row.member_name
-    row.attacks += 1
-    row.score   += score
+    if (isWin) {
+      row.attacks += 1
+      row.score     += score   // bonus-capped — what payout shares are computed from
+      row.score_raw += raw     // uncapped — what Torn reports as the war score
+    } else if (result === ASSIST_RESULT) {
+      row.assists += 1
+    } else {
+      row.losses += 1
+    }
   }
 
   // Sort: score desc, then name asc for stable display of all the 0-score

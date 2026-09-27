@@ -18,6 +18,37 @@ surface it automatically.
 
 ---
 
+## [3.145.0] - 2026-09-27
+
+### Added
+- **War Contributions (live wars) now shows Assists and Losses**, alongside
+  Attacks. Both count war attacks only — ours, outgoing, inside the war — so
+  they are comparable with the Attacks column.
+  ⚠️ "Loss" follows the model already used by the Hit Report and the war
+  timeline: `Lost`, `Timeout`, `Interrupted`, **`Stalemate` and `Escape`**. A
+  third meaning of the word would be worse than any one of them.
+  ⚠️ A member who only assisted used to be **invisible** here: the result
+  filter ran before aggregation, so forty assists and no wins read as having
+  done nothing at all.
+
+### Changed
+- **The live Score column reads `1,606.13 (1,402.00)` under the header
+  "Score (Normalized)".** The badge said "bonus-normalized" but the table
+  showed a single number, so there was no way to tell a normalised score from a
+  raw one. The leading figure is the respect Torn reports as that member's war
+  score; the bracketed one caps each chain-bonus hit at 10 and is what payout
+  shares are computed from. Sorting stays on the bracketed figure — it is the
+  one that decides who is near a threshold.
+  A finished war is unchanged: Torn reports one whole number and it stays
+  single.
+- `LOSS_RESULTS` and `ASSIST_RESULT` are exported from
+  `warPayoutCalculations.js` and imported by `WarOverviewView`, which carried
+  its own copy of the loss list. "Loss" could have drifted between the timeline
+  and the Hit Report with nothing failing.
+  ⚠️ `WIN_RESULTS` deliberately still excludes `Special`, and now says so: every
+  payout path tests that set directly, so adding it would silently change what
+  people are paid. The timeline opts in locally instead.
+
 ## [3.144.1] - 2026-09-27
 
 ### Fixed

@@ -56,8 +56,27 @@ import { getFactionId } from './factionIdentity'
 // Torn chain milestones that inflate respect gain
 export const BONUS_HITS = new Set([10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000])
 
-// Win result types from the Torn API
+// Win result types from the Torn API.
+//
+// ⚠️ **`Special` is deliberately NOT in here.** Every payout path
+// (`calculateCutoffScores`, the race engine, `deriveWarScoresByMember`) tests
+// this set directly and must keep excluding it; the two places that DO count a
+// Special as a win opt in explicitly with `|| result === 'Special'`. Adding it
+// to the set would silently change what people are paid.
 export const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted'])
+
+/** Torn's result for helping someone else finish a target. Scores nothing. */
+export const ASSIST_RESULT = 'Assist'
+
+// Everything you spent energy on and did not win.
+//
+// ⚠️ One definition, exported, because there were two. `applyAttackToBucket`
+// spelled it out as a chain of `||` and `WarOverviewView` kept its own Set, so
+// "loss" could have drifted between the Hit Report and the war timeline
+// without anything failing. MonChoon's first instinct (2026-09-27) was the
+// narrower `Lost + Timeout + Interrupted`; the established model is these
+// five, and the columns follow the model rather than invent a third meaning.
+export const LOSS_RESULTS = new Set(['Lost', 'Timeout', 'Interrupted', 'Stalemate', 'Escape'])
 
 // Item name → price field mapping (matches war_payouts table columns)
 export const CACHE_ITEM_MAP = {
@@ -158,11 +177,11 @@ function applyAttackToBucket(bucket, attack, opponentFactionIds = null) {
   const result = attack.result || ''
   const isRankedWar = isWarAttack(attack, opponentFactionIds)
 
-  if (result === 'Assist') {
+  if (result === ASSIST_RESULT) {
     bucket.assists += 1
     if (isRankedWar) bucket.warAssists += 1
     bucket.totalHits += 1
-  } else if (result === 'Lost' || result === 'Timeout' || result === 'Interrupted' || result === 'Stalemate' || result === 'Escape') {
+  } else if (LOSS_RESULTS.has(result)) {
     bucket.losses += 1
     if (isRankedWar) bucket.warLosses += 1
     bucket.totalHits += 1

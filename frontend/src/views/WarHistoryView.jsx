@@ -9,6 +9,15 @@ import {
 import { apiPost } from '../utils/apiClient'
 import { getFactionId } from '../utils/factionIdentity'
 
+// Two decimals, thousands-separated.
+//
+// ⚠️ Live scores are summed per attack from decimal respect_gain values, so
+// 1,606.13 and 1,606.00 are different people's totals. Rounding to whole
+// numbers here would make near-identical contributions look identical, which
+// is exactly where a payout argument starts.
+const fmt2 = (n) =>
+  Number(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 // Renders a sync run record ({ status, rows_written, error, details }) as
 // the one-line result message the fetch buttons show.
 function runSummary(run, label) {
@@ -287,8 +296,14 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
       switch (contribSort.col) {
         case 'name': return d * (a.member_name || '').localeCompare(b.member_name || '')
         case 'level': return d * ((a.level || 0) - (b.level || 0))
+        // ⚠️ Sorted on the NORMALISED score, which is the bracketed number, not
+        // the leading one. It is what payout shares are computed from, so the
+        // order matches who is actually near a threshold — the reason anybody
+        // opens this table.
         case 'score': return d * (Number(a.score) - Number(b.score))
         case 'attacks': return d * ((a.attacks || 0) - (b.attacks || 0))
+        case 'assists': return d * ((a.assists || 0) - (b.assists || 0))
+        case 'losses': return d * ((a.losses || 0) - (b.losses || 0))
         default: return d * (Number(a.score) - Number(b.score))
       }
     })
@@ -549,9 +564,11 @@ function ContributionsModal({ war, result, contributions, loading, isLive, sort,
                   decoration="no-underline"
                   className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide uppercase bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300"
                 >
-                  Computed live from scraped attacks (faction_attacks). Bonus chain
-                  hits are normalised to 10 score each, matching how termed-war
-                  shares get computed. Numbers refresh on the next Fetch Attacks run.
+                  Computed live from scraped attacks (faction_attacks). Score reads
+                  as raw (normalised): the first figure is the respect Torn reports
+                  as your war score, the second caps each chain-bonus hit at 10,
+                  which is what payout shares are computed from. Assists and losses
+                  count war attacks only. Numbers refresh on the next Fetch Attacks run.
                 </InfoTooltip>
               )}
             </div>
@@ -602,8 +619,16 @@ function ContributionsModal({ war, result, contributions, loading, isLive, sort,
                 <tr className="text-left">
                   <SortHeader col="name" label="Member" />
                   <SortHeader col="level" label="Level" className="text-right" />
-                  <SortHeader col="score" label="Score" className="text-right" />
+                  {/* ⚠️ The header says what the second number IS. A bare
+                      "Score" showing two figures had people reading the
+                      bracketed one as a rank or a delta. */}
+                  <SortHeader col="score" label={isLive ? 'Score (Normalized)' : 'Score'} className="text-right" />
                   <SortHeader col="attacks" label="Attacks" className="text-right" />
+                  {/* Live only: assists and losses are derived from scraped
+                      attacks. Torn's post-war report carries neither, so for a
+                      finished war there is nothing truthful to put here. */}
+                  {isLive && <SortHeader col="assists" label="Assists" className="text-right" />}
+                  {isLive && <SortHeader col="losses" label="Losses" className="text-right" />}
                 </tr>
               </thead>
               <tbody>
@@ -612,16 +637,25 @@ function ContributionsModal({ war, result, contributions, loading, isLive, sort,
                     <td className="py-1.5 px-3 text-xs font-medium text-gray-900 dark:text-white">{c.member_name}</td>
                     <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.level ?? '—'}</td>
                     <td className="py-1.5 px-3 text-xs text-right font-mono text-gray-900 dark:text-white">
-                      {/* Live computed scores are aggregated per-attack with
-                          decimal respect_gain values, so 2dp keeps the
-                          precision visible (e.g., 223.54). Final scores from
-                          war_member_contributions are reported by Torn as
-                          whole numbers, so keep them rounded to stay tidy. */}
-                      {isLive
-                        ? Number(c.score).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                        : Math.round(Number(c.score)).toLocaleString()}
+                      {/* A finished war's score comes from Torn's own report as
+                          a whole number, so it stays single and rounded. Only
+                          the live figure is ours to decompose. */}
+                      {isLive ? (
+                        <>
+                          {fmt2(c.score_raw ?? c.score)}
+                          {' '}
+                          {/* ⚠️ Dimmed, not hidden. The bracketed figure is the
+                              one that decides payout, so it has to be visible —
+                              but the leading number is the one that matches
+                              Torn's own war report, which is what a member
+                              compares against. */}
+                          <span className="text-gray-500 dark:text-gray-400">({fmt2(c.score)})</span>
+                        </>
+                      ) : Math.round(Number(c.score)).toLocaleString()}
                     </td>
                     <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.attacks}</td>
+                    {isLive && <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.assists ?? 0}</td>}
+                    {isLive && <td className="py-1.5 px-3 text-xs text-right text-gray-600 dark:text-gray-400">{c.losses ?? 0}</td>}
                   </tr>
                 ))}
               </tbody>
