@@ -120,6 +120,41 @@ describe('captureStacksSnapshotIfDue', () => {
     expect((await stack.db.query('SELECT count(*)::int n FROM war_stacks_snapshot WHERE war_id = 900')).rows[0].n).toBe(2)
   })
 
+  it('captures who was AWAKE, and keeps "not recorded" apart from "never active"', async () => {
+    // ⚠️ war_room_state_v2 is overwritten in place on every sweep, so the
+    // capture is the ONLY moment this can be preserved. Miss it and the answer
+    // is gone for that war permanently — which is exactly why snapshots taken
+    // before these columns existed can never be backfilled.
+    const laEpoch = Math.floor(Date.now() / 1000) - 120
+    await stack.db.query(`
+      INSERT INTO members (member_id, member_name, tier, is_current, is_fallen) VALUES
+        ('19010', 'Awake',   3, true, false),
+        ('19011', 'NoState', 3, true, false)
+    `)
+    await stack.db.query(
+      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, state)
+       VALUES (19010, 1, 'Awake', $1::jsonb)`,
+      [JSON.stringify({ last_action: { timestamp: laEpoch }, status: { state: 'Okay' } })],
+    )
+    // 19011 has no war_room_state_v2 row — the ticker never saw them.
+    await seedWar(Math.floor(Date.now() / 1000) + 30)
+    await seedConfig({ matchedAgo: '2 hours' })
+
+    await captureStacksSnapshotIfDue(stack.db)
+    const rows = await stack.db.query(
+      'SELECT * FROM war_stacks_snapshot WHERE war_id = 900 ORDER BY member_id')
+    const byId = Object.fromEntries(rows.rows.map((r: any) => [String(r.member_id), r]))
+
+    // ⚠️ A NUMBER, not a string: db.ts parses int8 with `Number(v)`. Epoch
+    // seconds sit far below MAX_SAFE_INTEGER, so nothing is lost — but the
+    // consumer must not be written expecting a string.
+    expect(byId['19010']).toMatchObject({ last_action_epoch: laEpoch, status_state: 'Okay' })
+    // ⚠️ NULL, not 0. Zero is a valid epoch and would render as "active in
+    // 1970"; null is the only honest way to say we never saw them.
+    expect(byId['19011'].last_action_epoch).toBeNull()
+    expect(byId['19011'].status_state).toBeNull()
+  })
+
   it('does not flag an OD that cleared before this war was matched (permanent latch, war-scoped answer)', async () => {
     await stack.db.query(`
       INSERT INTO members (member_id, member_name, tier, is_current, is_fallen) VALUES ('19005', 'StaleOD', 3, true, false)
