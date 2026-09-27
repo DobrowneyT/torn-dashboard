@@ -15,7 +15,8 @@ import { apiGet } from '../../utils/apiClient'
 import InfoTooltip from '../InfoTooltip'
 import { rollCallLabel, rollCallTitle, formatTct } from '../../utils/rollCall'
 import {
-  SNAPSHOT_COLUMNS, sortSnapshot, idleSeconds, formatIdle, outcome, ACTIVE_WINDOW_SEC,
+  SNAPSHOT_COLUMNS, sortSnapshot, idleSeconds, formatIdle, outcome,
+  ACTIVE_WINDOW_SEC, OUTCOME_LEGEND,
 } from '../../utils/stacksSnapshot'
 
 /** One row's value for one column, as text. The CSV and the table share it. */
@@ -23,7 +24,7 @@ function cellText(row, key) {
   switch (key) {
     case 'member':   return row.member_name ?? `#${row.member_id}`
     case 'rollCall': return rollCallLabel(row)
-    case 'energy':   return row.has_reading ? `${row.energy_current}/${row.energy_maximum}` : 'unknown'
+    case 'energy':   return row.has_reading ? String(row.energy_current) : 'unknown'
     case 'od':       return row.od_flagged_prewar ? 'yes' : 'no'
     // ⚠️ "not recorded", never blank. A blank cell in a spreadsheet reads as
     // zero, which here would claim the member was active at that instant.
@@ -105,16 +106,13 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
   }
 
   const headerTip = {
-    energy: 'Energy at capture, over the member’s maximum. Sorts by how many ' +
-            'full stacks that is — 1000/150 is nearly seven, 1000/1000 is one.',
+    energy: 'Energy at capture. Every member’s maximum is the same, so it is not shown.',
     od: 'Overdosed at any point since this war was matched, not ever. ' +
         'A member who OD’d weeks ago and not since is not flagged.',
     activity: capturedTct
       ? `How long since their last action when the snapshot was taken, at ${capturedTct} TCT — within a minute of the war starting.`
       : 'How long since their last action when the snapshot was taken, within a minute of the war starting.',
-    outcome: `Said they’d be on at the start vs whether they were actually active ` +
-             `within ${Math.round(ACTIVE_WINDOW_SEC / 60)} minutes of the snapshot. ` +
-             `“Turned up” is somebody who said they could not make it and was there anyway.`,
+    outcome: null,   // listed value-by-value below — see the Outcome branch
     revised: 'They changed their roll call answer after first submitting it.',
   }
 
@@ -176,7 +174,23 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
                             aria-label={`Sort by ${col.label}`}
                             className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
                           >
-                            {headerTip[col.key] ? (
+                            {col.key === 'outcome' ? (
+                              <InfoTooltip label={col.label} decoration="no-underline">
+                                {/* ⚠️ Every value spelled out. "Turned up" vs
+                                    "As stated" is not guessable from the label,
+                                    and it is the distinction the sheet exists
+                                    to surface. */}
+                                <span className="block mb-1">
+                                  Roll call answer vs whether they were actually active within{' '}
+                                  {Math.round(ACTIVE_WINDOW_SEC / 60)} minutes of the snapshot.
+                                </span>
+                                {OUTCOME_LEGEND.map(([label, meaning]) => (
+                                  <span key={label} className="block">
+                                    <strong>{label}</strong> — {meaning}
+                                  </span>
+                                ))}
+                              </InfoTooltip>
+                            ) : headerTip[col.key] ? (
                               <InfoTooltip label={col.label} decoration="no-underline">
                                 {headerTip[col.key]}
                               </InfoTooltip>
@@ -200,7 +214,7 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
                             {rollCallLabel(r)}
                           </td>
                           <td className="py-1 pr-3 text-right tabular-nums">
-                            {r.has_reading ? `${r.energy_current}/${r.energy_maximum}` : (
+                            {r.has_reading ? r.energy_current : (
                               <InfoTooltip label="unknown" className="text-gray-400">
                                 No pooled key gave a reading.
                               </InfoTooltip>

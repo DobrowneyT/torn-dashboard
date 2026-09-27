@@ -78,6 +78,15 @@ export function wasAround(row) {
  * stored — every input is already on the row, and a stored verdict would go
  * stale the moment the thresholds were argued about.
  */
+/** What each outcome means, for the column's tooltip. One definition, not two. */
+export const OUTCOME_LEGEND = [
+  ['Showed',    'said they\u2019d be on at the start, and was'],
+  ['No-show',   'said they\u2019d be on at the start, and wasn\u2019t'],
+  ['Turned up', 'said they couldn\u2019t make it \u2014 and was there anyway'],
+  ['As stated', 'said they couldn\u2019t make it, and wasn\u2019t'],
+  ['\u2014',        'activity wasn\u2019t recorded for this war'],
+]
+
 export function outcome(row) {
   const said = rollCallState(row)          // 'here' | '1_2h' | … | 'unavailable' | 'na'
   const around = wasAround(row)
@@ -92,19 +101,26 @@ export function outcome(row) {
   return { key: 'as_said', label: 'As stated' }
 }
 
-/** Energy as a fraction of max — the "were they stacked" number, 0..n. */
-export function stackRatio(row) {
+/**
+ * Energy at capture. `null` when no pooled key answered.
+ *
+ * ⚠️ **The raw number, not a ratio of maximum.** I shipped a stack-ratio sort
+ * first, on the reasoning that 1000/150 is nearly seven stacks and 1000/1000 is
+ * one. MonChoon, 2026-09-27: *"everyone has 150e energy anyway, so it's
+ * redundant."* With a constant denominator the ratio is the raw number scaled,
+ * so it sorts identically — and costs a column of `/150` that says nothing.
+ */
+export function energyValue(row) {
   if (!row?.has_reading) return null
-  const max = Number(row.energy_maximum)
-  if (!max) return null
-  return Number(row.energy_current) / max
+  const e = Number(row.energy_current)
+  return Number.isFinite(e) ? e : null
 }
 
 /** Every column, with how it sorts. Shared by the table and the CSV so the two cannot drift. */
 export const SNAPSHOT_COLUMNS = [
   { key: 'member',   label: 'Member',    align: 'left',  sort: (r) => (r.member_name || '').toLowerCase() },
   { key: 'rollCall', label: 'Roll call', align: 'left',  sort: (r) => rollCallLabel(r) },
-  { key: 'energy',   label: 'Energy',    align: 'right', sort: (r) => stackRatio(r) },
+  { key: 'energy',   label: 'Energy',    align: 'right', sort: (r) => energyValue(r) },
   { key: 'od',       label: 'OD',        align: 'left',  sort: (r) => (r.od_flagged_prewar ? 1 : 0) },
   { key: 'activity', label: 'LA',        align: 'right', sort: (r) => idleRank(r) },
   { key: 'outcome',  label: 'Outcome',   align: 'left',  sort: (r) => outcome(r).label },

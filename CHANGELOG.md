@@ -36,8 +36,7 @@ surface it automatically.
   the same label as somebody who merely did as promised throws that away.
 - **Every column sorts**, with the conventions the recent tables settled on:
   null sinks in both directions, name breaks every tie in a fixed direction,
-  and energy ranks by STACK RATIO (1000/150 is nearly seven stacks; 1000/1000
-  is one — as text they sort adjacent).
+  and energy sorts numerically (as text, "1000" comes before "750").
 
 ### Changed
 - **The CSV and the table are now generated from one column list**, so the
@@ -51,6 +50,13 @@ surface it automatically.
   revision it is. One **Roll call** column now uses the #793 labels.
 - `OD before war` is now `OD`, with the scope in a tooltip instead of the
   header: overdosed since this war was MATCHED, not ever.
+- Energy shows a single number (`750`), not `750/150`. Every member's maximum
+  is the same, so the denominator was a column of noise — and with a constant
+  denominator a stack-ratio sort is the raw number scaled, which sorts
+  identically anyway.
+- The Outcome header tooltip spells out all five values. "Turned up" versus
+  "As stated" is not guessable from the labels, and it is the distinction the
+  sheet exists to surface.
 
 ### Notes
 - Filed #803 to audit every table for sortability, rather than keep retrofitting

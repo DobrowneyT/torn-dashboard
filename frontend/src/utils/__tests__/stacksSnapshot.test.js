@@ -1,7 +1,7 @@
 // The post-mortem sheet's column model (#480 reshape, MonChoon 2026-09-27).
 import { describe, it, expect } from 'vitest'
 import {
-  idleSeconds, formatIdle, wasAround, outcome, stackRatio,
+  idleSeconds, formatIdle, wasAround, outcome, energyValue, OUTCOME_LEGEND,
   sortSnapshot, SNAPSHOT_COLUMNS, ACTIVE_WINDOW_SEC,
 } from '../stacksSnapshot'
 
@@ -80,15 +80,43 @@ describe('outcome — the reason the sheet exists', () => {
 })
 
 describe('energy', () => {
-  it('ranks by how stacked they were, not by raw energy', () => {
-    // ⚠️ 1000/1000 is a full stack; 1000/150 is nearly seven. Sorting on the
-    // raw number calls them equal, which is the opposite of the truth.
-    expect(stackRatio(row({ energy_current: 1000, energy_maximum: 150 })))
-      .toBeGreaterThan(stackRatio(row({ energy_current: 1000, energy_maximum: 1000 })))
+  it('is the raw number, not a ratio of maximum', () => {
+    // ⚠️ A stack-ratio sort shipped first, on the reasoning that 1000/150 is
+    // nearly seven stacks and 1000/1000 is one. MonChoon: everybody's maximum
+    // is 150, so with a constant denominator the ratio is the raw number
+    // scaled — it sorts identically and costs a column of "/150" saying
+    // nothing.
+    expect(energyValue(row({ energy_current: 750, energy_maximum: 150 }))).toBe(750)
+  })
+
+  it('sorts numerically, not as text', () => {
+    // ⚠️ As strings, "1000" sorts before "750".
+    const rows = [row({ member_id: 1, member_name: 'A', energy_current: 750 }),
+                  row({ member_id: 2, member_name: 'B', energy_current: 1000 })]
+    expect(sortSnapshot(rows, 'energy', 1).map(r => r.energy_current)).toEqual([750, 1000])
   })
 
   it('is null when no pooled key answered', () => {
-    expect(stackRatio(row({ has_reading: false }))).toBeNull()
+    // ⚠️ Not zero — "we could not read it" and "they had none" are different
+    // claims, and zero would sort them in among the genuinely empty.
+    expect(energyValue(row({ has_reading: false }))).toBeNull()
+  })
+})
+
+describe('the outcome legend', () => {
+  it('explains every verdict the column can show', () => {
+    // ⚠️ The tooltip is generated from this list, so a verdict added to
+    // `outcome()` without a line here would render with no explanation.
+    const labels = new Set(OUTCOME_LEGEND.map(([l]) => l))
+    const capturedSecLocal = Math.floor(Date.parse(CAPTURED) / 1000)
+    const produced = [
+      outcome(row()),
+      outcome(row({ last_action_epoch: capturedSecLocal - 86_400 })),
+      outcome(row({ on_at_start: false, availability: '6_plus' })),
+      outcome(row({ on_at_start: false, availability: '6_plus', last_action_epoch: capturedSecLocal - 86_400 })),
+      outcome(row({ last_action_epoch: null })),
+    ]
+    for (const o of produced) expect(labels).toContain(o.label)
   })
 })
 
