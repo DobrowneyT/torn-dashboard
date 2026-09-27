@@ -42,6 +42,79 @@ while the rest 401 forever.
 ⚠️ **Absent token = unregistered route**, not an open one. A tenant you have not
 provisioned exposes nothing.
 
+## Instant redraws in production
+
+Without this a board updates on the bot's poll interval — up to five minutes
+after somebody signs up. Staging has pushed instantly since #785; production
+never did, because its per-faction services live in
+`deploy/docker-compose.override.yml`, which is generated on the box and is not
+in the repo.
+
+```bash
+node db/chain-notify-wire.mjs                # show what would change
+node db/chain-notify-wire.mjs --write forge  # apply it (writes a backup)
+```
+
+Then, in `deploy/.env`:
+
+```
+CHAIN_NOTIFY_DIR=/home/ubuntu/torn/run/chain-notify
+```
+
+...and restart the services it named. That directory is where the **bot**
+creates its socket, and the bot has to be able to write there.
+
+⚠️ **One variable.** `CHAIN_NOTIFY_SOCKET` is derived from `CHAIN_NOTIFY_DIR`
+with compose's `:+`, so it cannot be set without something being mounted at it.
+A socket address pointing at nothing fails on every sign-up, silently, inside a
+fire-and-forget POST that swallows its own errors.
+
+⚠️ **The directory is mounted, never the socket file.** The bot creates and
+deletes the socket; bind-mounting the file leaves the container holding the old
+inode — a push that silently stops working after a bot restart.
+
+⚠️ **Optional on both ends.** No `CHAIN_NOTIFY_DIR`, or a bot that is not
+listening, means the board updates on its poll interval as it always has.
+Factions created by `db/new-faction.mjs` are born wired, so nothing has to be
+remembered later.
+
+## Which dashboard a faction actually reads
+
+A slug is a **label on the bot side**. It picks which `CHAIN_WATCH_TOKEN_<SLUG>`
+is sent; the host in `base_url` is what decides whose data comes back. A tenant
+called `forge` pointed at `https://dev.monchoon.me` reads **staging**, and
+nothing about the board says so.
+
+`/chain tenant list` prints each faction's URL. Check it when numbers look
+wrong before looking anywhere else.
+
+To run staging and production side by side, give them different slugs — `forge`
+→ `https://forge.monchoon.me` and `dev` → `https://dev.monchoon.me` — and set
+`CHAIN_WATCH_TOKEN_FORGE` and `CHAIN_WATCH_TOKEN_DEV` from the matching box.
+⚠️ The two tokens are **not interchangeable**: each is derived from its own
+stack's `FLEET_METRICS_SECRET`.
+
+## What the bot needs in Discord
+
+Per channel or thread it posts in:
+
+| Permission | Why |
+| --- | --- |
+| View Channel | Without it the bot cannot see the channel at all — Discord answers `50001 Missing Access` |
+| Send Messages | Posting the board and pings in a normal channel |
+| Send Messages in Threads | The same, in a **thread**. A different bit; a role can hold one without the other |
+| Embed Links | The board is an embed. Without this it posts nothing |
+| Read Message History | Finding its own board to edit, and tidying up |
+| Manage Threads | Un-archiving a quiet thread before writing |
+
+⚠️ **For a thread, set these on the parent channel.** Threads inherit, and
+there is usually nothing to fix on the thread itself.
+
+⚠️ **A slash command still reaches the bot in a channel it cannot see** — only
+the *user* needs Use Application Commands. `/chain channel` therefore checks
+`app_permissions` and refuses rather than accepting a channel it could never
+write to.
+
 ## Giving it to the bot
 
 Out of band — the bot's own environment, one entry per faction it serves.
