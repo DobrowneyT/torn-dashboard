@@ -18,6 +18,47 @@ surface it automatically.
 
 ---
 
+## [3.144.0] - 2026-09-27
+
+### Added
+- Chain Watch's push-a-redraw socket can now be wired into the **production**
+  fleet. Staging has pushed instantly since #785; production never did, because
+  its per-faction services live in a `docker-compose.override.yml` generated on
+  the box that nothing in the repo could reach — so a faction pointed at its
+  real dashboard silently fell back to the five-minute poll, and a board that is
+  merely late is not something anybody reports.
+  `node db/chain-notify-wire.mjs --write <slug>` adds it to existing services
+  (with a backup); `db/new-faction.mjs` now writes it for new ones.
+  ⚠️ `CHAIN_NOTIFY_SOCKET` is derived from `CHAIN_NOTIFY_DIR` with compose's
+  `:+`, so one variable turns it on and a socket path can never be set with
+  nothing mounted at it. Unset, every tenant behaves exactly as it does today.
+
+### Changed
+- The Chain Watch runbook gains the production path, the permissions the bot
+  needs in Discord (including that a **thread** needs Send Messages in Threads
+  rather than Send Messages, and that both are set on the parent channel), and
+  a section on which dashboard a slug actually reads — a bot tenant named
+  `forge` pointed at `dev.monchoon.me` reads staging, and nothing on the board
+  says so.
+
+## [3.143.1] - 2026-09-26
+
+### Fixed
+- **Chain Watch: the projection's hit rate is served as `hits_per_hour` (#785).**
+  ⚠️ `projectChain` returns `hitsPerHour` because it is internal TypeScript, and
+  letting that through made the projection the **one camelCase key** in an
+  otherwise snake_case payload. The Discord bot read `hits_per_hour`, the board
+  raised `KeyError`, and — because the board is drawn before the pings — the
+  whole tick aborted and nobody was told their shift had started.
+  - ⚠️ **It worked for days first.** An unmeasurable projection never touches
+    that field, so the crash only arrived once the chain had 24 hours of
+    history and the band became computable.
+  - `hitsPerHour` is still emitted alongside it, so a bot deployed before this
+    fix and one deployed after both keep working.
+  - ⚠️ A new test walks the whole payload and fails on **any** camelCase key. A
+    field only one side of the contract can read shows up as a crash days
+    later, not as a failing test.
+
 ## [3.143.0] - 2026-09-26
 
 ### Added

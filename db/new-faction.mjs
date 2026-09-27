@@ -223,6 +223,21 @@ const serviceBlock = `
       # secret and derives what it needs. Regenerate with
       # \`node db/fleet-metrics-token.mjs ${slug}\`.
       FLEET_METRICS_TOKEN: ${fleetMetricsToken}
+      # ⚠️ Push a redraw to the Chain Watch Discord bot when a sign-up changes,
+      # over a bind-mounted unix socket. A container cannot reach the host's
+      # 127.0.0.1, and binding 0.0.0.0 would put a control channel for a process
+      # holding a Discord token on the public internet.
+      #
+      # ⚠️ Derived from \${CHAIN_NOTIFY_DIR} with :+ so ONE variable turns it on.
+      # Unset — the normal case — means the board updates on the bot's poll
+      # interval, exactly as a fleet with no bot at all behaves. Wire an EXISTING
+      # faction with \`node db/chain-notify-wire.mjs --write <slug>\`.
+      CHAIN_NOTIFY_SOCKET: \${CHAIN_NOTIFY_DIR:+/run/chain-notify/notify.sock}
+    volumes:
+      # The DIRECTORY, not the socket: the bot creates and deletes the file, and
+      # a bind mount of a file that is replaced leaves the container holding the
+      # old inode — a push that stops working after a bot restart.
+      - \${CHAIN_NOTIFY_DIR:-/tmp/chain-notify-unused}:/run/chain-notify
     depends_on:
       postgres:
         condition: service_healthy
