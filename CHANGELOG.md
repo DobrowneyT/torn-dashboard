@@ -18,6 +18,27 @@ surface it automatically.
 
 ---
 
+## [3.144.1] - 2026-09-27
+
+### Fixed
+- ⚠️ **The `activity-sample` scraper threw `RangeError: Invalid time value` on
+  every run once it had latched its first departure**, so Chain Watch stopped
+  recording who was around and who was in the air — 477 consecutive failures on
+  staging over two days, and nothing in the UI said so.
+  `src/db.ts` installs a process-wide `setTypeParser` for timestamptz, so the
+  column arrives as `2026-09-25T00:25:41.074+00` — a bare two-digit offset,
+  which is not ISO-8601. `new Date()` rejects it, `.getTime()` yields NaN,
+  `NaN == null` is false, and the NaN reaches `new Date(NaN).toISOString()`,
+  which throws. Both timestamps are now converted to epoch milliseconds **by
+  Postgres**, the way the same query already handled `sampled_at`.
+  ⚠️ `globalDb.ts` carries a comment warning about this exact trap; this is the
+  second time it has been walked into, so the rule is now "format in SQL", with
+  no exceptions.
+  ⚠️ The write is also guarded with `Number.isFinite` rather than `!= null`.
+  Every member goes in ONE insert, so a single unrenderable value does not
+  spoil one row — it throws and loses the whole roster's sample. That is what
+  turned one member's timestamp into two days of nothing for 94 people.
+
 ## [3.144.0] - 2026-09-27
 
 ### Added
