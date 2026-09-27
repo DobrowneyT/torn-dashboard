@@ -151,6 +151,25 @@ function travelViewFor(row: {
  * Exported so it can be tested without standing up auth, and so the shape has
  * exactly one author.
  */
+/**
+ * `projectChain`'s result with snake_case keys, matching the rest of the payload.
+ *
+ * ⚠️ Both spellings are emitted for `hits_per_hour`. A bot deployed before this
+ * fix reads `hitsPerHour`; one deployed after reads `hits_per_hour`. Sending
+ * both means neither version breaks on the other, and the duplicate costs a
+ * handful of bytes on a poll that already carries a roster.
+ */
+export function snakeProjection(p: ReturnType<typeof projectChain>) {
+  const rate = p.hitsPerHour
+  return {
+    ...p,
+    hits_per_hour: rate,
+    ...(p.measured
+      ? { remaining: p.remaining, window_hours: p.windowHours }
+      : {}),
+  }
+}
+
 export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now()) {
   const memberView = (r: { member_id: string; member_name: string }): MemberView =>
     ({ member_id: r.member_id, name: r.member_name })
@@ -305,9 +324,15 @@ export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now())
     // `measured: false` and its reason. An eleven-day projection stated to the
     // hour is false precision somebody will plan around, so the bot is handed
     // the uncertainty rather than a number it would render as fact.
-    projection: projectChain(
+    //
+    // ⚠️ **snake_case, like every other key in this payload.** `projectChain`
+    // returns `hitsPerHour` because it is internal TypeScript; letting that
+    // through made the projection the ONE camelCase field here, the bot read
+    // `hits_per_hour`, and the board raised KeyError — but only once the chain
+    // had enough history to be measurable, so it worked for days first.
+    projection: snakeProjection(projectChain(
       readings.map((r): ChainReading => ({ chain: Number(r.chain), at: Number(r.at) })),
-      nowMs),
+      nowMs)),
     gap_horizon_hours: GAP_HORIZON_HOURS,
     hours,
     members: roster.map(memberView),

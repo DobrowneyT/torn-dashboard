@@ -354,6 +354,47 @@ describe('projection', () => {
     expect(body.projection.measured).toBe(false)
     expect(typeof body.projection.reason).toBe('string')
   })
+
+  it('⚠️ serves the hit rate under a snake_case key, like every other field', async () => {
+    // Live failure: projectChain returns `hitsPerHour` because it is internal
+    // TypeScript, and letting that through made the projection the ONE
+    // camelCase key in this payload. The bot read `hits_per_hour` and the board
+    // raised KeyError — but only once the chain had 24h of history and the
+    // projection became measurable, so it worked for days first.
+    await makeEvent()
+    const { body } = await get(TOKEN)
+    expect(body.projection).toHaveProperty('hits_per_hour')
+  })
+
+  it('⚠️ keeps the camelCase spelling too, for bots deployed before the fix', async () => {
+    // Neither version of the bot breaks on the other. The duplicate costs a
+    // handful of bytes on a poll that already carries a whole roster.
+    await makeEvent()
+    const { body } = await get(TOKEN)
+    expect(body.projection).toHaveProperty('hitsPerHour')
+    expect(body.projection.hits_per_hour).toBe(body.projection.hitsPerHour)
+  })
+
+  it('⚠️ every key the payload exposes is snake_case', async () => {
+    // The guard that keeps this honest. A camelCase key here means a field
+    // that only one side of the contract can read, and the symptom is a
+    // KeyError days later rather than a failing test now.
+    await makeEvent()
+    const { body } = await get(TOKEN)
+    const camel = /[a-z][A-Z]/
+    const offenders = []
+    const walk = (obj, path) => {
+      if (obj === null || typeof obj !== 'object') return
+      for (const [k, v] of Object.entries(obj)) {
+        // hitsPerHour is the deliberate back-compat duplicate above.
+        if (camel.test(k) && k !== 'hitsPerHour') offenders.push(`${path}.${k}`)
+        if (Array.isArray(v)) v.slice(0, 2).forEach((e, i) => walk(e, `${path}.${k}[${i}]`))
+        else walk(v, `${path}.${k}`)
+      }
+    }
+    walk(body, 'payload')
+    expect(offenders).toEqual([])
+  })
 })
 
 describe('collectChainWatch', () => {

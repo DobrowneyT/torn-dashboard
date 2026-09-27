@@ -18,6 +18,24 @@ surface it automatically.
 
 ---
 
+## [3.143.1] - 2026-09-26
+
+### Fixed
+- **Chain Watch: the projection's hit rate is served as `hits_per_hour` (#785).**
+  ⚠️ `projectChain` returns `hitsPerHour` because it is internal TypeScript, and
+  letting that through made the projection the **one camelCase key** in an
+  otherwise snake_case payload. The Discord bot read `hits_per_hour`, the board
+  raised `KeyError`, and — because the board is drawn before the pings — the
+  whole tick aborted and nobody was told their shift had started.
+  - ⚠️ **It worked for days first.** An unmeasurable projection never touches
+    that field, so the crash only arrived once the chain had 24 hours of
+    history and the band became computable.
+  - `hitsPerHour` is still emitted alongside it, so a bot deployed before this
+    fix and one deployed after both keep working.
+  - ⚠️ A new test walks the whole payload and fails on **any** camelCase key. A
+    field only one side of the contract can read shows up as a crash days
+    later, not as a failing test.
+
 ## [3.143.0] - 2026-09-26
 
 ### Added
