@@ -18,6 +18,29 @@ surface it automatically.
 
 ---
 
+## [3.144.0] - 2026-09-27
+
+### Added
+- Chain Watch's push-a-redraw socket can now be wired into the **production**
+  fleet. Staging has pushed instantly since #785; production never did, because
+  its per-faction services live in a `docker-compose.override.yml` generated on
+  the box that nothing in the repo could reach — so a faction pointed at its
+  real dashboard silently fell back to the five-minute poll, and a board that is
+  merely late is not something anybody reports.
+  `node db/chain-notify-wire.mjs --write <slug>` adds it to existing services
+  (with a backup); `db/new-faction.mjs` now writes it for new ones.
+  ⚠️ `CHAIN_NOTIFY_SOCKET` is derived from `CHAIN_NOTIFY_DIR` with compose's
+  `:+`, so one variable turns it on and a socket path can never be set with
+  nothing mounted at it. Unset, every tenant behaves exactly as it does today.
+
+### Changed
+- The Chain Watch runbook gains the production path, the permissions the bot
+  needs in Discord (including that a **thread** needs Send Messages in Threads
+  rather than Send Messages, and that both are set on the parent channel), and
+  a section on which dashboard a slug actually reads — a bot tenant named
+  `forge` pointed at `dev.monchoon.me` reads staging, and nothing on the board
+  says so.
+
 ## [3.143.1] - 2026-09-26
 
 ### Fixed

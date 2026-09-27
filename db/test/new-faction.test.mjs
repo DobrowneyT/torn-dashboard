@@ -194,6 +194,16 @@ describe('new-faction script', () => {
       expect(override).not.toContain('SCRAPERS_ENABLED')
       // Operational safety net (#76): auto-restart on crash + a container
       // healthcheck hitting the liveness probe, so `docker ps` shows health.
+      // ⚠️ Chain Watch's push socket, born wired. It is a no-op without
+      // CHAIN_NOTIFY_DIR, and the alternative is that every faction added
+      // later silently falls back to the five-minute poll while the ones
+      // wired by hand push instantly — with nothing saying which is which.
+      expect(override).toContain('CHAIN_NOTIFY_SOCKET: ${CHAIN_NOTIFY_DIR:+/run/chain-notify/notify.sock}')
+      expect(override).toContain('- ${CHAIN_NOTIFY_DIR:-/tmp/chain-notify-unused}:/run/chain-notify')
+      // ⚠️ Never required. A `:?` here stops a tenant that has nothing to do
+      // with Chain Watch from starting at all.
+      expect(override).not.toContain('CHAIN_NOTIFY_DIR:?')
+
       expect(override).toContain('restart: unless-stopped')
       expect(override).toContain('healthcheck:')
       expect(override).toContain('/api/health')
