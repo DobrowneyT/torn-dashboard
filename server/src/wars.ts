@@ -112,6 +112,7 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
     const res = await db.query(
       `SELECT s.member_id, s.member_name, s.energy_current, s.energy_maximum,
               s.has_reading, s.od_flagged_prewar, s.captured_at,
+              s.last_action_epoch, s.status_state,
               rc.on_at_start, rc.can_self_hospital, rc.needs_merc, rc.availability,
               rc.revised, rc.submitted_at AS roll_call_submitted_at
          FROM war_stacks_snapshot s

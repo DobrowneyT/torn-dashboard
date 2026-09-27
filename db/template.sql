@@ -882,6 +882,16 @@ CREATE TABLE public.war_stacks_snapshot (
   -- "OD'd since this war was matched", not "OD'd ever".
   od_flagged_prewar boolean NOT NULL,
   captured_at timestamp with time zone NOT NULL,
+  -- Who was actually AWAKE at capture, from war_room_state_v2 (the ticker's
+  -- own sweep — Chain Watch's sampler is a separate feature with its own
+  -- table, deliberately not shared).
+  --
+  -- ⚠️ NULLABLE, and it must stay that way: war_room_state_v2 is overwritten
+  -- in place every sweep, so a snapshot taken before these columns existed can
+  -- NEVER be backfilled. NULL means "not recorded", which is a different claim
+  -- from "never active" — the UI has to render the two differently.
+  last_action_epoch bigint,
+  status_state text,
   PRIMARY KEY (war_id, member_id)
 );
 

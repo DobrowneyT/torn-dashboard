@@ -18,6 +18,43 @@ surface it automatically.
 
 ---
 
+## [3.146.0] - 2026-09-27
+
+### Added
+- **The pre-war stacks sheet now records who was actually AWAKE**
+  (`last_action_epoch`, `status_state`), read from `war_room_state_v2` at
+  capture — no new Torn call, and nothing borrowed from Chain Watch's sampler,
+  which stays a separate feature with its own table.
+  ⚠️ **Not backfillable.** `war_room_state_v2` is overwritten in place every
+  sweep, so wars whose snapshot is already taken can never gain this. The
+  section says so once, at the top, rather than showing a column of dashes that
+  would read as "nobody was online".
+- **An Outcome column** — the reason the sheet exists. Showed / No-show /
+  Turned up / As stated, derived from the roll call answer against actual
+  activity. ⚠️ "Turned up" is called out separately: somebody who said they
+  could not make it and was there anyway is worth seeing, and filing them under
+  the same label as somebody who merely did as promised throws that away.
+- **Every column sorts**, with the conventions the recent tables settled on:
+  null sinks in both directions, name breaks every tie in a fixed direction,
+  and energy ranks by STACK RATIO (1000/150 is nearly seven stacks; 1000/1000
+  is one — as text they sort adjacent).
+
+### Changed
+- **The CSV and the table are now generated from one column list**, so the
+  sheet you download cannot disagree with the one you are looking at. That
+  drift is why the CSV had eight columns and the table five.
+- Three columns removed: `Reading` (the Energy cell's own caveat, already shown
+  there as "unknown"), `Max Energy` (never read alone — the cell shows
+  `795/150`), and `Said online`. ⚠️ `Said online` and `Availability` were the
+  same statement twice: "yes" and "on_time" meant one thing, and a row could
+  show `no` + `on_time`, which reads as a contradiction rather than as the
+  revision it is. One **Roll call** column now uses the #793 labels.
+- `OD before war` is now `OD`, with the scope in a tooltip instead of the
+  header: overdosed since this war was MATCHED, not ever.
+
+### Notes
+- Filed #803 to audit every table for sortability, rather than keep retrofitting
+  one at a time (#793, #794 and this were each found by somebody hitting them).
 ## [3.145.0] - 2026-09-27
 
 ### Added
