@@ -14,6 +14,7 @@ import { ChevronRight, Download } from 'lucide-react'
 import { apiGet } from '../../utils/apiClient'
 import InfoTooltip from '../InfoTooltip'
 import { rollCallLabel, rollCallTitle, formatTct } from '../../utils/rollCall'
+import { parseDbTime } from '../../utils/time'
 import {
   SNAPSHOT_COLUMNS, sortSnapshot, idleSeconds, formatIdle, outcome,
   ACTIVE_WINDOW_SEC, OUTCOME_LEGEND,
@@ -78,9 +79,10 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
 
   // When the readings were taken. The capture window is the last 60s before
   // the war starts, so this doubles as "at war start" for a reader.
-  const capturedAt = rows?.[0]?.captured_at ?? null
-  const capturedSec = capturedAt ? Math.floor(Date.parse(capturedAt) / 1000) : null
-  const capturedTct = Number.isFinite(capturedSec) ? formatTct(capturedSec) : null
+  // ⚠️ `parseDbTime`, never `Date.parse` — see idleSeconds. A null here just
+  // drops the time from the tooltip, which is the right degradation.
+  const capturedDate = parseDbTime(rows?.[0]?.captured_at)
+  const capturedTct = capturedDate ? formatTct(Math.floor(capturedDate.getTime() / 1000)) : null
   const anyActivity = (rows ?? []).some(r => r.last_action_epoch)
 
   function onSort(key) {

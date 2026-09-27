@@ -36,11 +36,19 @@ describe('idle time', () => {
     expect(idleSeconds(row({ last_action_epoch: capturedSec + 30 }))).toBe(0)
   })
 
-  it('⚠️ survives a captured_at Postgres offset that Date.parse rejects', () => {
+  it('⚠️ parses the Postgres offset Date.parse rejects, rather than falling back', () => {
     // `2026-09-26 18:00:00+00` — the bare two-digit offset that took the chain
-    // sampler down for two days. It must fall back, not emit NaN.
-    const s = idleSeconds(row({ captured_at: '2026-09-26 18:00:00+00' }))
-    expect(Number.isFinite(s)).toBe(true)
+    // sampler down for two days. parseDbTime widens it to `+00:00`, so the
+    // answer is the RIGHT number, not a survivable one.
+    expect(idleSeconds(row({ captured_at: '2026-09-26 18:00:00+00' }))).toBe(120)
+  })
+
+  it('⚠️ reports null, not "now", when captured_at cannot be parsed at all', () => {
+    // My first version fell back to Date.now(). On a sheet read weeks later
+    // that makes every member look freshly active — a confident wrong answer
+    // instead of a missing one.
+    expect(idleSeconds(row({ captured_at: 'not a timestamp' }))).toBeNull()
+    expect(idleSeconds(row({ captured_at: null }))).toBeNull()
   })
 
   it('formats compactly at every scale', () => {

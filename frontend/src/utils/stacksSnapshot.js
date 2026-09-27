@@ -18,6 +18,7 @@
 //     statement in two columns, and a row could show `no` + `on_time`, which
 //     reads as a contradiction rather than as the revision it is.
 import { rollCallLabel, rollCallState } from './rollCall'
+import { parseDbTime } from './time'
 
 /** Seconds of inactivity below which somebody was, in any useful sense, there. */
 export const ACTIVE_WINDOW_SEC = 15 * 60
@@ -32,13 +33,19 @@ export const ACTIVE_WINDOW_SEC = 15 * 60
 export function idleSeconds(row) {
   const la = Number(row?.last_action_epoch)
   if (!la) return null
-  const captured = row?.captured_at ? Date.parse(row.captured_at) : NaN
-  // ⚠️ `captured_at` crosses the wire as a Postgres timestamptz string with a
-  // bare two-digit offset, which `Date.parse` rejects outright — the same trap
-  // that took the chain sampler down for two days. Fall back to "now" rather
-  // than emitting NaN, and never let it reach a formatter.
-  const base = Number.isFinite(captured) ? captured : Date.now()
-  const seconds = Math.floor(base / 1000) - la
+  // ⚠️ `parseDbTime`, never `Date.parse`. `captured_at` arrives as a Postgres
+  // timestamptz with a bare two-digit offset (`...+00`) that the built-in
+  // parser rejects outright — the same trap that took the chain sampler down
+  // for two days, and the repo has a test forbidding the raw call.
+  //
+  // ⚠️ I first hand-rolled a fallback to `Date.now()` here. That is WORSE than
+  // the NaN it was avoiding: on a sheet read weeks later it would have made
+  // every member look freshly active, which is a confident wrong answer rather
+  // than a missing one. Unparseable is `null` — "not recorded" — like every
+  // other absent reading on this sheet.
+  const captured = parseDbTime(row?.captured_at)
+  if (!captured) return null
+  const seconds = Math.floor(captured.getTime() / 1000) - la
   return seconds >= 0 ? seconds : 0
 }
 
