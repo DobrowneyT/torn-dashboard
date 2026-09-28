@@ -384,6 +384,82 @@ describe('a week with no matched war (#weeks off)', () => {
     expect(await CONFIG()).toEqual(before)
   })
 
+  // ── live scores, from the call this job already makes ──────────────────────
+  //
+  // ⚠️ `attacks-sync` does not touch ranked_wars scores, and `wars-sync` runs
+  // every THREE HOURS — so a live war's Our/Their Score sat hours stale behind
+  // attack rows that were two minutes old. Refreshing the page did not help,
+  // because the staleness was in the DB.
+
+  it('writes a live war\'s scores from the rankedwars payload', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, our_score, opponent_score)
+       VALUES (910, $1, NULL, $2, 100, 200)
+       ON CONFLICT (id) DO UPDATE SET our_score = 100, opponent_score = 200, end_at = NULL`,
+      [now - 3600, ENEMY])
+    stack.torn.setHandler(`/v2/faction/${US}/rankedwars`, () => ({
+      rankedwars: [{ id: 910, start: now - 3600, end: 0, target: 5000,
+        factions: [{ id: US, score: 32681 }, { id: ENEMY, score: 34576 }] }],
+    }))
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    await warLifecycleJob(deps())
+
+    const r = await stack.db.query('SELECT our_score, opponent_score FROM ranked_wars WHERE id = 910')
+    expect(r.rows[0]).toMatchObject({ our_score: 32681, opponent_score: 34576 })
+  })
+
+  it('⚠️ never overwrites a FINISHED war\'s score', async () => {
+    // A finished war's score is settled by `rankedwarreport` in wars-sync,
+    // which is authoritative. The list endpoint must not undo that correction.
+    const now = Math.floor(Date.now() / 1000)
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, our_score, opponent_score)
+       VALUES (911, $1, $2, $3, 55555, 44444)
+       ON CONFLICT (id) DO UPDATE SET our_score = 55555, opponent_score = 44444, end_at = $2`,
+      [now - 7200, now - 3600, ENEMY])
+    stack.torn.setHandler(`/v2/faction/${US}/rankedwars`, () => ({
+      rankedwars: [{ id: 911, start: now - 7200, end: now - 3600,
+        factions: [{ id: US, score: 1 }, { id: ENEMY, score: 2 }] }],
+    }))
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    await warLifecycleJob(deps())
+
+    const r = await stack.db.query('SELECT our_score, opponent_score FROM ranked_wars WHERE id = 911')
+    expect(r.rows[0]).toMatchObject({ our_score: 55555, opponent_score: 44444 })
+  })
+
+  it('⚠️ will not clobber a score when the DB already knows the war ended', async () => {
+    // The race the SQL guard exists for, which the JS filter cannot cover:
+    // Torn's LIST endpoint still reports the war as live (`end: 0`) while
+    // `rankedwarreport` has already settled the final score into the row. The
+    // payload looks live, the row is finished, and the authoritative number
+    // must win.
+    //
+    // ⚠️ Written after a mutation test: removing `AND (end_at IS NULL OR
+    // end_at = 0)` from the UPDATE left every test passing, because the JS
+    // `continue` above already skipped the ordinary finished-war case. The
+    // guard was real but unpinned.
+    const now = Math.floor(Date.now() / 1000)
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, our_score, opponent_score)
+       VALUES (912, $1, $2, $3, 77777, 66666)
+       ON CONFLICT (id) DO UPDATE SET our_score = 77777, opponent_score = 66666, end_at = $2`,
+      [now - 7200, now - 60, ENEMY])
+    stack.torn.setHandler(`/v2/faction/${US}/rankedwars`, () => ({
+      rankedwars: [{ id: 912, start: now - 7200, end: 0,          // list says LIVE
+        factions: [{ id: US, score: 3 }, { id: ENEMY, score: 4 }] }],
+    }))
+
+    const { warLifecycleJob } = await import('../src/scraper/jobs/warLifecycle.js')
+    await warLifecycleJob(deps())
+
+    const r = await stack.db.query('SELECT our_score, opponent_score FROM ranked_wars WHERE id = 912')
+    expect(r.rows[0]).toMatchObject({ our_score: 77777, opponent_score: 66666 })
+  })
+
   it('⚠️ survives a response with no rankedwars key at all', async () => {
     // "or something" — an error body, a shape change, a truncated response.
     // `data.rankedwars ?? []` is what carries this, and it is one edit away

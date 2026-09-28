@@ -45,6 +45,44 @@ export async function warLifecycleJob(deps: JobDeps): Promise<RunResult> {
   const actions: string[] = []
   let rows = 0
 
+  // ── Live scores, every 3 minutes, for ZERO extra Torn calls ──────────────
+  //
+  // ⚠️ **`attacks-sync` does not touch `ranked_wars` scores.** Nothing in the
+  // scheduled fleet refreshed them except `wars-sync`, which runs every THREE
+  // HOURS — so a live war's Our/Their Score sat hours stale while the attack
+  // rows behind it were two minutes old. The only thing that fixed it was the
+  // RW History "Fetch Attacks" button, which quietly runs `wars-sync` after the
+  // attacks scrape for exactly this reason. Running the attacks job from Global
+  // Admin did not, and no amount of refreshing the page helped, because the
+  // staleness was in the DB rather than the browser. (MonChoon, 2026-09-28.)
+  //
+  // ⚠️ This job ALREADY fetched `/rankedwars` above and threw the scores away,
+  // so writing them costs nothing — no extra call, no extra key claim.
+  //
+  // ⚠️ **Live wars only.** A finished war's score is settled by
+  // `rankedwarreport` in wars-sync, which is authoritative; overwriting it from
+  // the list endpoint would undo a correction. The `end_at` guard in SQL is
+  // what keeps that true even if a war ends between the fetch and the write.
+  for (const w of wars) {
+    if (!(w.start ?? 0) || (w.end ?? 0)) continue
+    const factions: any[] = w.factions ?? []
+    const ourF = factions.find((f: any) => Number(f.id) === us)
+    const oppF = factions.find((f: any) => Number(f.id) !== us)
+    if (!ourF && !oppF) continue
+    const upd = await db.query(
+      `UPDATE ranked_wars
+          SET our_score = $2, opponent_score = $3, updated_at = now()
+        WHERE id = $1
+          AND (end_at IS NULL OR end_at = 0)
+          AND (our_score IS DISTINCT FROM $2 OR opponent_score IS DISTINCT FROM $3)`,
+      [w.id, ourF?.score ?? 0, oppF?.score ?? 0]
+    )
+    if (upd.rowCount) {
+      rows += upd.rowCount
+      actions.push(`live-score ${w.id}: ${ourF?.score ?? 0}-${oppF?.score ?? 0}`)
+    }
+  }
+
   // Upcoming/active war = has a start, no end yet. Pick the soonest.
   const upcoming = wars
     .filter((w) => (w.start ?? 0) > 0 && !(w.end ?? 0))
