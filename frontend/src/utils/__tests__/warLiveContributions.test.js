@@ -16,13 +16,20 @@ import { apiGet } from '../apiClient'
 import { loadLiveContributionsFromAttacks } from '../warDataLoader.js'
 import { WIN_RESULTS, LOSS_RESULTS, ASSIST_RESULT } from '../warPayoutCalculations.js'
 
-const war = { start_at: 1000, end_at: 2000 }
+// ⚠️ `opponent_id` matters now: assists and losses are scoped by WHO WAS
+// ATTACKED, because Torn never flags a non-scoring attack as ranked-war.
+const OPPONENT = 20747
+const war = { start_at: 1000, end_at: 2000, opponent_id: OPPONENT }
 
 /** Our faction, outgoing, in the war — the caller only varies result/respect/chain. */
 const hit = (over) => ({
   attacker_id: 1, attacker_name: 'Fighter', attacker_faction_id: 555,
+  defender_faction_id: OPPONENT,
   is_ranked_war: true, is_incoming: false, respect_gain: 0, chain: 1, ...over,
 })
+
+/** A non-scoring attack exactly as Torn reports it: no ranked-war flag. */
+const unflagged = (over) => hit({ is_ranked_war: false, ...over })
 
 function serve(attacks, roster = []) {
   apiGet.mockImplementation((path) => {
@@ -127,7 +134,11 @@ describe('what still must not be counted', () => {
     serve([
       hit({ attacker_faction_id: 10739, result: ASSIST_RESULT }),   // not us
       hit({ is_incoming: true, result: ASSIST_RESULT }),            // taken, not made
-      hit({ is_ranked_war: false, result: ASSIST_RESULT }),         // outside the war
+      // ⚠️ "Outside the war" now means a different DEFENDER, not a missing
+      // flag. Torn never flags a non-scoring attack, so `is_ranked_war: false`
+      // is the normal shape of a real war assist — which is the whole bug this
+      // suite grew to cover. Scoping it by opponent is what separates the two.
+      unflagged({ result: ASSIST_RESULT, defender_faction_id: 99999 }),
     ])
     const rows = await loadLiveContributionsFromAttacks(war)
     expect(rows.filter(r => (r.assists || 0) > 0)).toEqual([])
@@ -138,5 +149,63 @@ describe('what still must not be counted', () => {
     serve([], [{ member_id: 42, member_name: 'Idle', is_current: true }])
     const [row] = await loadLiveContributionsFromAttacks(war)
     expect(row).toMatchObject({ member_id: 42, attacks: 0, assists: 0, losses: 0, score: 0, score_raw: 0 })
+  })
+})
+
+
+// ── Torn does not flag non-scoring attacks (MonChoon, 2026-09-28) ───────────
+//
+// The columns shipped reading ZERO for every member. Measured on the live
+// Damage Inc war: of 2,714 outgoing assists in the window, 0 carry
+// `is_ranked_war`; same for all 1,236 losses. Filtering on the flag dropped
+// every one of them.
+
+describe('assists and losses are scoped by opponent, not by Torn\'s flag', () => {
+  it('⚠️ counts an assist that Torn never flagged as ranked-war', () => {
+    // The exact shape of the live data. Before the fix this produced 0.
+    return (async () => {
+      serve([unflagged({ result: ASSIST_RESULT })])
+      const [row] = await loadLiveContributionsFromAttacks(war)
+      expect(row.assists).toBe(1)
+    })()
+  })
+
+  it('⚠️ counts unflagged losses too', async () => {
+    serve([...LOSS_RESULTS].map(result => unflagged({ result })))
+    const [row] = await loadLiveContributionsFromAttacks(war)
+    expect(row.losses).toBe(LOSS_RESULTS.size)
+  })
+
+  it('ignores an unflagged attack on somebody who is NOT the opponent', async () => {
+    // ⚠️ Without this the columns would sweep in every unrelated hit made
+    // during the war window — chain filler, revenge, a different faction
+    // entirely — and call it war effort.
+    serve([unflagged({ result: ASSIST_RESULT, defender_faction_id: 99999 })])
+    const rows = await loadLiveContributionsFromAttacks(war)
+    expect(rows.filter(r => (r.assists || 0) > 0)).toEqual([])
+  })
+
+  it('⚠️ keeps WINS on the strict flag, so Score still matches payout', async () => {
+    // An unflagged win against the opponent is NOT counted: calculateCutoffScores
+    // tests is_ranked_war directly, so counting it here would show a member a
+    // score their payout does not match. Measured at 3 hits in 1,869.
+    serve([
+      hit({ result: 'Attacked', respect_gain: 10 }),
+      unflagged({ result: 'Attacked', respect_gain: 10 }),
+    ])
+    const [row] = await loadLiveContributionsFromAttacks(war)
+    expect(row.attacks).toBe(1)
+    expect(row.score).toBeCloseTo(10, 5)
+    // ⚠️ And it is not silently swept into losses either — it is a win we are
+    // choosing not to count, not a defeat.
+    expect(row.losses).toBe(0)
+  })
+
+  it('still works for a war with no opponent_id recorded', async () => {
+    // Falls back to the flag alone rather than throwing or counting everything.
+    serve([hit({ result: ASSIST_RESULT }), hit({ result: 'Attacked', respect_gain: 5 })])
+    const [row] = await loadLiveContributionsFromAttacks({ start_at: 1000, end_at: 2000 })
+    expect(row.attacks).toBe(1)
+    expect(row.assists).toBe(1)
   })
 })

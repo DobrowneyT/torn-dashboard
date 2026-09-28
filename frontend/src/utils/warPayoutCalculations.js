@@ -153,7 +153,7 @@ function emptyHitBucket() {
  * flag remains a fallback for callers that don't pass the opponent set (older
  * tests, contexts without a resolved opponent).
  */
-function isWarAttack(attack, opponentFactionIds) {
+export function isWarAttack(attack, opponentFactionIds) {
   if (attack.is_ranked_war === true || attack.is_ranked_war === 'true' || attack.is_ranked_war === 1) return true
   if (opponentFactionIds && opponentFactionIds.size > 0) {
     const isIncoming = attack.is_incoming === true || attack.is_incoming === 'true' || attack.is_incoming === 1

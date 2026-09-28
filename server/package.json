@@ -1,6 +1,6 @@
 {
   "name": "@tnl/server",
-  "version": "3.146.1",
+  "version": "3.146.2",
   "private": true,
   "type": "module",
   "scripts": {
