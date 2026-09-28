@@ -39,7 +39,23 @@ definition summarizes it.
    `### Added` / `### Changed` / `### Fixed`. Keep a Changelog, lite.
 
 5. **Version bump.** The repo-root **`VERSION`** file is the single source of truth;
-   keep the root `package.json` `version` in sync with it. Level follows the change:
+   keep **all four** `package.json` files in sync with it — root, `frontend/`,
+   `server/` and `db/`. Do not do it by hand:
+
+   ```bash
+   echo 3.147.0 > VERSION && node scripts/check-version-sync.mjs --fix
+   ```
+
+   ⚠️ This step used to say "the root `package.json`", but all four have been
+   kept in sync in practice since the workspace split, and CI now **fails** when
+   they disagree (`scripts/check-version-sync.mjs`, run by the Changelog Gate
+   and by `npm test`). `VERSION` feeds the footer and `/api/health`; the package
+   files feed npm and the Docker builds — a mismatch means the dashboard reports
+   a version that was never built. It has happened twice: **3.142.1** shipped
+   with all four package files a version behind, and PR #804 was caught by hand
+   during a rebase.
+
+   Level follows the change:
 
    | Change type | Bump | Example |
    |---|---|---|

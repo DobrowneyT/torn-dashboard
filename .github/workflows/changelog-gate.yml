@@ -4,15 +4,24 @@ name: Changelog Gate
 # frontend/, server/, or db/ should also add a CHANGELOG.md line (and, once
 # past the batching phase, bump VERSION). See docs/agents/delivery-workflow.md.
 #
-# PHASE 1 (now): WARN-ONLY — this job annotates and writes a job summary but
-# never fails the PR, so we can confirm it doesn't misfire on legitimate
-# changes. PHASE 2: flip WARN_ONLY to 'false' (and REQUIRE_VERSION when per-PR
-# bumps become the norm), then add "Changelog + version check" as a required
-# status check in branch protection so it blocks merge.
+# ⚠️ This job now has TWO checks with DIFFERENT severities:
+#
+#   1. VERSION matches every package.json — BLOCKING. There is no legitimate
+#      mismatch, and one shipped undetected (see the step's own note).
+#   2. The changelog gate — PHASE 1, WARN-ONLY: it annotates and writes a job
+#      summary but never fails the PR, so we can confirm it doesn't misfire on
+#      legitimate changes. PHASE 2: flip WARN_ONLY to 'false' (and
+#      REQUIRE_VERSION when per-PR bumps become the norm).
+#
+# Either way the job is already worth adding to branch protection as a required
+# status check — check 1 alone justifies it.
 
 on:
   pull_request:
-    branches: [dev]
+    # ⚠️ `main` as well as `dev`. A dev → main promotion is exactly when a
+    # version mismatch would reach production, and it is the one PR shape that
+    # was never checked.
+    branches: [dev, main]
 
 permissions:
   contents: read
@@ -39,6 +48,23 @@ jobs:
       # every source-touching PR.
       REQUIRE_VERSION: 'false'
     steps:
+      # ⚠️ The checkout the changelog step never needed — it reads the PR through
+      # the API. The version check reads the TREE, so it needs the files.
+      - uses: actions/checkout@v4
+
+      # ⚠️ **Blocking, unlike the changelog step above.** That one is warn-only
+      # because a test-only PR legitimately needs no changelog line. There is no
+      # such thing as a legitimate version mismatch: VERSION feeds the footer and
+      # /api/health, the package files feed npm and the Docker builds, and when
+      # they disagree the dashboard reports a version that was never built.
+      #
+      # This exists because it happened. PR #804 branched before another bump
+      # landed, so its sed found nothing and VERSION said 3.146.0 while all four
+      # package.json files said 3.144.1 — with this job green, because it only
+      # ever checked that CHANGELOG.md had *changed*.
+      - name: VERSION matches every package.json
+        run: node scripts/check-version-sync.mjs
+
       - name: Evaluate the gate
         env:
           GH_TOKEN: ${{ github.token }}

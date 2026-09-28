@@ -18,6 +18,30 @@ surface it automatically.
 
 ---
 
+## [3.146.1] - 2026-09-27
+
+### Added
+- ⚠️ **CI now checks that `VERSION` matches all four `package.json` files**, and
+  fails the PR when it does not. This shipped undetected once: PR #804 branched
+  before another bump landed, so its `sed` looked for a version string that was
+  not in the file and left `VERSION` at 3.146.0 while every package file still
+  said 3.144.1 — with CI green, because the changelog gate only ever verified
+  that `CHANGELOG.md` had *changed*. It was caught by hand during a rebase,
+  which is not a control.
+  It matters because the two are read in different places: `VERSION` feeds the
+  footer and `/api/health`, the package files feed npm and the Docker builds —
+  so a mismatch means the dashboard reports a version that was never built.
+  - `scripts/check-version-sync.mjs`, with `--fix`. ⚠️ Blocking, unlike the
+    warn-only changelog gate beside it, and with no escape hatch: a test-only
+    PR legitimately needs no changelog line, but there is no such thing as a
+    legitimate version mismatch.
+  - The same assertion runs in the normal test suite
+    (`db/test/version-sync.test.mjs`), so `npm test` catches it before a PR
+    exists.
+  - The gate now also runs on PRs into `main`. A `dev → main` promotion is
+    exactly when a mismatch would reach production, and it was the one PR shape
+    never checked.
+
 ## [3.146.0] - 2026-09-27
 
 ### Added
