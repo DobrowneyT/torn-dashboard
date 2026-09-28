@@ -18,6 +18,23 @@ surface it automatically.
 
 ---
 
+## [3.147.0] - 2026-09-28
+
+### Fixed
+- ⚠️ **A live war's Our/Their Score went stale for up to three hours.**
+  `attacks-sync` does not touch `ranked_wars` scores — only `wars-sync` does,
+  and it runs every three hours. So the attack rows behind the scoreboard could
+  be two minutes old while the scoreboard itself was hours out of date, and no
+  amount of refreshing the page helped, because the staleness was in the
+  database. The only thing that fixed it was the RW History **Fetch Attacks**
+  button, which quietly runs `wars-sync` afterwards for exactly this reason —
+  so running the attacks job from Global Admin did nothing visible.
+  `war-lifecycle` (every 3 minutes) now writes live scores from the
+  `/rankedwars` payload it **already fetched and threw away** — no extra Torn
+  call, no extra key claim.
+  ⚠️ Live wars only. A finished war's score is settled by `rankedwarreport`,
+  which is authoritative; the guard holds even when Torn's list endpoint still
+  reports a war as live after the row has been closed.
 ## [3.146.2] - 2026-09-28
 
 ### Fixed
