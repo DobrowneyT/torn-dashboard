@@ -172,13 +172,23 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
 
   async function openContributions(warId) {
     setModalWarId(warId)
-    if (!contributions[warId]) {
+    // ⚠️ **A LIVE war is re-fetched every time this opens.** The cache was
+    // unconditional, so once a war's numbers had been loaded they never changed
+    // again for the lifetime of the page — the attacks scraper could run every
+    // two minutes and the modal would still show what it saw the first time.
+    // That reads as "the scraper isn't working", and it cost an evening of
+    // looking at the scraper instead of at this line.
+    //
+    // A FINISHED war is still cached: Torn's report is final, so re-fetching it
+    // is a page of rows nobody's numbers depend on.
+    const war = wars.find(w => w.id === warId)
+    const isLiveWar = war && (!war.end_at || war.end_at === 0)
+    if (!contributions[warId] || isLiveWar) {
       setLoadingContributions(true)
       try {
         // 1) Try the canonical post-war source first.
         const finalData = await loadWarContributions(warId)
-        const war = wars.find(w => w.id === warId)
-        const isOngoing = war && (!war.end_at || war.end_at === 0)
+        const isOngoing = isLiveWar
         const finalIsEmpty = !finalData || finalData.length === 0
 
         // 2) For ongoing wars (Torn hasn't reported contributions yet) OR

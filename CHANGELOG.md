@@ -18,6 +18,67 @@ surface it automatically.
 
 ---
 
+## [3.147.0] - 2026-09-28
+
+### Fixed
+- ⚠️ **A live war's Our/Their Score went stale for up to three hours.**
+  `attacks-sync` does not touch `ranked_wars` scores — only `wars-sync` does,
+  and it runs every three hours. So the attack rows behind the scoreboard could
+  be two minutes old while the scoreboard itself was hours out of date, and no
+  amount of refreshing the page helped, because the staleness was in the
+  database. The only thing that fixed it was the RW History **Fetch Attacks**
+  button, which quietly runs `wars-sync` afterwards for exactly this reason —
+  so running the attacks job from Global Admin did nothing visible.
+  `war-lifecycle` (every 3 minutes) now writes live scores from the
+  `/rankedwars` payload it **already fetched and threw away** — no extra Torn
+  call, no extra key claim.
+  ⚠️ Live wars only. A finished war's score is settled by `rankedwarreport`,
+  which is authoritative; the guard holds even when Torn's list endpoint still
+  reports a war as live after the row has been closed.
+## [3.146.2] - 2026-09-28
+
+### Fixed
+- ⚠️ **Assists and Losses read zero for every member.** Torn only sets
+  `is_ranked_war` on attacks that **scored**, so a non-scoring attack is never
+  flagged — measured on the live Damage Inc war, `0` of 2,714 outgoing assists
+  and `0` of 1,236 losses carry it. Filtering on the flag dropped 100% of both.
+  They are now scoped the way the Hit Report and payout code already scope war
+  attacks: `isWarAttack`, which falls back to **who was attacked**. 2,713 of
+  those 2,714 assists are against the opponent faction, so the scope is exact.
+  ⚠️ Wins deliberately stay on the strict flag, because Score has to agree with
+  `calculateCutoffScores`, which tests it directly. The two scopes differ by 3
+  hits in 1,869; a 0.16% disagreement with payout is worth more than those 3.
+- ⚠️ **The live contributions table never refreshed.** `openContributions`
+  cached per war id for the lifetime of the page, so once a war's numbers had
+  loaded they never changed again — the attacks scraper could run every two
+  minutes and the modal still showed what it saw first. That reads as "the
+  scraper isn't working". An ongoing war now re-fetches on every open; a
+  finished war stays cached, because Torn's report is final.
+
+## [3.146.1] - 2026-09-27
+
+### Added
+- ⚠️ **CI now checks that `VERSION` matches all four `package.json` files**, and
+  fails the PR when it does not. This shipped undetected once: PR #804 branched
+  before another bump landed, so its `sed` looked for a version string that was
+  not in the file and left `VERSION` at 3.146.0 while every package file still
+  said 3.144.1 — with CI green, because the changelog gate only ever verified
+  that `CHANGELOG.md` had *changed*. It was caught by hand during a rebase,
+  which is not a control.
+  It matters because the two are read in different places: `VERSION` feeds the
+  footer and `/api/health`, the package files feed npm and the Docker builds —
+  so a mismatch means the dashboard reports a version that was never built.
+  - `scripts/check-version-sync.mjs`, with `--fix`. ⚠️ Blocking, unlike the
+    warn-only changelog gate beside it, and with no escape hatch: a test-only
+    PR legitimately needs no changelog line, but there is no such thing as a
+    legitimate version mismatch.
+  - The same assertion runs in the normal test suite
+    (`db/test/version-sync.test.mjs`), so `npm test` catches it before a PR
+    exists.
+  - The gate now also runs on PRs into `main`. A `dev → main` promotion is
+    exactly when a mismatch would reach production, and it was the one PR shape
+    never checked.
+
 ## [3.146.0] - 2026-09-27
 
 ### Added
