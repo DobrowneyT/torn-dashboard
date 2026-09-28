@@ -5,7 +5,9 @@
  */
 
 import { apiGet } from './apiClient'
-import { BONUS_HITS, WIN_RESULTS, LOSS_RESULTS, ASSIST_RESULT } from './warPayoutCalculations'
+import {
+  BONUS_HITS, WIN_RESULTS, LOSS_RESULTS, ASSIST_RESULT, isWarAttack,
+} from './warPayoutCalculations'
 import { getFactionId } from './factionIdentity'
 
 /**
@@ -129,14 +131,22 @@ export async function loadLiveContributionsFromAttacks(war) {
   // war-win filters below (ours, outgoing, ranked, win results) stay
   // client-side to keep the scoring rules next to the payout math.
   const windowAttacks = await loadFactionAttacksByWindow(war.start_at, war.end_at)
-  // ⚠️ The result filter moved INTO the loop. Assists and losses have to reach
-  // the aggregator to be counted, and filtering them out here is what used to
-  // make them invisible — a member with forty assists and no wins read as
-  // having done nothing at all.
+
+  // ⚠️ **Torn only sets `is_ranked_war` on attacks that SCORED.** Measured on
+  // the live Damage Inc war: of 2,714 outgoing assists in the window, `0` carry
+  // the flag — and the same for all 1,236 losses. Filtering on it therefore
+  // dropped 100% of both, which is why the columns read zero for everybody.
+  //
+  // The fix is the one the payout code already uses: `isWarAttack` falls back
+  // to WHO WAS ATTACKED when the flag is absent. 2,713 of those 2,714 assists
+  // are against the opponent faction, so the scope is exact.
+  const opponentFactionIds = new Set(
+    [Number(war.opponent_id)].filter((id) => Number.isFinite(id) && id > 0))
+
   const all = windowAttacks.filter((a) =>
     Number(a.attacker_faction_id) === OUR_FACTION_ID &&
-    a.is_ranked_war === true &&
-    a.is_incoming === false
+    a.is_incoming === false &&
+    isWarAttack(a, opponentFactionIds)
   )
 
   // Aggregate per attacker with bonus-hit cap. If an attacker isn't in the
@@ -146,7 +156,17 @@ export async function loadLiveContributionsFromAttacks(war) {
     const id = Number(a.attacker_id)
     if (!id) continue
     const result = a.result || ''
-    const isWin = WIN_RESULTS.has(result)
+    // ⚠️ **Wins stay on the STRICT flag, deliberately.** Score has to agree with
+    // `calculateCutoffScores`, which tests `is_ranked_war` directly — so a win
+    // counted here but not there would show a member a score their payout does
+    // not match. Measured, the two scopes differ by 3 hits in 1,869 (opponent
+    // scope catches a few at the war boundary that Torn never flagged), and a
+    // 0.16% disagreement with payout is worth more than those 3 hits.
+    //
+    // Assists and losses have no such constraint: they score nothing, so there
+    // is no payout number for them to disagree with, and the flag is never set
+    // on them anyway.
+    const isWin = WIN_RESULTS.has(result) && a.is_ranked_war === true
     // ⚠️ Anything Torn reports that is none of the three — a result type added
     // after this was written — is counted in NO column rather than guessed
     // into one. A wrong column reads as fact; an absent one reads as a gap.
