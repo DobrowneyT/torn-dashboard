@@ -31,6 +31,24 @@ vi.mock('../../../utils/chainWatch', async (importOriginal) => {
   return { ...mod, viewerZone: () => zoneRef.value ?? mod.viewerZone() }
 })
 
+// ⚠️ **Vitest's 5s default is not enough for THIS file on a loaded runner.**
+// It blocked the 3.147.0 promotion: "Test timed out in 5000ms" on "the
+// headline does not worsen when a day is appended", which takes ~380ms on a
+// quiet machine. The same commit passed on a re-run, so it reads as flake —
+// and that is the expensive kind, because a test that fails at random teaches
+// everyone to wave through a red check that might be real.
+//
+// This file renders a MULTI-DAY hour grid, twice in that test (the point is to
+// append a day and re-render), and the CI job runs the frontend, server and db
+// workspaces together — the failing run reported 57s in `environment` and 52s
+// in `collect` alone. A >13x stretch is contention, not a hang.
+//
+// ⚠️ Scoped to this file on purpose. Raising `testTimeout` globally would hide
+// a genuine hang everywhere else; 20s still fails one here quickly enough to
+// be useful. It is NOT `asyncUtilTimeout` — every `waitFor` in this file
+// resolves on its first check, and the suite passes with that set to 60ms.
+vi.setConfig({ testTimeout: 20_000 })
+
 import ChainWatchSection from '../ChainWatchSection'
 
 const EVENT = {
