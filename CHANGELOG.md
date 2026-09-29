@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.153.0] - 2026-09-29
+
+### Added
+- **`/api/internal/war-overview?chart=1` returns pre-binned series** for the
+  Discord bot's chart (#811 slice 4) — three panels (outgoing, incoming,
+  revives) of stacked, coloured series.
+  ⚠️ **Binned here, not in the bot.** Binning, faction ranking, colour
+  assignment and the event classifier all stay beside the summary they must
+  agree with; shipping raw rows and binning in Python would be a THIRD
+  implementation of logic that has already drifted three times in this repo.
+  ⚠️ One colour map across both attack panels, so a faction is the same colour
+  top and bottom — two independently ranked maps would recolour the opponent
+  between panels, which reads as two different factions. A merc that appears in
+  only ONE panel still gets its own colour.
+  ⚠️ Factions past the eighth roll into "Other" but their events are still
+  counted, so stacked bar heights match the summary printed beside them.
+  ⚠️ Opt-in: the summary-only path is the common one and every autocomplete
+  keystroke hits this endpoint.
+
 ## [3.152.0] - 2026-09-29
 
 ### Added
