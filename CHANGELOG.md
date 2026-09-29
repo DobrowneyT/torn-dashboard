@@ -18,6 +18,36 @@ surface it automatically.
 
 ---
 
+## [3.148.0] - 2026-09-28
+
+### Fixed
+- ⚠️ **The War Overview summary ignored the faction filter.** It counted every
+  attack in the time window whatever was ticked, so the plot and the numbers
+  beneath it could disagree with nothing to say which was right. It now takes
+  the same selection the plot uses.
+  ⚠️ An INCOMING attack is filtered by its attacker, not by us — testing our own
+  faction id would make the filter a no-op in one direction, which reads as a
+  display bug rather than a filter.
+- ⚠️ **The faction view appeared to have no revives chart.** It built one, but
+  revives were stacked by REVIVER faction and an unticked faction contributes no
+  trace — so narrowing the filter to the war opponent silently emptied the whole
+  panel while the summary still reported the total.
+
+### Changed
+- **Revives are bundled into one series and are never faction-filtered**, in
+  both views. Being revived by a stranger is not something you choose and the
+  reviver is almost never the faction you are warring, so asking which one did
+  it was never a question worth a checkbox.
+- **Revivers no longer appear in the faction filter list**, which is what made
+  it enormous — it now lists only factions that attacked or were attacked.
+- **The faction summary splits like the member one**: Attack / Assist / Loss /
+  Total for both directions, plus Revives. The same question used to get a
+  different answer depending on which toggle you were on.
+  ⚠️ `total` counts every attack in scope including results the classifier does
+  not recognise, so the three named columns can sum to less — a result type Torn
+  adds later shows as a gap rather than being filed under "loss".
+- `classifyEventType` moved into `utils/warOverviewSummary` so the plot and the
+  summary cannot drift apart about what an event is.
 ## [3.147.1] - 2026-09-28
 
 ### Fixed

@@ -26,7 +26,8 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
 import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
-import { formatWarDateRange, WIN_RESULTS, LOSS_RESULTS, ASSIST_RESULT } from '../utils/warPayoutCalculations'
+import { formatWarDateRange } from '../utils/warPayoutCalculations'
+import { summariseWindow, classifyEventType } from '../utils/warOverviewSummary'
 import { apiPost } from '../utils/apiClient'
 import { getFactionId } from '../utils/factionIdentity'
 import { parseDbTime } from '../utils/time'
@@ -35,21 +36,9 @@ import { parseDbTime } from '../utils/time'
 // calculator uses so "attack / assist / loss" mean the same thing here as
 // they do in the Hit Report. Wins (leave/mug/hosp) collapse to 'attack' for
 // the member-inspector breakdown.
-// ⚠️ `LOSS_RESULTS` and `ASSIST_RESULT` are IMPORTED, not redeclared — this
-// file used to carry its own copy of the loss list, so "loss" could drift
-// between the timeline and the Hit Report with nothing failing.
-//
-// ⚠️ The win list stays local because it differs on purpose: a `Special` reads
-// as an attack ON THE TIMELINE, but the payout paths exclude it, so the
-// exported `WIN_RESULTS` must not gain it. See the note on that export.
-const TIMELINE_WIN_RESULTS = new Set([...WIN_RESULTS, 'Special'])
-function classifyEventType(result) {
-  if (!result) return null
-  if (result === ASSIST_RESULT) return 'assist'
-  if (TIMELINE_WIN_RESULTS.has(result)) return 'attack'
-  if (LOSS_RESULTS.has(result)) return 'loss'
-  return null
-}
+// ⚠️ `classifyEventType` lives in utils/warOverviewSummary so the PLOT and the
+// SUMMARY under it cannot disagree about what an event is. It was local here,
+// which is how the summary ended up describing something other than the graph.
 
 // Plotly marker symbols for each event type — visible at a glance even when
 // faction color is shared. Matches the legend annotation below the plot.
@@ -101,6 +90,16 @@ function buildColorMap(eventGroups, selectedFactionIds) {
   ranked.forEach((fid, i) => { map[fid] = PALETTE[i % PALETTE.length] })
   return { colorMap: map, topFactions: new Set(ranked) }
 }
+
+// ⚠️ Revives are drawn as ONE bundled series, in both views. Stacking them by
+// reviver faction meant they inherited the faction filter, so ticking down to
+// the opponent emptied the panel — and nobody is asking which faction revived
+// them anyway. One key, one colour, always drawn.
+const REVIVE_KEY = '__revives__'
+const REVIVE_COLOR_MAP = { [REVIVE_KEY]: '#3b82f6' }
+const REVIVE_TOP = new Set([REVIVE_KEY])
+const REVIVE_NAMES = { [REVIVE_KEY]: 'Incoming revives' }
+const bundleRevives = (events) => events.map(e => ({ ...e, faction: REVIVE_KEY }))
 
 /**
  * Bucket events into time bins per faction.
@@ -533,10 +532,13 @@ export default function WarOverviewView() {
       if (a.attacker_faction_id) ids.add(Number(a.attacker_faction_id))
       if (a.defender_faction_id) ids.add(Number(a.defender_faction_id))
     }
-    for (const r of revives) {
-      if (r.reviver_faction_id) ids.add(Number(r.reviver_faction_id))
-      if (r.target_faction_id)  ids.add(Number(r.target_faction_id))
-    }
+    // ⚠️ **Revivers are deliberately absent from this list.** The filter answers
+    // "who am I fighting", and being revived by a stranger is not something you
+    // choose — the reviver is almost never the faction you are warring. Having
+    // them here padded the checkbox list with every faction that ever revived
+    // anyone AND, because an unticked faction contributes no trace, filtering
+    // down to the opponent silently emptied the revives panel. That is why the
+    // faction view looked like it had no revives chart at all.
     const oppId = war?.opponent_id ? Number(war.opponent_id) : null
     return [...ids]
       .map(id => ({ id, name: factionNames[id] || `Faction #${id}` }))
@@ -627,11 +629,11 @@ export default function WarOverviewView() {
       const traces = isScatter ? [
         ...buildScatterTraces(outAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
         ...buildScatterTraces(incAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-        ...buildScatterTraces(incRevEvents, colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
+        ...buildScatterTraces(bundleRevives(incRevEvents), REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
       ] : [
         ...buildStackedTraces(outAtkEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
         ...buildStackedTraces(incAtkEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-        ...buildStackedTraces(incRevEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
+        ...buildStackedTraces(bundleRevives(incRevEvents), fromTs, toTs, binSeconds, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
       ]
       const layout = {
         ...(isScatter ? {} : { barmode: 'stack', bargap: 0.05 }),
@@ -664,11 +666,11 @@ export default function WarOverviewView() {
     const traces = isScatter ? [
       ...buildScatterTraces(outgoing, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
       ...buildScatterTraces(incoming, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-      ...buildScatterTraces(revIn,    colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
+      ...buildScatterTraces(bundleRevives(revIn), REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
     ] : [
       ...buildStackedTraces(outgoing, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
       ...buildStackedTraces(incoming, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-      ...buildStackedTraces(revIn,    fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y3', 'rev', 'Revives'),
+      ...buildStackedTraces(bundleRevives(revIn), fromTs, toTs, binSeconds, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
     ]
     const layout = {
       ...(isScatter ? {} : { barmode: 'stack', bargap: 0.05 }),
@@ -687,45 +689,21 @@ export default function WarOverviewView() {
   // ── Windowed summary stats (driven by range-slider drag events) ─────────
   const summary = useMemo(() => {
     if (!war) return null
-    const fromTs = windowRange?.[0] ?? war.start_at
-    const toTs = windowRange?.[1] ?? (war.end_at || Math.floor(Date.now() / 1000))
-
-    if (viewMode === 'faction') {
-      let out = 0, inc = 0, rev = 0
-      for (const a of attacks) {
-        if (a.started < fromTs || a.started > toTs) continue
-        if (a.attacker_faction_id === OUR_FACTION_ID) out += 1
-        if (a.defender_faction_id === OUR_FACTION_ID) inc += 1
-      }
-      for (const r of revives) {
-        if (r.target_faction_id === OUR_FACTION_ID && r.timestamp >= fromTs && r.timestamp <= toTs) rev += 1
-      }
-      return { fromTs, toTs, outgoing: out, incoming: inc, revives: rev }
-    }
-
-    if (selectedMemberId == null) return null
-    // Break out by event type so the user can see the attack/assist/loss
-    // breakdown that drives payout participation.
-    let rev = 0
-    const out = { attack: 0, assist: 0, loss: 0, total: 0 }
-    const inc = { attack: 0, assist: 0, loss: 0, total: 0 }
-    for (const a of attacks) {
-      if (a.started < fromTs || a.started > toTs) continue
-      const t = classifyEventType(a.result)
-      if (a.attacker_id === selectedMemberId) {
-        out.total += 1
-        if (t) out[t] += 1
-      }
-      if (a.defender_id === selectedMemberId) {
-        inc.total += 1
-        if (t) inc[t] += 1
-      }
-    }
-    for (const r of revives) {
-      if (r.timestamp >= fromTs && r.timestamp <= toTs && r.target_id === selectedMemberId) rev += 1
-    }
-    return { fromTs, toTs, outgoing: out, incoming: inc, revives: rev }
-  }, [war, attacks, revives, factionNames, viewMode, selectedMemberId, windowRange])
+    if (viewMode === 'member' && selectedMemberId == null) return null
+    return summariseWindow({
+      attacks,
+      revives,
+      fromTs: windowRange?.[0] ?? war.start_at,
+      toTs: windowRange?.[1] ?? (war.end_at || Math.floor(Date.now() / 1000)),
+      ourFactionId: OUR_FACTION_ID,
+      // ⚠️ The SAME set the plot uses, so the numbers always describe what is
+      // drawn above them. Passing null when nothing has been ticked yet is the
+      // "all factions" default, not "none".
+      selectedFactionIds: effectiveSelectedFactions,
+      mode: viewMode,
+      memberId: selectedMemberId,
+    })
+  }, [war, attacks, revives, viewMode, selectedMemberId, windowRange, effectiveSelectedFactions])
 
   // Plotly fires `relayout` when the user drags the range slider or clicks a
   // range-selector button. Pull the new x-axis range out and update state.
@@ -1069,37 +1047,30 @@ export default function WarOverviewView() {
               {windowRange == null && ' (full war)'}
             </div>
             <div className="flex flex-wrap gap-4 text-sm">
-              {viewMode === 'faction' ? (
-                <>
-                  <StatPill label="Outgoing attacks" value={summary.outgoing} color="text-emerald-600 dark:text-emerald-400" />
-                  <StatPill label="Incoming attacks" value={summary.incoming} color="text-red-600 dark:text-red-400" />
-                  <StatPill label="Incoming revives" value={summary.revives} color="text-blue-600 dark:text-blue-400" />
-                </>
-              ) : (
-                <div className="flex flex-col gap-2 w-full">
-                  {/* Outgoing breakdown: attacks (wins) / assists / losses */}
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Outgoing</span>
+              {/* ⚠️ ONE shape for both views. The faction summary used to be
+                  three flat totals while the member summary broke out
+                  attack/assist/loss — so the same question got a different
+                  answer depending on which toggle you were on. */}
+              <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Outgoing</span>
                     <StatPill label="Attack" value={summary.outgoing?.attack ?? 0} color="text-emerald-600 dark:text-emerald-400" />
                     <StatPill label="Assist" value={summary.outgoing?.assist ?? 0} color="text-emerald-600 dark:text-emerald-400" />
                     <StatPill label="Loss"   value={summary.outgoing?.loss   ?? 0} color="text-emerald-600 dark:text-emerald-400" />
                     <StatPill label="Total"  value={summary.outgoing?.total  ?? 0} color="text-emerald-700 dark:text-emerald-300" />
                   </div>
-                  {/* Incoming breakdown (attacker's result — Loss here = the
-                      member successfully defended). */}
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <span className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Incoming</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">Incoming</span>
                     <StatPill label="Attack" value={summary.incoming?.attack ?? 0} color="text-red-600 dark:text-red-400" />
                     <StatPill label="Assist" value={summary.incoming?.assist ?? 0} color="text-red-600 dark:text-red-400" />
                     <StatPill label="Loss"   value={summary.incoming?.loss   ?? 0} color="text-red-600 dark:text-red-400" />
                     <StatPill label="Total"  value={summary.incoming?.total  ?? 0} color="text-red-700 dark:text-red-300" />
                   </div>
-                  <div className="flex items-baseline gap-x-4">
-                    <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">Revives</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Revives</span>
                     <StatPill label="Incoming" value={summary.revives ?? 0} color="text-blue-600 dark:text-blue-400" />
                   </div>
-                </div>
-              )}
+              </>
             </div>
           </div>
           )
