@@ -34,7 +34,9 @@ definition summarizes it.
    DB on deploy. Never write a blanket migration that would wrongly change every
    tenant (e.g. pinning a per-faction setting) — document those as one-time writes.
 
-4. **CHANGELOG line.** Add a terse bullet under `## [Unreleased]` in `CHANGELOG.md`,
+4. **CHANGELOG line.** ⚠️ **There is no `## [Unreleased]` section in this repo** —
+   `CHANGELOG.md` says so at the top, and this file said otherwise for months.
+   Add a dated `## [X.Y.Z]` heading with a terse bullet under it in `CHANGELOG.md`,
    referencing the issue: `- Collaborative war notes (#160)`. Group under
    `### Added` / `### Changed` / `### Fixed`. Keep a Changelog, lite.
 
@@ -55,6 +57,22 @@ definition summarizes it.
    with all four package files a version behind, and PR #804 was caught by hand
    during a rebase.
 
+   ⚠️ **Two PRs cut from the same base will collide** on `VERSION`, the four
+   `package.json` files and the `CHANGELOG` heading — that is the price of
+   `main`'s version strictly increasing on every merge, and it is worth paying.
+   The collision is mechanical, so resolve it mechanically:
+
+   ```bash
+   git rebase origin/dev                          # conflicts on those six files
+   node scripts/resolve-version-conflict.mjs      # higher version, both entries
+   git rebase --continue
+   ```
+
+   It takes the HIGHER version (never simply "theirs" — a rebase replays onto
+   the other branch, so one side is not reliably newer), re-syncs the package
+   files from it, keeps BOTH changelog entries newest-first, and ⚠️ exits
+   non-zero while naming any SOURCE conflict it deliberately did not touch.
+
    Level follows the change:
 
    | Change type | Bump | Example |
@@ -63,15 +81,18 @@ definition summarizes it.
    | `fix` (bug fix, no new API) | **patch** | 3.1.0 → 3.1.1 |
    | breaking (removes/renames a contract, migration users must act on) | **major** | 3.1.1 → 4.0.0 |
 
-   A human may **override** the level (state it in the issue). When you cut a release,
-   promote `## [Unreleased]` to a dated `## [X.Y.Z]` heading whose version equals
-   `VERSION`; the footer (`VITE_APP_VERSION`, read from `VERSION` at build) and
-   `/api/health` (read at runtime) surface it automatically.
+   A human may **override** the level (state it in the issue). The footer
+   (`VITE_APP_VERSION`, read from `VERSION` at build) and `/api/health` (read at
+   runtime) surface it automatically — ⚠️ which is why CI fails when `VERSION`
+   and the package files disagree (`scripts/check-version-sync.mjs`): the
+   dashboard would otherwise report a version that was never built.
 
-   > Batching note: while the `delivery` agent workflow is still being proven, a run
-   > of related staging-only features may accumulate lines under `[Unreleased]` and
-   > take a single version bump when a release is cut, rather than one bump per PR.
-   > Once the CI gate (#165) lands, per-PR bumps become the enforced norm.
+   > ⚠️ The batching note that used to sit here described accumulating lines
+   > under `[Unreleased]` and bumping once per release. That is **not** how this
+   > repo works and has not been for some time — every PR bumps, which is what
+   > makes `main`'s version strictly increase on every merge (verified across
+   > 3.143.0 → 3.149.0, no repeats). Removed 2026-09-29 because agents follow
+   > this file and it was telling them to do the opposite of the rule.
 
 6. **Verify honestly.** Run the affected suites
    (`npm run test:run --workspaces --if-present`) and, for frontend/JSX or container
@@ -106,8 +127,9 @@ definition summarizes it.
    closing comment in step 9 is not the first anyone hears of it.
 
 9. **Promotion to production is a separate act.** `dev` accumulates until a human
-   decides to ship: cut the release (promote `[Unreleased]` to a dated heading
-   matching `VERSION`), then open and merge a `dev → main` PR. **The delivery
+   decides to ship: open and merge a `dev → main` PR. ⚠️ There is no release to
+   "cut" — each PR already carries its own dated heading and bump, so the
+   promotion is purely a merge. **The delivery
    agent never does this on its own** — delivering an issue ends at `dev`.
 
    **The promotion PR body MUST carry a `Closes #<issue>` line for every issue in

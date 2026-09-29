@@ -18,6 +18,38 @@ surface it automatically.
 
 ---
 
+## [3.150.1] - 2026-09-29
+
+### Changed
+- The War Overview's **per-member** summary now names the opponent too —
+  `Marnix0126 [2932241] vs Damage Inc [20747]`, matching the faction view.
+  ⚠️ Worth the line because these get screenshotted into a post-mortem weeks
+  later, where "which war was this?" is the first thing anybody asks and the
+  member's own name answers none of it.
+## [3.150.0] - 2026-09-29
+
+### Added
+- `scripts/resolve-version-conflict.mjs` — resolves the one merge conflict this
+  repo produces on purpose. ⚠️ Every PR bumps `VERSION`, the four `package.json`
+  files and adds a dated `CHANGELOG` heading, which is what makes `main`'s
+  version strictly increase on every merge (3.143.0 → 3.149.0, no repeats). Two
+  PRs cut from the same base therefore always collide on exactly those six
+  files. The convention is worth keeping, so the collision is now mechanical:
+  the HIGHER version wins, the package files re-sync from it, and BOTH changelog
+  entries are kept newest-first.
+  ⚠️ Higher, never simply "theirs" — a rebase replays onto the other branch, so
+  one side is not reliably the newer one; taking a side blindly can move the
+  version backwards.
+  ⚠️ It exits non-zero and names any SOURCE conflict it deliberately left alone,
+  so a half-finished rebase cannot be committed behind a tidy success message.
+
+### Fixed
+- ⚠️ **`docs/agents/delivery-workflow.md` told agents to do the opposite of the
+  rule.** It described accumulating lines under `## [Unreleased]` and bumping
+  once per release, while `CHANGELOG.md` states there is no `[Unreleased]`
+  section and every PR bumps. Agents follow that file. Corrected, with the stale
+  batching note replaced by a record of why it is wrong.
+
 ## [3.149.0] - 2026-09-29
 
 ### Added
