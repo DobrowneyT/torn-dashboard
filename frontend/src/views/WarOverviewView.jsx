@@ -27,7 +27,10 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
 import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
-import { summariseWindow, classifyEventType } from '../utils/warOverviewSummary'
+import {
+  summariseWindow, classifyEventType, factionKey, reviveOutcome,
+  NO_FACTION_ID, NO_FACTION_NAME,
+} from '../utils/warOverviewSummary'
 import { apiPost } from '../utils/apiClient'
 import { getFactionId } from '../utils/factionIdentity'
 import { parseDbTime } from '../utils/time'
@@ -91,15 +94,35 @@ function buildColorMap(eventGroups, selectedFactionIds) {
   return { colorMap: map, topFactions: new Set(ranked) }
 }
 
-// ⚠️ Revives are drawn as ONE bundled series, in both views. Stacking them by
-// reviver faction meant they inherited the faction filter, so ticking down to
-// the opponent emptied the panel — and nobody is asking which faction revived
-// them anyway. One key, one colour, always drawn.
-const REVIVE_KEY = '__revives__'
-const REVIVE_COLOR_MAP = { [REVIVE_KEY]: '#3b82f6' }
-const REVIVE_TOP = new Set([REVIVE_KEY])
-const REVIVE_NAMES = { [REVIVE_KEY]: 'Incoming revives' }
-const bundleRevives = (events) => events.map(e => ({ ...e, faction: REVIVE_KEY }))
+// ⚠️ Revives are never stacked by reviver faction. Doing so made them inherit
+// the faction filter, so ticking down to the opponent emptied the panel — and
+// nobody is asking which faction revived them. They ARE split by outcome: a
+// failed revive cost somebody a slot and left the target in hospital, so
+// showing it beside the successes overstates how much help arrived.
+const REVIVE_KEYS = { success: '__rev_ok__', failure: '__rev_fail__' }
+const REVIVE_COLOR_MAP = { [REVIVE_KEYS.success]: '#3b82f6', [REVIVE_KEYS.failure]: '#f97316' }
+const REVIVE_TOP = new Set(Object.values(REVIVE_KEYS))
+const REVIVE_NAMES = {
+  [REVIVE_KEYS.success]: 'Revived',
+  [REVIVE_KEYS.failure]: 'Failed revive',
+}
+const splitRevives = (rows) => rows.map(r => ({
+  ts: r.timestamp, reason: r.hospital_reason, faction: REVIVE_KEYS[reviveOutcome(r)],
+}))
+
+/**
+ * How a series is named in the legend.
+ *
+ * ⚠️ The `[id]` suffix is for REAL factions only. Appending it blindly printed
+ * "Incoming revives [__revives__]" — an internal key on screen — and would do
+ * the same for "(no faction) [0]".
+ */
+function seriesLabel(fid, nameLookup) {
+  if (fid === NO_FACTION_ID) return NO_FACTION_NAME
+  const name = nameLookup[fid]
+  if (!Number.isFinite(Number(fid))) return name ?? String(fid)
+  return name ? `${name} [${fid}]` : `faction ${fid}`
+}
 
 /**
  * Bucket events into time bins per faction.
@@ -166,7 +189,10 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
     if (ts == null) continue
     const i = Math.min(nBins - 1, Math.max(0, Math.floor((ts - fromTs) / binSeconds)))
     const fid = e.faction
-    if (!fid) {
+    // ⚠️ `== null`, NOT `!fid`. "No faction" is now the filterable id 0, and 0
+    // is falsy — a truthiness test would route it straight back into the
+    // unfilterable fallback bucket this change exists to remove.
+    if (fid == null) {
       fallbackCounts[i] += 1
       tallyReason(fallbackReasons, i, e.reason)
       tallyType(fallbackTypes, i, e.type)
@@ -211,7 +237,7 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
       x: xs,
       y: byFaction.get(fid),
       customdata: buildCustomdata(byFactionTypes.get(fid), byFactionReasons.get(fid)),
-      name: nameLookup[fid] ? `${nameLookup[fid]} [${fid}]` : `faction ${fid}`,
+      name: seriesLabel(fid, nameLookup),
       marker: { color: colorMap[fid] || '#777' },
       legendgroup: lg(`f${fid}`),
       ...(traces.length === 0 ? titleProp : {}),
@@ -229,7 +255,7 @@ function buildStackedTraces(events, fromTs, toTs, binSeconds, colorMap, topFacti
   }
   if (fallbackCounts.some(c => c > 0)) {
     traces.push({
-      type: 'bar', x: xs, y: fallbackCounts, name: '(no faction)',
+      type: 'bar', x: xs, y: fallbackCounts, name: '(unknown)',
       customdata: buildCustomdata(fallbackTypes, fallbackReasons),
       marker: { color: '#444' }, legendgroup: lg('nofac'),
       hovertemplate: HOVER, xaxis, yaxis,
@@ -258,7 +284,10 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
     const typeName = e.type ? `<br>Type: ${TYPE_LABEL[e.type]}` : ''
     const fid = e.faction
     const push = (bucket) => { bucket.x.push(x); bucket.reasons.push(reason); bucket.symbols.push(symbol); bucket.typeNames.push(typeName) }
-    if (!fid) {
+    // ⚠️ `== null`, NOT `!fid`. "No faction" is now the filterable id 0, and 0
+    // is falsy — a truthiness test would route it straight back into the
+    // unfilterable fallback bucket this change exists to remove.
+    if (fid == null) {
       push(fallback)
     } else if (topFactions.has(fid)) {
       if (!byFaction.has(fid)) byFaction.set(fid, { x: [], reasons: [], symbols: [], typeNames: [] })
@@ -296,7 +325,7 @@ function buildScatterTraces(events, colorMap, topFactions, nameLookup, xaxis, ya
     traces.push(mkScatter({ x: other.x, reasons: other.reasons, symbols: other.symbols, typeNames: other.typeNames, name: 'Other', tag: 'Other', marker: { color: '#888' }, legendgroup: lg('other') }))
   }
   if (fallback.x.length > 0) {
-    traces.push(mkScatter({ x: fallback.x, reasons: fallback.reasons, symbols: fallback.symbols, typeNames: fallback.typeNames, name: '(no faction)', tag: '(no faction)', marker: { color: '#444' }, legendgroup: lg('nofac') }))
+    traces.push(mkScatter({ x: fallback.x, reasons: fallback.reasons, symbols: fallback.symbols, typeNames: fallback.typeNames, name: '(unknown)', tag: '(unknown)', marker: { color: '#444' }, legendgroup: lg('nofac') }))
   }
   return traces
 }
@@ -529,8 +558,12 @@ export default function WarOverviewView() {
   const allFactionsInWar = useMemo(() => {
     const ids = new Set()
     for (const a of attacks) {
-      if (a.attacker_faction_id) ids.add(Number(a.attacker_faction_id))
-      if (a.defender_faction_id) ids.add(Number(a.defender_faction_id))
+      // ⚠️ Through `factionKey`, so a faction-less player lands on id 0 and
+      // gets a checkbox like anybody else. They used to render as an
+      // unfilterable bar: you could narrow the plot to one opponent and still
+      // be looking at rows you never asked for, with no way to turn them off.
+      ids.add(factionKey(a.attacker_faction_id))
+      ids.add(factionKey(a.defender_faction_id))
     }
     // ⚠️ **Revivers are deliberately absent from this list.** The filter answers
     // "who am I fighting", and being revived by a stranger is not something you
@@ -541,12 +574,20 @@ export default function WarOverviewView() {
     // faction view looked like it had no revives chart at all.
     const oppId = war?.opponent_id ? Number(war.opponent_id) : null
     return [...ids]
-      .map(id => ({ id, name: factionNames[id] || `Faction #${id}` }))
+      .map(id => ({
+        id,
+        name: id === NO_FACTION_ID ? NO_FACTION_NAME : (factionNames[id] || `Faction #${id}`),
+      }))
       .sort((a, b) => {
         if (a.id === oppId) return -1
         if (b.id === oppId) return 1
         if (a.id === OUR_FACTION_ID) return -1
         if (b.id === OUR_FACTION_ID) return 1
+        // ⚠️ "(no faction)" sorts LAST rather than alphabetically — it is not a
+        // faction anybody is looking for by name, and a bracket sorts above
+        // every letter.
+        if (a.id === NO_FACTION_ID) return 1
+        if (b.id === NO_FACTION_ID) return -1
         return a.name.localeCompare(b.name)
       })
   }, [attacks, revives, factionNames, war?.opponent_id])
@@ -617,23 +658,21 @@ export default function WarOverviewView() {
     if (viewMode === 'faction') {
       const outAtkEvents = attacks
         .filter(a => a.attacker_faction_id === OUR_FACTION_ID)
-        .map(a => ({ ts: a.started, faction: a.defender_faction_id, type: classifyEventType(a.result) }))
+        .map(a => ({ ts: a.started, faction: factionKey(a.defender_faction_id), type: classifyEventType(a.result) }))
       const incAtkEvents = attacks
         .filter(a => a.defender_faction_id === OUR_FACTION_ID)
-        .map(a => ({ ts: a.started, faction: a.attacker_faction_id, type: classifyEventType(a.result) }))
-      const incRevEvents = revives
-        .filter(r => r.target_faction_id === OUR_FACTION_ID)
-        .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
+        .map(a => ({ ts: a.started, faction: factionKey(a.attacker_faction_id), type: classifyEventType(a.result) }))
+      const incRevRows = splitRevives(revives.filter(r => r.target_faction_id === OUR_FACTION_ID))
 
-      const { colorMap, topFactions } = buildColorMap([outAtkEvents, incAtkEvents, incRevEvents], effectiveSelectedFactions)
+      const { colorMap, topFactions } = buildColorMap([outAtkEvents, incAtkEvents], effectiveSelectedFactions)
       const traces = isScatter ? [
         ...buildScatterTraces(outAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
         ...buildScatterTraces(incAtkEvents, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-        ...buildScatterTraces(bundleRevives(incRevEvents), REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
+        ...buildScatterTraces(incRevRows, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
       ] : [
         ...buildStackedTraces(outAtkEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
         ...buildStackedTraces(incAtkEvents, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-        ...buildStackedTraces(bundleRevives(incRevEvents), fromTs, toTs, binSeconds, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
+        ...buildStackedTraces(incRevRows, fromTs, toTs, binSeconds, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
       ]
       const layout = {
         ...(isScatter ? {} : { barmode: 'stack', bargap: 0.05 }),
@@ -654,23 +693,21 @@ export default function WarOverviewView() {
 
     const outgoing = attacks
       .filter(a => a.attacker_id === selectedMemberId)
-      .map(a => ({ ts: a.started, faction: a.defender_faction_id, type: classifyEventType(a.result) }))
+      .map(a => ({ ts: a.started, faction: factionKey(a.defender_faction_id), type: classifyEventType(a.result) }))
     const incoming = attacks
       .filter(a => a.defender_id === selectedMemberId)
-      .map(a => ({ ts: a.started, faction: a.attacker_faction_id, type: classifyEventType(a.result) }))
-    const revIn = revives
-      .filter(r => r.target_id === selectedMemberId)
-      .map(r => ({ ts: r.timestamp, faction: r.reviver_faction_id, reason: r.hospital_reason }))
+      .map(a => ({ ts: a.started, faction: factionKey(a.attacker_faction_id), type: classifyEventType(a.result) }))
+    const revInRows = splitRevives(revives.filter(r => r.target_id === selectedMemberId))
 
-    const { colorMap, topFactions } = buildColorMap([outgoing, incoming, revIn], effectiveSelectedFactions)
+    const { colorMap, topFactions } = buildColorMap([outgoing, incoming], effectiveSelectedFactions)
     const traces = isScatter ? [
       ...buildScatterTraces(outgoing, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
       ...buildScatterTraces(incoming, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-      ...buildScatterTraces(bundleRevives(revIn), REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
+      ...buildScatterTraces(revInRows, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
     ] : [
       ...buildStackedTraces(outgoing, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y',  'out', 'Outgoing'),
       ...buildStackedTraces(incoming, fromTs, toTs, binSeconds, colorMap, topFactions, nameLookup, 'x', 'y2', 'inc', 'Incoming'),
-      ...buildStackedTraces(bundleRevives(revIn), fromTs, toTs, binSeconds, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
+      ...buildStackedTraces(revInRows, fromTs, toTs, binSeconds, REVIVE_COLOR_MAP, REVIVE_TOP, REVIVE_NAMES, 'x', 'y3', 'rev', 'Revives'),
     ]
     const layout = {
       ...(isScatter ? {} : { barmode: 'stack', bargap: 0.05 }),
@@ -1046,31 +1083,37 @@ export default function WarOverviewView() {
               {new Date(summary.toTs * 1000).toUTCString().slice(5, 22)} TCT
               {windowRange == null && ' (full war)'}
             </div>
-            <div className="flex flex-wrap gap-4 text-sm">
-              {/* ⚠️ ONE shape for both views. The faction summary used to be
-                  three flat totals while the member summary broke out
-                  attack/assist/loss — so the same question got a different
-                  answer depending on which toggle you were on. */}
-              <>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Outgoing</span>
-                    <StatPill label="Attack" value={summary.outgoing?.attack ?? 0} color="text-emerald-600 dark:text-emerald-400" />
-                    <StatPill label="Assist" value={summary.outgoing?.assist ?? 0} color="text-emerald-600 dark:text-emerald-400" />
-                    <StatPill label="Loss"   value={summary.outgoing?.loss   ?? 0} color="text-emerald-600 dark:text-emerald-400" />
-                    <StatPill label="Total"  value={summary.outgoing?.total  ?? 0} color="text-emerald-700 dark:text-emerald-300" />
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">Incoming</span>
-                    <StatPill label="Attack" value={summary.incoming?.attack ?? 0} color="text-red-600 dark:text-red-400" />
-                    <StatPill label="Assist" value={summary.incoming?.assist ?? 0} color="text-red-600 dark:text-red-400" />
-                    <StatPill label="Loss"   value={summary.incoming?.loss   ?? 0} color="text-red-600 dark:text-red-400" />
-                    <StatPill label="Total"  value={summary.incoming?.total  ?? 0} color="text-red-700 dark:text-red-300" />
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Revives</span>
-                    <StatPill label="Incoming" value={summary.revives ?? 0} color="text-blue-600 dark:text-blue-400" />
-                  </div>
-              </>
+            {/* ⚠️ ONE shape for both views, STACKED — the faction summary was
+                three flat totals laid out in a row while the member summary
+                broke out attack/assist/loss, so the same question got a
+                different answer depending on which toggle you were on.
+                Order is Outgoing, Incoming, Revives — matching both the old
+                member layout and the three plot panels above, so the eye
+                travels the same way down the chart and the numbers. */}
+            <div className="flex flex-col gap-1.5 text-sm">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Outgoing</span>
+                <StatPill label="Attack" value={summary.outgoing?.attack ?? 0} color="text-emerald-600 dark:text-emerald-400" />
+                <StatPill label="Assist" value={summary.outgoing?.assist ?? 0} color="text-emerald-600 dark:text-emerald-400" />
+                <StatPill label="Loss"   value={summary.outgoing?.loss   ?? 0} color="text-emerald-600 dark:text-emerald-400" />
+                <StatPill label="Total"  value={summary.outgoing?.total  ?? 0} color="text-emerald-700 dark:text-emerald-300" />
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-red-700 dark:text-red-300">Incoming</span>
+                <StatPill label="Attack" value={summary.incoming?.attack ?? 0} color="text-red-600 dark:text-red-400" />
+                <StatPill label="Assist" value={summary.incoming?.assist ?? 0} color="text-red-600 dark:text-red-400" />
+                <StatPill label="Loss"   value={summary.incoming?.loss   ?? 0} color="text-red-600 dark:text-red-400" />
+                <StatPill label="Total"  value={summary.incoming?.total  ?? 0} color="text-red-700 dark:text-red-300" />
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Revives</span>
+                {/* ⚠️ Success and failure apart: a failed revive cost somebody a
+                    slot and left the target in hospital, so counting it beside
+                    the successes overstates how much help actually arrived. */}
+                <StatPill label="Success" value={summary.revives?.success ?? 0} color="text-blue-600 dark:text-blue-400" />
+                <StatPill label="Fail"    value={summary.revives?.failure ?? 0} color="text-orange-600 dark:text-orange-400" />
+                <StatPill label="Total"   value={summary.revives?.total   ?? 0} color="text-blue-700 dark:text-blue-300" />
+              </div>
             </div>
           </div>
           )

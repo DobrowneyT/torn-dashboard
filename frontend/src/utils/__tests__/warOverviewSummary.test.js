@@ -1,6 +1,9 @@
 // The War Overview's windowed summary (MonChoon, 2026-09-28).
 import { describe, it, expect } from 'vitest'
-import { summariseWindow, classifyEventType } from '../warOverviewSummary'
+import {
+  summariseWindow, classifyEventType, factionKey, reviveOutcome,
+  NO_FACTION_ID,
+} from '../warOverviewSummary'
 
 const US = 10739
 const OPP = 20747
@@ -60,7 +63,7 @@ describe('revives are never faction-filtered', () => {
       ...base, revives: [rev({ reviver_faction_id: OTHER })],
       selectedFactionIds: new Set([OPP]),
     })
-    expect(r.revives).toBe(1)
+    expect(r.revives.total).toBe(1)
   })
 
   it('still scopes revives to US, and to the window', () => {
@@ -69,7 +72,7 @@ describe('revives are never faction-filtered', () => {
       rev({ target_faction_id: OTHER }),       // somebody else's
       rev({ timestamp: 9999 }),                // outside the window
     ]
-    expect(summariseWindow({ ...base, revives }).revives).toBe(1)
+    expect(summariseWindow({ ...base, revives }).revives.total).toBe(1)
   })
 })
 
@@ -123,5 +126,64 @@ describe('classifyEventType', () => {
   it('returns null for nothing and for the unknown', () => {
     expect(classifyEventType('')).toBeNull()
     expect(classifyEventType('Brand New')).toBeNull()
+  })
+})
+
+
+// ── no faction is a faction (MonChoon, 2026-09-29) ──────────────────────────
+
+describe('players in no faction', () => {
+  it('⚠️ can be filtered out, like any other faction', () => {
+    // They were rendered as an unfilterable "(no faction)" bar — you could
+    // narrow the plot to one opponent and still be looking at 113k rows you
+    // never asked for, with no checkbox to turn them off.
+    const attacks = [
+      atk({ defender_faction_id: OPP }),
+      atk({ defender_faction_id: null }),
+    ]
+    expect(summariseWindow({ ...base, attacks }).outgoing.total).toBe(2)
+
+    const onlyOpp = summariseWindow({ ...base, attacks, selectedFactionIds: new Set([OPP]) })
+    expect(onlyOpp.outgoing.total).toBe(1)
+
+    const onlyNone = summariseWindow({ ...base, attacks, selectedFactionIds: new Set([NO_FACTION_ID]) })
+    expect(onlyNone.outgoing.total).toBe(1)
+  })
+
+  it('⚠️ normalises every absent shape to the same key', () => {
+    // null, undefined and "" all mean the same thing, and a filter that only
+    // caught one of them would drop rows at random.
+    for (const v of [null, undefined, '', 0, '0']) expect(factionKey(v)).toBe(NO_FACTION_ID)
+    expect(factionKey('20747')).toBe(20747)
+    expect(factionKey(20747)).toBe(20747)
+  })
+})
+
+describe('revive outcomes', () => {
+  it('⚠️ counts successes and failures apart', () => {
+    // A failed revive cost somebody a slot and left the target in hospital;
+    // counting it beside the successes overstates how much help arrived.
+    const revives = [
+      rev({ result: 'success' }), rev({ result: 'success' }), rev({ result: 'failure' }),
+    ]
+    const r = summariseWindow({ ...base, revives })
+    expect(r.revives).toEqual({ success: 2, failure: 1, total: 3 })
+  })
+
+  it('treats anything that is not an explicit failure as a success', () => {
+    // ⚠️ Torn writes 'success' / 'failure'. An older row with the column unset
+    // is far more likely to be a success than a failure, and calling every
+    // unknown a failure would invent a problem that is not there.
+    expect(reviveOutcome({ result: 'failure' })).toBe('failure')
+    expect(reviveOutcome({ result: 'FAILURE' })).toBe('failure')
+    expect(reviveOutcome({ result: 'success' })).toBe('success')
+    expect(reviveOutcome({ result: null })).toBe('success')
+    expect(reviveOutcome({})).toBe('success')
+  })
+
+  it('still ignores the faction filter when splitting by outcome', () => {
+    const revives = [rev({ result: 'failure', reviver_faction_id: OTHER })]
+    const r = summariseWindow({ ...base, revives, selectedFactionIds: new Set([OPP]) })
+    expect(r.revives).toEqual({ success: 0, failure: 1, total: 1 })
   })
 })
