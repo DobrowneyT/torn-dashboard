@@ -18,6 +18,18 @@ surface it automatically.
 
 ---
 
+## [3.151.0] - 2026-09-29
+
+### Removed
+- **The "Fetch Revives" button** on RW History, with its war-picker modal.
+  `revives-sync` runs `0 5,35 * * * *` — twice an hour, continuously — so
+  `faction_revives` is already populated for every war without anyone pressing
+  anything, and the War Overview reads it by war window.
+  ⚠️ `POST /api/sync/wars/:id/revives` is **kept**. It is a bounded backfill and
+  remains the only way to fill a gap for an old war the continuous cron never
+  covered; removing a working endpoint is a bigger decision than removing a
+  button nobody needs to press.
+
 ## [3.150.1] - 2026-09-29
 
 ### Changed
