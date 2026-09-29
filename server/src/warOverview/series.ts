@@ -37,6 +37,60 @@ export function pickBinSeconds(windowSeconds: number): number {
   return 6 * 3600
 }
 
+/**
+ * The most bars the plot may carry, whatever width was asked for.
+ *
+ * ⚠️ A bound, not a preference. The bin width is reachable from a Discord
+ * argument, and a 48-hour war at one-second bins is 172,800 bars per series —
+ * enough to make the endpoint chew memory and the renderer hang.
+ *
+ * ⚠️ Deliberately far above anything the UI offers, so it only ever catches a
+ * pathological value. The narrowest width the page offers is 1m, which is 2,880
+ * bars across a 48-hour war and 10,080 across a week; a bound tight enough to
+ * feel meaningful would start refusing the presets on long wars, which is a
+ * worse failure than a slow chart.
+ */
+export const MAX_BINS = 20000
+
+/**
+ * Which bin width to use: the caller's, or the auto pick.
+ *
+ * `requested` is a whole number of SECONDS as a string, or `auto`/empty for the
+ * automatic width. Returns `{ seconds, auto, error }` with `error` non-null
+ * when the request cannot be honoured.
+ *
+ * ⚠️ **Refuses rather than clamps.** Silently widening a bin the caller named
+ * produces a chart whose bars are not the width its caller believes — and the
+ * bot prints that width. Saying no, and naming the narrowest width that would
+ * work, is the only answer that leaves them able to fix it.
+ */
+export function resolveBinSeconds(
+  windowSeconds: number, requested?: string | null,
+): { seconds: number; auto: boolean; error: string | null } {
+  const auto = pickBinSeconds(Math.max(1, windowSeconds))
+  const asked = (requested ?? '').trim().toLowerCase()
+  if (asked === '' || asked === 'auto') return { seconds: auto, auto: true, error: null }
+
+  // ⚠️ Not `Number()`: that accepts '1.5', '0x10', ' ' and 'Infinity'. The
+  // contract is a whole number of seconds, so the string must look like one.
+  if (!/^\d+$/.test(asked) || Number(asked) <= 0) {
+    return {
+      seconds: 0, auto: false,
+      error: `Bin size must be a whole number of seconds (got \`${requested}\`).`,
+    }
+  }
+  const seconds = Number(asked)
+  const floor = Math.ceil(Math.max(1, windowSeconds) / MAX_BINS)
+  if (seconds < floor) {
+    return {
+      seconds: 0, auto: false,
+      error: `Bin size ${seconds}s would draw more than ${MAX_BINS} bars for this war. `
+           + `The narrowest that fits is ${floor}s.`,
+    }
+  }
+  return { seconds, auto: false, error: null }
+}
+
 /** How many factions get their own colour before the rest become "Other". */
 export const MAX_SERIES = 8
 
@@ -56,6 +110,8 @@ export interface SeriesArgs {
   mode?: 'faction' | 'member'
   memberId?: number | null
   factionNames?: Record<number, string>
+  /** An explicit bin width in seconds; omitted or null means the auto pick. */
+  binSeconds?: number | null
 }
 
 /**
@@ -67,8 +123,14 @@ export interface SeriesArgs {
 export function buildChart({
   attacks, revives, fromTs, toTs, ourFactionId,
   selectedFactionIds = null, mode = 'faction', memberId = null, factionNames = {},
+  binSeconds: binOverride = null,
 }: SeriesArgs): Chart {
-  const binSeconds = pickBinSeconds(Math.max(1, toTs - fromTs))
+  // ⚠️ Validated by `resolveBinSeconds` at the edge, not here — this function
+  // draws what it is told. A bad width must be refused where the caller can be
+  // told why, not turned into a silently different chart.
+  const binSeconds = binOverride && binOverride > 0
+    ? binOverride
+    : pickBinSeconds(Math.max(1, toTs - fromTs))
   const nBins = Math.max(1, Math.floor((toTs - fromTs) / binSeconds) + 1)
   const x_ms = Array.from({ length: nBins }, (_, i) => (fromTs + i * binSeconds) * 1000)
   const idxOf = (ts: number) =>

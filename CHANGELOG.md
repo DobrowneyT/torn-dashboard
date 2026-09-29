@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.154.0] - 2026-09-29
+
+### Added
+- **War Overview endpoint: a `bin` argument.** `/api/internal/war-overview` now
+  takes `bin=<whole seconds>` (or `bin=auto`, the default), so the Discord bot's
+  `/rw-overview` can offer the same Bin size choice the page does — Auto, 1m,
+  5m, 1h, 6h, 1d, or a width typed by hand. The resolved width comes back as
+  `bin: { seconds, auto }` so the bot can label the chart with what was actually
+  used, and `auto` is echoed because "1 h" and "1 h (auto)" answer different
+  questions.
+
+### Changed
+- **A refused bin width is reported, never clamped.** A width that is not a
+  positive whole number of seconds, or that would draw more than `MAX_BINS`
+  bars, comes back as an `error` naming the narrowest width that would work.
+  Quietly widening a bin the caller named produces a chart whose bars are not
+  the width its caller believes — and the bot prints that width. The check runs
+  whether or not a chart was asked for, so `summary_only` cannot silently accept
+  an argument the same command rejects one keystroke later.
+
+### Notes
+- `MAX_BINS` is 20,000, deliberately far above anything the UI offers: the
+  narrowest preset (1m) is 2,880 bars across a 48-hour war and 10,080 across a
+  week. A tighter bound would start refusing the page's own presets on long
+  wars, which is a worse failure than a slow chart. The first draft used 2,000
+  and its own test caught it rejecting 1m on a two-day war.
+
 ## [3.153.0] - 2026-09-29
 
 ### Added
