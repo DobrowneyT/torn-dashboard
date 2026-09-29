@@ -18,6 +18,14 @@ surface it automatically.
 
 ---
 
+## [3.150.1] - 2026-09-29
+
+### Changed
+- The War Overview's **per-member** summary now names the opponent too —
+  `Marnix0126 [2932241] vs Damage Inc [20747]`, matching the faction view.
+  ⚠️ Worth the line because these get screenshotted into a post-mortem weeks
+  later, where "which war was this?" is the first thing anybody asks and the
+  member's own name answers none of it.
 ## [3.150.0] - 2026-09-29
 
 ### Added

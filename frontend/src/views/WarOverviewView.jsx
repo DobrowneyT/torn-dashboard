@@ -1047,15 +1047,26 @@ export default function WarOverviewView() {
           // Header line — opponent name for the faction summary, member
           // name + Torn ID for the per-member summary. Falls back to the
           // raw faction id if we couldn't resolve a name.
+          // ⚠️ The opponent is named on BOTH views. A member summary read
+          // "Marnix0126 [2932241]" with no indication of which war it belonged
+          // to — and these get screenshotted into a post-mortem weeks later,
+          // where "who was this against" is the first thing anybody asks.
+          const oppName = war
+            ? (war.opponent_name || factionNames[war.opponent_id] || (war.opponent_id ? `faction ${war.opponent_id}` : ''))
+            : ''
+          const vsOpponent = oppName ? (
+            <>
+              vs <span className="text-gray-900 dark:text-white">{oppName}</span>
+              {war.opponent_id && <span className="text-gray-500 dark:text-gray-400 font-normal"> [{war.opponent_id}]</span>}
+            </>
+          ) : null
+
           let headerLabel = null
           if (viewMode === 'faction' && war) {
-            const oppName = war.opponent_name || factionNames[war.opponent_id] || (war.opponent_id ? `faction ${war.opponent_id}` : '')
-            const oppId   = war.opponent_id
             if (oppName) {
               headerLabel = (
                 <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                  vs <span className="text-gray-900 dark:text-white">{oppName}</span>
-                  {oppId && <span className="text-gray-500 dark:text-gray-400 font-normal"> [{oppId}]</span>}
+                  {vsOpponent}
                 </span>
               )
             }
@@ -1066,6 +1077,7 @@ export default function WarOverviewView() {
                 <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                   <span className="text-gray-900 dark:text-white">{m.name}</span>
                   <span className="text-gray-500 dark:text-gray-400 font-normal"> [{m.id}]</span>
+                  {vsOpponent && <> {vsOpponent}</>}
                 </span>
               )
             }
