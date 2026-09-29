@@ -18,6 +18,36 @@ surface it automatically.
 
 ---
 
+## [3.149.0] - 2026-09-29
+
+### Added
+- **Revives are split by outcome** on the War Overview — blue *Revived*, orange
+  *Failed revive* — and the summary reads Success / Fail / Total.
+  ⚠️ A failed revive cost somebody a slot and left the target in hospital, so
+  counting it beside the successes overstated how much help actually arrived.
+  Anything that is not an explicit `failure` counts as a success: an old row
+  with the column unset is far likelier to be one, and defaulting the other way
+  would invent a problem that is not there.
+- **"(no faction)" is a real entry in the faction filter**, keyed `0` and sorted
+  last. ⚠️ Faction-less players rendered as an unfilterable bar — you could
+  narrow the plot to one opponent and still be looking at rows you never asked
+  for, with no checkbox to turn them off. There are 113k such defender rows.
+  ⚠️ `0` is falsy and both trace builders branched on `if (!fid)`, which would
+  have routed it straight back into the unfilterable bucket; they now test
+  `fid == null`, and the leftover branch is renamed `(unknown)` because it can
+  only catch genuinely malformed rows now.
+
+### Fixed
+- ⚠️ **The revives legend read `Incoming revives [__revives__]`** — an internal
+  key on screen. The label builder appended `[id]` unconditionally; it now does
+  so only for real numeric faction ids, which also prevents `(no faction) [0]`.
+
+### Changed
+- **The summary is three stacked rows** — Outgoing, Incoming, Revives — matching
+  the three plot panels above it, and identical in the faction and member views.
+  It was a single wrapped row of pills, and the faction view carried a different
+  shape from the member one.
+
 ## [3.148.0] - 2026-09-28
 
 ### Fixed

@@ -35,6 +35,27 @@ export function classifyEventType(result) {
 const emptyBucket = () => ({ attack: 0, assist: 0, loss: 0, total: 0 })
 
 /**
+ * The id used for a player who is in no faction.
+ *
+ * ⚠️ **`0`, not null, and it is a REAL entry in the filter.** Faction-less
+ * players were rendered as an unfilterable `(no faction)` bar — you could
+ * narrow the plot to one opponent and still be looking at 113k rows you never
+ * asked for, with no checkbox to turn them off. `Number(null)` is already 0 and
+ * no real faction has that id, so it doubles as the sentinel for free.
+ */
+export const NO_FACTION_ID = 0
+export const NO_FACTION_NAME = '(no faction)'
+
+/** Normalise any faction reference — null, undefined, string — to a number. */
+export const factionKey = (fid) => Number(fid) || NO_FACTION_ID
+
+/** Torn reports a revive as 'success' or 'failure'. */
+export const REVIVE_SUCCESS = 'success'
+export const REVIVE_FAILURE = 'failure'
+export const reviveOutcome = (r) =>
+  String(r?.result ?? '').toLowerCase() === REVIVE_FAILURE ? REVIVE_FAILURE : REVIVE_SUCCESS
+
+/**
  * Count what the plot is currently showing.
  *
  * `mode` is 'faction' (our whole faction) or 'member' (one member).
@@ -50,7 +71,10 @@ export function summariseWindow({
   ourFactionId, selectedFactionIds = null, mode = 'faction', memberId = null,
 }) {
   const inWindow = (ts) => ts >= fromTs && ts <= toTs
-  const picked = (fid) => selectedFactionIds == null || selectedFactionIds.has(Number(fid))
+  // ⚠️ Through `factionKey`, so a null faction tests as 0 — the id the
+  // "(no faction)" checkbox uses. Comparing the raw value would make that
+  // checkbox inert, which is the bug it exists to fix.
+  const picked = (fid) => selectedFactionIds == null || selectedFactionIds.has(factionKey(fid))
 
   const outgoing = emptyBucket()
   const incoming = emptyBucket()
@@ -80,14 +104,20 @@ export function summariseWindow({
   }
 
   // ⚠️ No `picked()` here, on purpose — see the note at the top of the file.
-  let reviveCount = 0
+  //
+  // ⚠️ Split by outcome: a failed revive cost somebody a slot and left the
+  // target in hospital, so counting it alongside the successes overstates how
+  // much help actually arrived.
+  const revStats = { success: 0, failure: 0, total: 0 }
   for (const r of revives) {
     if (!inWindow(r.timestamp)) continue
     const mine = mode === 'member'
       ? r.target_id === memberId
       : Number(r.target_faction_id) === Number(ourFactionId)
-    if (mine) reviveCount += 1
+    if (!mine) continue
+    revStats[reviveOutcome(r)] += 1
+    revStats.total += 1
   }
 
-  return { fromTs, toTs, outgoing, incoming, revives: reviveCount }
+  return { fromTs, toTs, outgoing, incoming, revives: revStats }
 }
