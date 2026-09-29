@@ -5,7 +5,7 @@
 // are the ones comparing their totals — a chart that quietly disagrees with the
 // numbers under it is worse than no chart.
 import { describe, expect, it } from 'vitest'
-import { buildChart, pickBinSeconds, MAX_SERIES } from '../src/warOverview/series.js'
+import { buildChart, pickBinSeconds, resolveBinSeconds, MAX_SERIES, MAX_BINS } from '../src/warOverview/series.js'
 import { summariseWindow } from '../src/warOverview/summary.js'
 
 const US = 10739
@@ -171,5 +171,94 @@ describe('colours and series', () => {
   it('panels are outgoing, incoming, revives — the page\'s order', () => {
     const c = buildChart({ ...base, attacks: [], revives: [] })
     expect(c.panels.map((p) => p.key)).toEqual(['outgoing', 'incoming', 'revives'])
+  })
+})
+
+// ── Bin size override (#811 follow-up) ────────────────────────────────────────
+//
+// ⚠️ The page lets you pick Auto/1m/5m/1h/6h/1d; the bot now takes the same
+// choice plus a typed custom width. The override must be REFUSED rather than
+// silently clamped when it would blow the plot up: a chart drawn at a width
+// nobody asked for, labelled with the width they did ask for, is a lie.
+describe('resolveBinSeconds', () => {
+  const WINDOW = 48 * HOUR
+
+  it('falls back to the auto pick when nothing is asked for', () => {
+    for (const asked of [undefined, null, '', 'auto', 'AUTO']) {
+      const r = resolveBinSeconds(WINDOW, asked as any)
+      expect(r.error).toBeNull()
+      expect(r.auto).toBe(true)
+      expect(r.seconds).toBe(pickBinSeconds(WINDOW))
+    }
+  })
+
+  it('honours an explicit width, as seconds', () => {
+    const r = resolveBinSeconds(WINDOW, '3600')
+    expect(r.error).toBeNull()
+    expect(r.auto).toBe(false)
+    expect(r.seconds).toBe(3600)
+  })
+
+  it('takes every width the page offers', () => {
+    for (const s of [60, 300, 3600, 21600, 86400]) {
+      expect(resolveBinSeconds(WINDOW, String(s)).seconds).toBe(s)
+    }
+  })
+
+  it('refuses a width that is not a positive whole number of seconds', () => {
+    for (const bad of ['0', '-60', '1.5', 'five', '5m', 'NaN', 'Infinity']) {
+      const r = resolveBinSeconds(WINDOW, bad)
+      expect(r.error, `"${bad}" should be refused`).toMatch(/whole number of seconds/)
+    }
+  })
+
+  it('refuses a width so small the plot would be unreadable, and names the floor', () => {
+    // ⚠️ 48h at 1s is 172,800 bars. Left unbounded this is a memory and
+    // render-time footgun reachable from a Discord argument.
+    const r = resolveBinSeconds(WINDOW, '1')
+    expect(r.error).toContain(String(Math.ceil(WINDOW / MAX_BINS)))
+    expect(r.seconds).toBe(0)
+  })
+
+  it('allows exactly MAX_BINS bars', () => {
+    const floor = Math.ceil(WINDOW / MAX_BINS)
+    expect(resolveBinSeconds(WINDOW, String(floor)).error).toBeNull()
+  })
+
+  it('allows a width wider than the war itself — one bar is legible', () => {
+    const r = resolveBinSeconds(HOUR, String(30 * 86400))
+    expect(r.error).toBeNull()
+    expect(r.seconds).toBe(30 * 86400)
+  })
+})
+
+describe('buildChart with an explicit bin width', () => {
+  it('bins at the width it was given, not the auto pick', () => {
+    const attacks = [atk({ started: START + 30 }), atk({ started: START + 90 })]
+    const chart = buildChart({ ...base, attacks, revives: [], binSeconds: 60 })
+    expect(chart.bin_seconds).toBe(60)
+    // Two events 60s apart land in adjacent bins at this width...
+    expect(chart.panels[0].series[0].values[0]).toBe(1)
+    expect(chart.panels[0].series[0].values[1]).toBe(1)
+    // ...where the 4h auto pick (300s) would have put them in the same one.
+    const auto = buildChart({ ...base, attacks, revives: [] })
+    expect(auto.bin_seconds).toBe(300)
+    expect(auto.panels[0].series[0].values[0]).toBe(2)
+  })
+
+  it('keeps the chart totals level with the summary at any width', () => {
+    // ⚠️ The invariant the whole chart exists to hold. Changing the bin width
+    // must move events between bars, never lose them.
+    const attacks = Array.from({ length: 50 }, (_, i) =>
+      atk({ started: START + i * 137 }))
+    const revives = [rev(), rev({ result: 'failure' })]
+    const totals = summariseWindow({ ...base, attacks, revives })
+    for (const binSeconds of [60, 300, 3600, 86400]) {
+      const c = buildChart({ ...base, attacks, revives, binSeconds })
+      expect(sum(c.panels[0].series), `outgoing @${binSeconds}`)
+        .toBe(totals.outgoing.total)
+      expect(sum(c.panels[2].series), `revives @${binSeconds}`)
+        .toBe(totals.revives.total)
+    }
   })
 })

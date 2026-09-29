@@ -18,7 +18,7 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { bearerFrom, tokenMatches } from './fleetMetricsAuth.js'
 import { summariseWindow, factionKey, NO_FACTION_ID } from './warOverview/summary.js'
-import { buildChart } from './warOverview/series.js'
+import { buildChart, resolveBinSeconds } from './warOverview/series.js'
 
 /** How many wars the picker offers. Enough for a season, not the whole history. */
 export const RECENT_WARS = 25
@@ -31,6 +31,11 @@ export interface WarOverviewQuery {
   warring_only?: string
   /** '1'/'true' → include the pre-binned series for the bot's chart. */
   chart?: string
+  /**
+   * Bin width in whole seconds, or `auto`/absent for the automatic pick —
+   * the same choice the page's Bin size control offers.
+   */
+  bin?: string
 }
 
 const truthy = (v: string | undefined) => v === '1' || v === 'true'
@@ -142,9 +147,17 @@ export async function collectWarOverview(
       factionNames[fid] = r.reviver_faction_name
     }
   }
+  // ⚠️ Resolved even when no chart was asked for. A refused bin width must be
+  // reported whether or not it would have been drawn — answering a bad argument
+  // with a summary teaches the caller their argument was fine.
+  const bin = resolveBinSeconds(toTs - fromTs, q.bin)
+  if (bin.error) {
+    return { server_now: Date.now(), our_faction_id: ourFactionId, wars, error: bin.error }
+  }
+
   const chart = truthy(q.chart)
-    ? buildChart({ attacks, revives, fromTs, toTs, ourFactionId,
-                   selectedFactionIds, mode, memberId, factionNames })
+    ? buildChart({ attacks, revives, fromTs, toTs, ourFactionId, selectedFactionIds,
+                   mode, memberId, factionNames, binSeconds: bin.seconds })
     : null
 
   // Which factions took part, so the bot can name them and the chart can colour
@@ -168,6 +181,10 @@ export async function collectWarOverview(
     member_id: memberId,
     member_name: memberId != null ? (members.get(memberId) ?? null) : null,
     warring_only: truthy(q.warring_only),
+    // ⚠️ Echoed back so the bot can label the chart with the width actually
+    // used. `auto` matters: "1 h" and "1 h (auto)" answer different questions
+    // for somebody deciding whether to pick a width by hand.
+    bin: { seconds: bin.seconds, auto: bin.auto },
     window: { from_ms: fromTs * 1000, to_ms: toTs * 1000 },
     summary,
     chart,
