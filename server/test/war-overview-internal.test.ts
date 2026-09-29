@@ -207,3 +207,63 @@ describe('the chart series', () => {
     expect(typeof body.chart.bin_seconds).toBe('number')
   })
 })
+
+// ── The bin size argument (#811 follow-up) ───────────────────────────────────
+describe('the bin size argument', () => {
+  const WINDOW = END - START  // 7200s
+
+  it('reports the auto width when none is asked for', async () => {
+    const body = await (await get(`?war=${WAR}&chart=1`)).json()
+    // A 2h window, so the auto pick is the 5-minute width.
+    expect(body.bin).toEqual({ seconds: 300, auto: true })
+    expect(body.chart.bin_seconds).toBe(300)
+  })
+
+  it('bins at the width it was given', async () => {
+    const body = await (await get(`?war=${WAR}&chart=1&bin=60`)).json()
+    expect(body.bin).toEqual({ seconds: 60, auto: false })
+    expect(body.chart.bin_seconds).toBe(60)
+    expect(body.chart.x_ms.length).toBe(Math.floor(WINDOW / 60) + 1)
+  })
+
+  it('treats an explicit `auto` exactly as an absent one', async () => {
+    const a = await (await get(`?war=${WAR}&chart=1&bin=auto`)).json()
+    const b = await (await get(`?war=${WAR}&chart=1`)).json()
+    expect(a.bin).toEqual(b.bin)
+  })
+
+  it('refuses a nonsense width, and says so instead of charting', async () => {
+    const body = await (await get(`?war=${WAR}&chart=1&bin=5m`)).json()
+    expect(body.error).toMatch(/whole number of seconds/)
+    expect(body.chart).toBeUndefined()
+    // ⚠️ The war list survives the refusal, so the bot's picker still works.
+    expect(body.wars.length).toBeGreaterThan(0)
+  })
+
+  it('allows a very narrow width when the war is short enough to afford it', async () => {
+    // ⚠️ The bar bound is generous on purpose — it exists to catch a
+    // pathological argument, not to second-guess a deliberate one. This window
+    // is 2h, so even one-second bins are well inside it. (The bound itself is
+    // pinned by war-overview-series.test.ts, which can pick its own window.)
+    const body = await (await get(`?war=${WAR}&chart=1&bin=1`)).json()
+    expect(body.error).toBeUndefined()
+    expect(body.chart.x_ms.length).toBe(WINDOW + 1)
+  })
+
+  it('refuses a bad width even with no chart asked for', async () => {
+    // ⚠️ Otherwise `summary_only` silently accepts an argument the same command
+    // rejects one keystroke later.
+    const body = await (await get(`?war=${WAR}&bin=-5`)).json()
+    expect(body.error).toBeTruthy()
+    expect(body.summary).toBeUndefined()
+  })
+
+  it('keeps the chart totals level with the summary at a custom width', async () => {
+    const body = await (await get(`?war=${WAR}&chart=1&bin=120`)).json()
+    const total = (panel: any) => panel.series
+      .reduce((t: number, s: any) => t + s.values.reduce((x: number, y: number) => x + y, 0), 0)
+    expect(total(body.chart.panels[0])).toBe(body.summary.outgoing.total)
+    expect(total(body.chart.panels[1])).toBe(body.summary.incoming.total)
+    expect(total(body.chart.panels[2])).toBe(body.summary.revives.total)
+  })
+})
