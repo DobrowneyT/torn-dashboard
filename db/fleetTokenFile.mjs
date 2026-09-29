@@ -44,10 +44,25 @@ const CHAIN_WATCH_COMMENT = (slug) => [
   `      # this. Regenerate with \`node db/chain-watch-token.mjs ${slug}\`.`,
 ]
 
+/**
+ * The same note for the War Overview token (#811).
+ *
+ * ⚠️ A THIRD token from the same secret. The bot holds this and the chain one,
+ * and they are scoped apart on purpose: a war's full attack and revive history
+ * is not something a leak of the board token should also surrender.
+ */
+const WAR_OVERVIEW_COMMENT = (slug) => [
+  '      # ⚠️ THIS faction\'s War Overview token (#811) for the Discord bot.',
+  '      # Scoped apart from CHAIN_WATCH_TOKEN even though the same bot holds',
+  '      # both: one credential should not unlock the other feature\'s data.',
+  `      # Regenerate with \`node db/war-overview-token.mjs ${slug}\`.`,
+]
+
 /** Which env var a rewrite targets, and the comment that introduces it. */
 export const TOKEN_VARS = {
   FLEET_METRICS_TOKEN: FLEET_COMMENT,
   CHAIN_WATCH_TOKEN: CHAIN_WATCH_COMMENT,
+  WAR_OVERVIEW_TOKEN: WAR_OVERVIEW_COMMENT,
 }
 
 /**
