@@ -28,6 +28,7 @@ import { registerCompetitionRoutes, resolveCompetition } from './competitions.js
 import { registerCalendarRoutes } from './calendar.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
+import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
 import { registerExportRoutes } from './exports.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
 import { createFlagResolver, type FlagResolver } from './featureFlags.js'
@@ -120,6 +121,8 @@ export interface ServerOptions {
    * Unset disables the endpoint entirely.
    */
   chainWatchToken?: string
+  /** #811: the Discord bot's War Overview bearer. Absent leaves the route UNREGISTERED. */
+  warOverviewToken?: string
 }
 
 export interface RateLimitOptions {
@@ -275,6 +278,13 @@ export async function buildServer(
   // not become a fleet-metrics compromise.
   if (opts.db && opts.chainWatchToken) {
     registerChainWatchInternalRoutes(app, opts.db, opts.chainWatchToken)
+  }
+
+  // ⚠️ Absent token ⇒ route UNREGISTERED, not open. A tenant nobody asked to
+  // expose exposes nothing — the same rule chain-watch follows, and the reason
+  // a missing env var can never accidentally publish a war's full history.
+  if (opts.db && opts.warOverviewToken) {
+    registerWarOverviewInternalRoutes(app, opts.db, opts.warOverviewToken)
   }
 
   app.decorateRequest('session', null)

@@ -86,6 +86,7 @@ const app = await buildServer({
   // one; handing it the metrics token would give it key-pool depth for free.
   // Printed by db/chain-watch-token.mjs. Absent leaves the endpoint unregistered.
   chainWatchToken: process.env.CHAIN_WATCH_TOKEN || undefined,
+  warOverviewToken: process.env.WAR_OVERVIEW_TOKEN || undefined,
   tornBaseUrl,
   jwtSecret,
   keyEncryptionKey,

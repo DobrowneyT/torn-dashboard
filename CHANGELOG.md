@@ -18,6 +18,68 @@ surface it automatically.
 
 ---
 
+## [3.153.0] - 2026-09-29
+
+### Added
+- **`/api/internal/war-overview?chart=1` returns pre-binned series** for the
+  Discord bot's chart (#811 slice 4) — three panels (outgoing, incoming,
+  revives) of stacked, coloured series.
+  ⚠️ **Binned here, not in the bot.** Binning, faction ranking, colour
+  assignment and the event classifier all stay beside the summary they must
+  agree with; shipping raw rows and binning in Python would be a THIRD
+  implementation of logic that has already drifted three times in this repo.
+  ⚠️ One colour map across both attack panels, so a faction is the same colour
+  top and bottom — two independently ranked maps would recolour the opponent
+  between panels, which reads as two different factions. A merc that appears in
+  only ONE panel still gets its own colour.
+  ⚠️ Factions past the eighth roll into "Other" but their events are still
+  counted, so stacked bar heights match the summary printed beside them.
+  ⚠️ Opt-in: the summary-only path is the common one and every autocomplete
+  keystroke hits this endpoint.
+
+## [3.152.0] - 2026-09-29
+
+### Added
+- **`GET /api/internal/war-overview`** — the Discord bot's read-only view of a
+  war, for `/rw-overview` (#811). Faction or member mode, an optional
+  `warring_only` filter, the participant list for the bot's autocomplete, and
+  the recent wars for its picker.
+  ⚠️ Its own HMAC scope, `war-overview:<slug>`, **not** a reuse of
+  `chain-watch:<slug>`. The same bot holds both; scoping them apart is what
+  stops a leak of the board credential also surrendering a war's full attack and
+  revive history (#609). Mint with `node db/war-overview-token.mjs`.
+  ⚠️ Absent token ⇒ route **unregistered**, not open.
+  ⚠️ Every time crosses as epoch **milliseconds**. Postgres serves timestamptz
+  with a bare two-digit offset that `new Date` parses to NaN and Python's
+  `datetime.fromisoformat` rejects outright.
+  ⚠️ `warring_only` excludes `(no faction)` as well as third parties — it is the
+  filterable id `0`, and six figures' worth of faction-less rows is most of the
+  noise the flag exists to remove.
+  ⚠️ Revives are never faction-filtered, whatever `warring_only` says, matching
+  the page. `is_termed` is passed through but never gated on: it is set by hand,
+  so an untoggled real war is indistinguishable from a termed one here.
+
+### Changed
+- `server/src/warOverview/summary.ts` is a **deliberate second implementation**
+  of `frontend/src/utils/warOverviewSummary.js`. The page must compute locally —
+  it re-renders on every drag of the range slider — and the bot cannot run
+  browser JS, so the numbers necessarily exist twice.
+  ⚠️ `server/test/war-overview-parity.test.ts` runs BOTH over the same fixtures
+  and fails when they disagree, so drift is a red build rather than a Discord
+  embed quietly contradicting the page it claims to mirror. Three mutations
+  verified: `Special`, revive filtering, and the no-faction key.
+## [3.151.0] - 2026-09-29
+
+### Removed
+- **The "Fetch Revives" button** on RW History, with its war-picker modal.
+  `revives-sync` runs `0 5,35 * * * *` — twice an hour, continuously — so
+  `faction_revives` is already populated for every war without anyone pressing
+  anything, and the War Overview reads it by war window.
+  ⚠️ `POST /api/sync/wars/:id/revives` is **kept**. It is a bounded backfill and
+  remains the only way to fill a gap for an old war the continuous cron never
+  covered; removing a working endpoint is a bigger decision than removing a
+  button nobody needs to press.
+
 ## [3.150.1] - 2026-09-29
 
 ### Changed
