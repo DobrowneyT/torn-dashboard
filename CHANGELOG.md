@@ -18,6 +18,24 @@ surface it automatically.
 
 ---
 
+## [3.147.1] - 2026-09-28
+
+### Fixed
+- ⚠️ **A Chain Watch UI test failed at random on CI and blocked the 3.147.0
+  promotion.** "Test timed out in 5000ms" on a test that takes ~380ms on a
+  quiet machine; the same commit passed on a re-run. That is the expensive kind
+  of flake, because a test failing at random teaches everyone to wave through a
+  red check that might be real — and CI caught two genuine bugs the same day
+  that local runs missed.
+  The file renders a multi-day hour grid twice in that test, and the CI job runs
+  all three workspaces together (the failing run spent 57s in `environment` and
+  52s in `collect` alone), so a >13x stretch is contention, not a hang.
+  `testTimeout` is raised to 20s **for that file only** — raising it globally
+  would hide a genuine hang everywhere else.
+  ⚠️ Not `asyncUtilTimeout`: the first fix attempted was a `waitFor` budget,
+  which was the wrong knob — the suite passes with that set to 60ms, because
+  every `waitFor` there resolves on its first check.
+
 ## [3.147.0] - 2026-09-28
 
 ### Fixed
