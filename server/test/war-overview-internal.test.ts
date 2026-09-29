@@ -175,3 +175,35 @@ describe('a war', () => {
     expect(body.error).toBe('no such war')
   })
 })
+
+describe('the chart series', () => {
+  it('is absent unless asked for', async () => {
+    // ⚠️ Opt-in: the summary-only path is the common one, and every
+    // autocomplete keystroke hits this endpoint.
+    const body = await (await get(`?war=${WAR}`)).json()
+    expect(body.chart).toBeNull()
+  })
+
+  it('arrives with three panels whose totals match the summary', async () => {
+    const body = await (await get(`?war=${WAR}&chart=1`)).json()
+    expect(body.chart.panels.map((p: any) => p.key)).toEqual(['outgoing', 'incoming', 'revives'])
+    const sum = (p: any) =>
+      p.series.reduce((t: number, s: any) => t + s.values.reduce((a: number, b: number) => a + b, 0), 0)
+    // ⚠️ The chart must agree with the numbers printed beside it. Different
+    // functions, same rows — this is the comparison that matters.
+    expect(sum(body.chart.panels[1])).toBe(body.summary.incoming.total)
+    expect(sum(body.chart.panels[2])).toBe(body.summary.revives.total)
+  })
+
+  it('names the opponent rather than showing a bare id', async () => {
+    const body = await (await get(`?war=${WAR}&chart=1`)).json()
+    const labels = body.chart.panels.flatMap((p: any) => p.series.map((s: any) => s.label))
+    expect(labels.some((l: string) => l.includes('Damage Inc'))).toBe(true)
+  })
+
+  it('⚠️ sends bin start times as epoch MILLISECONDS', async () => {
+    const body = await (await get(`?war=${WAR}&chart=1`)).json()
+    expect(body.chart.x_ms[0]).toBe(START * 1000)
+    expect(typeof body.chart.bin_seconds).toBe('number')
+  })
+})
