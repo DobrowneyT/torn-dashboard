@@ -129,6 +129,8 @@ export interface StackOverrides {
    *  FLEET_METRICS_SECRET. */
   fleetMetricsToken?: string
   chainWatchToken?: string
+  /** #811: the Discord bot's War Overview bearer. */
+  warOverviewToken?: string
 }
 
 /** Boot embedded Postgres + templated faction DB + Torn fixture + GitHub fixture + API. */
@@ -265,6 +267,7 @@ export async function startTestStack(
     ocModel: overrides.ocModel,
     fleetMetricsToken: overrides.fleetMetricsToken,
     chainWatchToken: overrides.chainWatchToken,
+    warOverviewToken: overrides.warOverviewToken,
     factionSlug: TEST_FACTION.slug,
     db,
     tornBaseUrl,
