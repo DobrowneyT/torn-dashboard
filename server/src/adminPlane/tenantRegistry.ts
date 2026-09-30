@@ -19,13 +19,28 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 
-import { bearerFrom, tokenMatches } from '../fleetMetricsAuth.js'
+import { bearerFrom, deriveTenantToken, tokenMatches } from '../fleetMetricsAuth.js'
 import { discoverTenants } from './statusCollector.js'
+
+/**
+ * The scopes the Discord bot's own credentials are derived under.
+ *
+ * ⚠️ These strings must match `db/chainWatchTokenLib.mjs` and
+ * `db/warOverviewTokenLib.mjs` byte for byte — they are what each tenant
+ * container was issued with. A mismatch is a 401 with no hint as to which side
+ * is wrong, which is why the test imports those modules and asserts equality
+ * rather than trusting this copy.
+ */
+export const chainWatchScope = (slug: string) => `chain-watch:${slug}`
+export const warOverviewScope = (slug: string) => `war-overview:${slug}`
 
 export interface TenantRecord {
   slug: string
   /** `https://<slug>.<domain>`, or null when no domain is configured. */
   base_url: string | null
+  /** Present only when the caller asked for them AND a fleet secret exists. */
+  chain_watch_token?: string
+  war_overview_token?: string
 }
 
 /**
@@ -41,11 +56,35 @@ export function normaliseDomain(raw: string | undefined): string | null {
   return domain.toLowerCase()
 }
 
-export function buildRegistry(slugs: string[], domain: string | null): TenantRecord[] {
-  return slugs.map((slug) => ({
-    slug,
-    base_url: domain ? `https://${slug}.${domain}` : null,
-  }))
+/**
+ * ⚠️ **The bot's credentials are DERIVED here, not stored anywhere.** A tenant's
+ * bot token is `HMAC(FLEET_METRICS_SECRET, "<scope>:<slug>")`, so the same
+ * computation that issued the tenant its value reproduces it on demand. There
+ * is nothing to generate, nothing to keep in step, and nothing to lose.
+ *
+ * That is the whole point: adding a faction used to mean an SSH session to
+ * derive a value and paste it into a file, which is not something anybody can
+ * do from a phone — so in practice it did not get done, and the bot reported a
+ * faction it could never poll.
+ *
+ * ⚠️ **Opt-in, so the default answer carries no credentials.** A consumer that
+ * only wants to know which factions exist should not be handed the means to
+ * read them.
+ */
+export function buildRegistry(
+  slugs: string[], domain: string | null, fleetSecret?: string,
+): TenantRecord[] {
+  return slugs.map((slug) => {
+    const record: TenantRecord = {
+      slug,
+      base_url: domain ? `https://${slug}.${domain}` : null,
+    }
+    if (fleetSecret) {
+      record.chain_watch_token = deriveTenantToken(fleetSecret, chainWatchScope(slug))
+      record.war_overview_token = deriveTenantToken(fleetSecret, warOverviewScope(slug))
+    }
+    return record
+  })
 }
 
 /**
@@ -65,6 +104,7 @@ export const TENANT_REGISTRY_SCOPE = 'fleet-tenants'
 
 export function registerTenantRegistry(
   app: FastifyInstance, db: pg.Pool, expectedToken: string | undefined,
+  fleetSecret?: string,
 ) {
   app.get('/api/internal/tenants', async (req, reply) => {
     if (!expectedToken) {
@@ -78,13 +118,21 @@ export function registerTenantRegistry(
       return reply.status(401).send({ error: 'Authentication required' })
     }
     const domain = normaliseDomain(process.env.TENANT_BASE_DOMAIN)
-    const tenants = buildRegistry(await discoverTenants(db), domain)
+    // ⚠️ Opt-in. The bot asks for them; anything else that grows a use for this
+    // list gets the list alone, and has to say so to get more.
+    const wantTokens = (req.query as { tokens?: string })?.tokens === '1'
+    const tenants = buildRegistry(
+      await discoverTenants(db), domain, wantTokens ? fleetSecret : undefined)
     return {
       tenants,
       // ⚠️ Said out loud so a consumer can report the real cause. A list of
       // tenants with no URLs is otherwise indistinguishable from a fleet that
       // is up but unreachable.
       base_url_available: domain !== null,
+      // ⚠️ Likewise: asked for tokens and got none is a configuration fault,
+      // and a bot that cannot tell that from "this faction has no token" would
+      // send somebody hunting the wrong half.
+      tokens_available: wantTokens ? Boolean(fleetSecret) : undefined,
       note: domain ? undefined : 'TENANT_BASE_DOMAIN is not set on the admin container',
     }
   })

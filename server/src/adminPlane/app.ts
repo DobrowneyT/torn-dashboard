@@ -83,6 +83,16 @@ export interface AdminOptions {
    * note in tenantRegistry.ts on why that is not a 401.
    */
   tenantRegistryToken?: string
+  /**
+   * The fleet secret, so the registry can derive the bot's per-tenant tokens
+   * on request.
+   *
+   * ⚠️ The secret itself never leaves this container — only values derived
+   * from it under the bot's two scopes. A consumer holding those cannot mint
+   * anything else, which is the property that makes this safe to answer at all:
+   * losing the registry token costs the bot's own access, not the fleet's.
+   */
+  fleetMetricsSecret?: string
 }
 
 declare module 'fastify' {
@@ -301,7 +311,8 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
     // which is fleet-shaped information and has no business on a surface the
     // internet can reach — the token is the second lock, not the first.
     if (opts.fleetDb) {
-      registerTenantRegistry(app, opts.fleetDb, opts.tenantRegistryToken)
+      registerTenantRegistry(
+        app, opts.fleetDb, opts.tenantRegistryToken, opts.fleetMetricsSecret)
     }
 
     app.get('/api/admin/local/ping', { preHandler: requireAdmin }, async () => ({
