@@ -39,6 +39,8 @@ import { startItemsSync } from './adminPlane/itemsSync.js'
 import {
   startMonitor, DEFAULT_INTERVAL_MS, DEFAULT_DIGEST_HOUR_UTC, type MonitorDeps,
 } from './adminPlane/monitor.js'
+import { deriveTenantToken } from './fleetMetricsAuth.js'
+import { TENANT_REGISTRY_SCOPE } from './adminPlane/tenantRegistry.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -173,10 +175,27 @@ const publicApp = await buildAdminApp({
   fleetDb: db,
   items,
 })
+/**
+ * The Discord bot's bearer for the tenant registry (#826 follow-up).
+ *
+ * ⚠️ Derived under its own scope rather than reusing a tenant's metrics token:
+ * knowing which factions exist and reading a faction's metrics are different
+ * privileges, and one credential should not grant both.
+ *
+ * ⚠️ Absent without `FLEET_METRICS_SECRET`, which leaves the route answering
+ * 503 — "not configured", distinct from "wrong token", so nobody rotates a
+ * credential that was never the problem.
+ */
+const fleetSecret = process.env.FLEET_METRICS_SECRET || undefined
+const tenantRegistryToken = fleetSecret
+  ? deriveTenantToken(fleetSecret, TENANT_REGISTRY_SCOPE)
+  : undefined
+
 const localApp = await buildAdminApp({
   surface: 'local', username, passwordHash, totpSecret, sessionSecret, version, collector, alerts,
   fleetDb: db,
   items,
+  tenantRegistryToken,
 })
 
 await publicApp.listen({ host: '0.0.0.0', port: publicPort })
