@@ -36,6 +36,7 @@ import {
   listProvisionRequests, getProvisionRequest, retryProvisionRequest,
 } from './provisioning.js'
 import { syncFleetItems, type ItemsSyncDeps } from './itemsSync.js'
+import { registerTenantRegistry } from './tenantRegistry.js'
 
 export type Surface = 'public' | 'local'
 
@@ -73,6 +74,15 @@ export interface AdminOptions {
   fleetDb?: pg.Pool
   /** Fleet item catalogue sync (#609 slice 7). Absent without a Torn key. */
   items?: ItemsSyncDeps
+  /**
+   * The Discord bot's bearer for `GET /api/internal/tenants`.
+   *
+   * ⚠️ Derived from the fleet secret under its OWN scope, so a consumer that
+   * only needs to know which factions exist cannot thereby read any faction's
+   * metrics. Absent leaves the route registered but answering 503 — see the
+   * note in tenantRegistry.ts on why that is not a 401.
+   */
+  tenantRegistryToken?: string
 }
 
 declare module 'fastify' {
@@ -287,6 +297,13 @@ export async function buildAdminApp(opts: AdminOptions): Promise<FastifyInstance
   // while dropping a database is not. Slice 6 adds provisioning to the PUBLIC
   // surface; decommissioning stays here permanently.
   if (opts.surface === 'local') {
+    // ⚠️ Local surface only. The registry names every faction in the fleet,
+    // which is fleet-shaped information and has no business on a surface the
+    // internet can reach — the token is the second lock, not the first.
+    if (opts.fleetDb) {
+      registerTenantRegistry(app, opts.fleetDb, opts.tenantRegistryToken)
+    }
+
     app.get('/api/admin/local/ping', { preHandler: requireAdmin }, async () => ({
       ok: true,
       note: 'local control surface — destructive operations land here',

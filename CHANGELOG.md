@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.155.0] - 2026-09-30
+
+### Added
+- **A tenant registry for the Discord bot.** `GET /api/internal/tenants` on the
+  admin control plane's **local** surface returns every faction in the fleet and
+  its public URL. The list is not stored anywhere: `discoverTenants` already
+  reads `pg_database`, so a faction appears the moment it is provisioned and
+  goes when its database does. This replaces every consumer keeping its own
+  copy — the bot's faction command required somebody to retype a slug and a URL
+  the control plane already knew, and the two drifted the first time a tenant
+  was renamed.
+
+### Notes
+- ⚠️ **The public URL is derived, and the domain is a stated tunable.** Every
+  tenant vhost is `server_name <slug>.*`, so the domain appears nowhere in the
+  nginx config and cannot be read back from it. `TENANT_BASE_DOMAIN` supplies
+  it. Unset, the endpoint reports the slugs with a null `base_url` and says why
+  — a guessed hostname is only discovered as a connection failure somewhere
+  else.
+- ⚠️ **Token-authed despite being local-only.** The local port is kept off the
+  internet by how it is published, which is a deployment property rather than a
+  guarantee this code can make.
+- ⚠️ **Its own HMAC scope** (`fleet-tenants`), not a tenant's metrics token:
+  knowing which factions exist and reading a faction's metrics are different
+  privileges, and one credential should not grant both.
+- ⚠️ A missing token answers **503, not 401**. "Not configured" and "wrong
+  token" have different fixes, and conflating them sends whoever is debugging to
+  rotate a credential that was never the problem.
+
 ## [3.154.0] - 2026-09-29
 
 ### Added
