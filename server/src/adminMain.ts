@@ -196,6 +196,7 @@ const localApp = await buildAdminApp({
   fleetDb: db,
   items,
   tenantRegistryToken,
+  fleetMetricsSecret: fleetSecret,
 })
 
 await publicApp.listen({ host: '0.0.0.0', port: publicPort })

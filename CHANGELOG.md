@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.156.0] - 2026-09-30
+
+### Added
+- **The tenant registry can mint the Discord bot's own tokens.**
+  `GET /api/internal/tenants?tokens=1` now returns each faction's
+  `chain_watch_token` and `war_overview_token` alongside its URL.
+
+### Notes
+- ⚠️ **Derived, never stored.** A tenant's bot token is
+  `HMAC(FLEET_METRICS_SECRET, "<scope>:<slug>")`, so the same computation that
+  issued the tenant its value reproduces it on demand. Nothing is generated,
+  nothing has to be kept in step, and nothing can be lost.
+- ⚠️ **This removes an SSH session from adding a faction.** Previously the
+  operator had to run `node db/chain-watch-token.mjs`, paste the result into the
+  bot's `.env` and restart it — which is not something anybody can do from a
+  phone, so in practice it did not get done and the bot listed factions it could
+  never poll.
+- ⚠️ **Opt-in**, so the default answer carries no credentials: a consumer that
+  only wants to know which factions exist is not handed the means to read them.
+- ⚠️ **The fleet secret never leaves the admin container** — only values derived
+  under the bot's two scopes. Holding those cannot mint anything else, so losing
+  the registry token costs the bot's own access rather than the fleet's. That is
+  the property that makes answering this at all defensible.
+- ⚠️ The scope strings are duplicated from `db/chainWatchTokenLib.mjs` and
+  `db/warOverviewTokenLib.mjs`, and a test imports both and asserts equality. A
+  drifted scope is a 401 with no hint as to which side is wrong.
+
 ## [3.155.1] - 2026-09-30
 
 ### Added
