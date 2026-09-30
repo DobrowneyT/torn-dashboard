@@ -18,6 +18,21 @@ surface it automatically.
 
 ---
 
+## [3.155.1] - 2026-09-30
+
+### Added
+- **`TENANT_BASE_DOMAIN` reaches the admin container.** 3.155.0 added the tenant
+  registry and read this variable, but nothing passed it through compose — so it
+  was always unset and every `base_url` came back null. Declared on the admin
+  service and documented in `.env.example`.
+
+### Notes
+- ⚠️ Defaulted to empty like every other value in that block, deliberately.
+  Compose interpolates every service when it parses the file, so a `:?` here
+  would break `docker compose` for an operator who has not configured the admin
+  plane — which is `update.sh`, and would take the whole fleet's deploy down for
+  an optional container.
+
 ## [3.155.0] - 2026-09-30
 
 ### Added

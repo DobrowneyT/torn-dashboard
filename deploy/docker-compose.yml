@@ -138,6 +138,17 @@ services:
       # them would mean a leak from ANY faction's env reads EVERY faction's
       # metrics — one faction's compromise should be one faction.
       FLEET_METRICS_SECRET: ${FLEET_METRICS_SECRET:-}
+      # ⚠️ The public domain tenants are served on, for the tenant registry
+      # (`GET /api/internal/tenants`). It is a TUNABLE rather than a constant
+      # because it genuinely cannot be derived: every tenant vhost is
+      # `server_name <slug>.*`, so the domain appears nowhere in the nginx
+      # config and cannot be read back from it.
+      #
+      # Unset is a supported state — the registry reports each slug with a null
+      # `base_url` and a note saying why, which is the honest answer. A guessed
+      # hostname would be discovered later as a connection failure somewhere
+      # else, which is far harder to trace back to here.
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-}
     volumes:
       # ⚠️ Read-only, and the only volume this container gets. Backup freshness
       # is the highest-value monitor there is — a job failing for three weeks is
