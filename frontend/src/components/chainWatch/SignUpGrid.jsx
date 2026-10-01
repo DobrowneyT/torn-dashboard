@@ -1,6 +1,6 @@
 import { Fragment } from 'react'
 import { UserPlus, X, Repeat } from 'lucide-react'
-import { groupByTctDay, localLabel, zoneLabel, bonusLabel } from '../../utils/chainWatch'
+import { groupByTctDay, localLabel, zoneLabel, bonusLabel, tctLabel } from '../../utils/chainWatch'
 import InfoTooltip from '../InfoTooltip'
 
 /**
@@ -26,6 +26,23 @@ const dayHeading = (key) =>
   new Date(`${key}T00:00:00Z`).toLocaleDateString(undefined, {
     weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
   })
+
+/**
+ * "Claimed 3 Oct 14:02 TCT", or "⚠️ claimed after the hour ran" when it was
+ * back-filled.
+ *
+ * ⚠️ `created_ms` is an epoch NUMBER from the server, never `created_at`, which
+ * is a timestamptz served with a bare two-digit offset that `new Date()` reads
+ * as NaN (#140). The repo has a guard test for exactly this.
+ */
+export function claimedLabel(slot, row) {
+  const ms = Number(slot?.created_ms)
+  if (!Number.isFinite(ms)) return undefined
+  const when = tctLabel(ms)
+  // An hour is an hour long; claimed after its end means it was back-filled.
+  const after = Number.isFinite(row?.ms) && ms >= row.ms + 3_600_000
+  return after ? `Claimed ${when} TCT — after the hour ran` : `Claimed ${when} TCT`
+}
 
 export default function SignUpGrid({
   rows, event, meId, canEdit, zone,
@@ -92,8 +109,21 @@ export default function SignUpGrid({
                   const key = `${row.hourIso}:${i}`
                   const busy = busyKey === key
                   if (!slot) {
+                    // ⚠️ The boundary is the hour's END. Claiming the hour you
+                    // are in is legitimate — you are watching it. Claiming one
+                    // that has finished is not, and until this existed the
+                    // button was rendered unconditionally: any member could
+                    // back-fill every elapsed hour of an open event from the
+                    // history tab and be paid for each.
+                    //
+                    // ⚠️ Leadership keeps it, because slots genuinely need
+                    // correcting after the fact — somebody watched but could
+                    // not claim, or a no-show needs removing. `created_by` and
+                    // `created_at` record who did it and when.
+                    const claimable = !row.isPast || canEdit
                     return (
                       <div key={i} className="flex gap-1">
+                        {claimable ? (
                         <button
                           type="button" disabled={busy}
                           onClick={() => onClaim(row, i)}
@@ -102,6 +132,17 @@ export default function SignUpGrid({
                         >
                           Sign up
                         </button>
+                        ) : (
+                          // ⚠️ Rendered as a dash rather than a disabled
+                          // button. A greyed-out control invites a click and
+                          // then refuses it; an empty cell says "this hour is
+                          // done" without pretending there is something to do.
+                          <span
+                            data-testid={`closed-${row.hourIso}-${i}`}
+                            className="flex-1 rounded border border-dashed border-gray-200 px-2 py-1 text-center text-xs text-gray-300 dark:border-slate-700 dark:text-slate-600"
+                            title="This hour has finished"
+                          >—</span>
+                        )}
                         {canEdit && (
                           <button
                             type="button" disabled={busy}
@@ -123,6 +164,11 @@ export default function SignUpGrid({
                         href={`https://www.torn.com/profiles.php?XID=${slot.member_id}`}
                         target="_blank" rel="noreferrer"
                         className="truncate font-medium hover:underline"
+                        // ⚠️ When the slot was CLAIMED, not when the hour ran.
+                        // A leader asking "did they sign up for this before or
+                        // after it happened" has no other way to tell, and a
+                        // back-fill is legitimate — it just has to be visible.
+                        title={claimedLabel(slot, row)}
                       >
                         {slot.member_name ?? slot.member_id}
                       </a>

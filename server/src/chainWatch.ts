@@ -51,6 +51,10 @@ const SIGNUP_SELECT = `
   -- #140 trap. Nothing downstream may parse hour_start in JS.
   -- (No backticks in here: this comment lives inside a template literal.)
   (extract(epoch from s.hour_start) * 1000)::bigint AS hour_ms,
+  -- ⚠️ Same reason as hour_ms: created_at is a timestamptz and arrives with a
+  -- bare two-digit offset that new Date() reads as NaN (#140). The grid shows
+  -- when a slot was claimed, so it needs a number it can trust.
+  (extract(epoch from s.created_at) * 1000)::bigint AS created_ms,
   (extract(hour from s.hour_start at time zone 'UTC')::int = ANY (e.bonus_hours)) AS is_bonus,
   s.pay_decision, s.decided_by, s.decided_at,
   -- ⚠️ Precedence matters: a leader's explicit actually_ended_at wins over the
@@ -386,6 +390,27 @@ export function registerChainWatchRoutes(
   // ── Sign-ups ───────────────────────────────────────────────────────────────
 
   /** Shared validation: the slot must exist, in an open event, on the hour. */
+  /**
+   * ⚠️ **The boundary is the hour's END, not its start.** Claiming the hour you
+   * are currently in is legitimate — you are watching it. Claiming one that has
+   * finished is not: nothing you do now can have covered it.
+   *
+   * ⚠️ **Leadership is exempt, deliberately** (MonChoon, 2026-10-01). Slots have
+   * to be corrected after the fact — somebody watched but could not claim, or a
+   * no-show needs removing. `created_by` and `created_at` already record who
+   * did it and when, so the back-fill is auditable rather than invisible.
+   *
+   * ⚠️ Until this existed, ANY member could back-fill every elapsed hour of an
+   * open event and be paid for each: `checkSlot` only asked whether the hour was
+   * inside the event, and `is_payable` only asks whether it fell before the
+   * chain ended — neither asked whether the claim came before the hour ran.
+   */
+  async function hourHasRun(hour: unknown) {
+    const { rows } = await db.query(
+      `SELECT $1::timestamptz + interval '1 hour' <= now() AS has_run`, [hour])
+    return rows[0]?.has_run === true
+  }
+
   async function checkSlot(reply: FastifyReply, id: number, hour: unknown, slot: number) {
     const event = await loadEvent(db, id)
     if (!event) return reply.status(404).send({ error: 'No such event' })
@@ -416,6 +441,12 @@ export function registerChainWatchRoutes(
 
     const bad = await checkSlot(reply, id, b.hour_start, slot)
     if (bad) return bad
+
+    if (!isLead(req) && await hourHasRun(b.hour_start)) {
+      return reply.status(409).send({
+        error: 'That hour has already finished — only leadership can change it now.',
+      })
+    }
 
     try {
       const { rows } = await db.query(
