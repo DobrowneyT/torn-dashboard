@@ -6,6 +6,17 @@ import { X } from 'lucide-react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { parseDbTime } from '../utils/time'
 import InfoTooltip from './InfoTooltip'
+import { sortRows } from '../utils/tableSort.js'
+
+/** The inventory table's columns — all six headers already sorted. */
+export const INVENTORY_COLUMNS = [
+  { key: 'id',           kind: 'number' },
+  { key: 'name',         kind: 'text' },
+  { key: 'quantity',     kind: 'number' },
+  { key: 'available',    kind: 'number' },
+  { key: 'currentPrice', kind: 'number' },
+  { key: 'totalValue',   kind: 'number' },
+]
 
 export default function InventoryManagement() {
   const { user } = useAuth()
@@ -232,28 +243,13 @@ export default function InventoryManagement() {
       )
     }
     
-    items.sort((a, b) => {
-      let aVal = a[sortConfig.key]
-      let bVal = b[sortConfig.key]
-      
-      if (sortConfig.key === 'name') {
-        aVal = aVal.toLowerCase()
-        bVal = bVal.toLowerCase()
-      } else if (sortConfig.key === 'id') {
-        aVal = parseInt(aVal) || 0
-        bVal = parseInt(bVal) || 0
-      }
-      
-      if (aVal < bVal) {
-        return sortConfig.direction === 'asc' ? -1 : 1
-      }
-      if (aVal > bVal) {
-        return sortConfig.direction === 'asc' ? 1 : -1
-      }
-      return 0
-    })
+    // ⚠️ The old comparator called `aVal.toLowerCase()` with no null guard —
+    // one item with a null name would throw and blank the whole table. It also
+    // used `parseInt(id) || 0`, collapsing a real zero into a missing value.
+    const sortedItems = sortRows(items, INVENTORY_COLUMNS, sortConfig.key,
+                                 sortConfig.direction, { tieBreak: 'name' })
     
-    return items
+    return sortedItems
   }, [enrichedItems, selectedCategory, searchTerm, sortConfig])
   
   const totals = useMemo(() => {

@@ -11,6 +11,27 @@ import {
 } from '../utils/crimeStatusUtils'
 import { config } from '../config'
 import InfoTooltip from '../components/InfoTooltip'
+import { sortRows } from '../utils/tableSort.js'
+
+/**
+ * The OC history table's columns.
+ *
+ * ⚠️ `executed_at` is epoch SECONDS — the cell renders
+ * `new Date(timestamp * 1000)`. Declaring it a `date` would hand `parseDbTime`
+ * a number, which it rejects, and the column would silently sort nothing.
+ *
+ * ⚠️ `status` sorts alphabetically, which is deliberate rather than ideal:
+ * Failed / Planning / Recruiting / Success has no natural order, and inventing
+ * one here would disagree with the status filter beside it.
+ */
+export const OC_HISTORY_COLUMNS = [
+  { key: 'name',         kind: 'text' },
+  { key: 'id',           kind: 'number' },
+  { key: 'difficulty',   kind: 'number' },
+  { key: 'status',       kind: 'text' },
+  { key: 'filled_slots', kind: 'number' },
+  { key: 'executed_at',  kind: 'number' },
+]
 
 export default function CrimesView({ crimesData, isLeadership }) {
   const { user } = useAuth()
@@ -139,20 +160,12 @@ export default function CrimesView({ crimesData, isLeadership }) {
       })
     }
 
-    crimes.sort((a, b) => {
-      let aVal = a[sortConfig.key]
-      let bVal = b[sortConfig.key]
-
-      if (aVal < bVal) {
-        return sortConfig.direction === 'asc' ? -1 : 1
-      }
-      if (aVal > bVal) {
-        return sortConfig.direction === 'asc' ? 1 : -1
-      }
-      return 0
-    })
-
-    return crimes
+    // ⚠️ The old comparator had NO coercion at all — a raw `<` / `>` on
+    // whatever the API returned, so nulls returned 0 and scattered, and `name`
+    // compared case-sensitively (every lower-case crime after every upper-case
+    // one).
+    return sortRows(crimes, OC_HISTORY_COLUMNS, sortConfig.key, sortConfig.direction,
+                    { tieBreak: 'name' })
   }, [activeCrimesData, statusFilter, sortConfig])
 
   const statusCounts = useMemo(() => {
