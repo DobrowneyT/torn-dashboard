@@ -18,6 +18,31 @@ surface it automatically.
 
 ---
 
+## [3.164.0] - 2026-10-01
+
+### Added
+- **RW History: the Type column sorts**, so termed and real wars group (#803,
+  slice #838). It had no sort at all.
+- **The War Room's headers are keyboard-operable** and announce their sort
+  state. A click handler on a `<th>` was invisible to a keyboard.
+
+### Fixed
+- ⚠️ RW History's scores were coerced with `|| 0`, making an ongoing war showing
+  a genuine **0** indistinguishable from one with no score recorded. An absent
+  score now sinks; a zero is a number.
+
+### Notes
+- ⚠️ **The War Room's comparator is deliberately NOT on the shared primitive.**
+  It ranks activity, roll-call and flags by meaning rather than value, sinks
+  unknown FF and missing stat readings in both directions, falls back through
+  status → activity → name for timers, and returns 0 for revive chance until the
+  fetch lands so the prior order stands. The shared comparator cannot express
+  any of that, and the roster table was already fully sortable — 13 columns,
+  with only Dibs and Action plain, both correctly so.
+- ⚠️ **`MobileWarRoomView` keeps its sort chips** and gains no tappable headers.
+  It is a card list, and an explicit control is the better pattern at phone
+  width — the decision #838 asked to be stated either way.
+
 ## [3.163.0] - 2026-10-01
 
 ### Added
