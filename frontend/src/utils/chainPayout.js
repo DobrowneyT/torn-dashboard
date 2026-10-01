@@ -118,6 +118,32 @@ export function payLink(memberId, payout) {
 }
 
 /**
+ * One link that pays everybody at once.
+ *
+ * ⚠️ Same `batbal_` shape the OC and RW payout sheets use
+ * (`generateWarBatchPayoutURL`), so a leader who knows one knows the other.
+ * The two lists are kept parallel by construction: uids and amounts are mapped
+ * from the SAME filtered array, because a mismatch in length silently pays the
+ * wrong people the wrong amounts.
+ *
+ * ⚠️ Rows with no payout are dropped rather than sent as zero. Torn accepts a
+ * zero and it does nothing, but it pads the link with members who were never
+ * owed anything — and a leader scanning the result cannot tell those apart from
+ * somebody they expected to pay.
+ *
+ * Returns '' when nobody is owed, which the caller uses to hide the button
+ * rather than offering a link that does nothing.
+ */
+export function batchPayLink(rows) {
+  const payable = (rows ?? []).filter((r) => r.payout > 0)
+  if (payable.length === 0) return ''
+  const uids = payable.map((r) => r.member_id).join(',')
+  const amounts = payable.map((r) => Math.floor(r.payout)).join(',')
+  return 'https://www.torn.com/factions.php?step=your#/tab=controls'
+    + `&batbal_uids=${uids}&batbal_amounts=${amounts}`
+}
+
+/**
  * Does the raffle run?
  *
  * ⚠️ A dropped chain pays the slots but **not** the raffle (MonChoon,

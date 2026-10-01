@@ -18,6 +18,57 @@ surface it automatically.
 
 ---
 
+## [3.168.0] - 2026-10-01
+
+### Added
+- **Batch pay on the Chain Watch payout sheet** — one link paying everybody
+  owed, in the same `batbal_` shape the OC and RW payout sheets use, plus a
+  copy button.
+- **A payout settings panel** for leadership: payout per slot, bonus hours,
+  bonus multiplier and what the bonus applies to, editable from the sheet.
+- **Dates on the Dashboard strips** — the war range (start → end, or "Ongoing")
+  and each crime's execution date, both sortable.
+
+### Notes
+- ⚠️ **The settings panel adds no new authority.** `PATCH /api/chain-events/:id`
+  was already leadership-gated and validates every field; this is a frontend
+  surface on an existing route. The bounds it checks are copied from that route
+  verbatim so the two agree.
+- ⚠️ **Changing a setting recalculates hours already served**, which is the
+  point — every figure is derived from the event, never stamped onto a sign-up.
+  The save reloads rather than patching state locally, or the sheet would show
+  numbers that disagree with what was just saved.
+- ⚠️ **Batch pay drops rows owed nothing** rather than sending a zero. Torn
+  accepts a zero and does nothing, but it pads the link with members who were
+  never owed anything, which a leader scanning the result cannot distinguish
+  from somebody they expected to pay.
+- ⚠️ The war Dates column sorts on `start_at`, not the rendered range; the crime
+  Executed column is epoch **seconds**, not a Postgres timestamp.
+- ⚠️ `SortableTh` now passes `style` through. It did not, so a caller setting a
+  column width was silently ignored — invisible, because the table just lays out
+  differently.
+
+## [3.167.0] - 2026-10-01
+
+### Fixed
+- ⚠️ **Chain Watch's Bonus column did not sort.** Its accessor read `r.bonus`
+  where the field is `r.bonusSlots`, so every value was `undefined`, the
+  comparator treated them all as blank, and the tie-break produced the **same
+  order in both directions** — the arrow flipped and nothing moved. Ticket range
+  had the same fault (`r.first` for `r.firstTicket`).
+
+### Added
+- **A guard that every sort accessor reads a real field**, built from the actual
+  row producers rather than hand-written fixtures.
+
+### Notes
+- ⚠️ This is the gap #840's guard does not cover: that one asks whether a table
+  *has* sorting, and cannot tell whether an accessor reads a field that exists.
+  Reading a missing one is not an error — it is `undefined`.
+- ⚠️ The rows in the new test come from `payoutRows` and `summariseWarPayoutRow`
+  themselves. A fixture written beside the accessor would carry the same typo
+  and pass.
+
 ## [3.166.0] - 2026-10-01
 
 ### Added

@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
-import { AlertTriangle, ExternalLink } from 'lucide-react'
-import { payoutRows, payLink, raffleRuns, unpayableNote } from '../../utils/chainPayout'
+import { useMemo, useState } from 'react'
+import { AlertTriangle, ExternalLink, Settings } from 'lucide-react'
+import { payoutRows, payLink, batchPayLink, raffleRuns, unpayableNote } from '../../utils/chainPayout'
 import { tctLabel } from '../../utils/chainWatch'
 import SortableTh, { useTableSort } from '../SortableTh.jsx'
+import PayoutSettings from './PayoutSettings'
 
 /**
  * Chain Watch payouts.
@@ -17,11 +18,16 @@ import SortableTh, { useTableSort } from '../SortableTh.jsx'
  * silent no-op.
  */
 export const CHAIN_PAYOUT_COLUMNS = [
-  { key: 'watcher',     kind: 'text',   accessor: (r) => r.member_name ?? String(r.member_id) },
+  { key: 'watcher',     kind: 'text',   accessor: (r) => r.member_name },
   { key: 'slots',       kind: 'number', accessor: (r) => r.slots },
-  { key: 'bonus',       kind: 'number', accessor: (r) => r.bonus },
+  // ⚠️ `bonusSlots`, not `bonus`. Reading the wrong field made every value
+  // blank, so the column returned an identical order in BOTH directions — the
+  // tie-break alone — and looked like sorting was broken rather than reading
+  // nothing. Nothing caught it: an accessor for a field that does not exist is
+  // not an error, it is `undefined`.
+  { key: 'bonus',       kind: 'number', accessor: (r) => r.bonusSlots },
   { key: 'tickets',     kind: 'number', accessor: (r) => r.tickets },
-  { key: 'ticketRange', kind: 'number', accessor: (r) => r.first },
+  { key: 'ticketRange', kind: 'number', accessor: (r) => r.firstTicket },
   { key: 'payout',      kind: 'number', accessor: (r) => r.payout },
   // ⚠️ Not rendered. It exists to reproduce `chainPayout.ORDER`'s tie-break
   // exactly — "slots descending, then member id ascending", which that file
@@ -51,7 +57,8 @@ const FLAG_TONE = {
   abroad: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
 }
 
-export default function PayoutPanel({ event, signups, removed, outcome, canEdit, onDecide, busyKey }) {
+export default function PayoutPanel({ event, signups, removed, outcome, canEdit, onDecide, busyKey, onUpdateEvent }) {
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const { rows: unsortedRows, totals } = useMemo(() => payoutRows(event, signups), [event, signups])
   // ⚠️ Opens in `chainPayout.ORDER` — slots descending, member id ascending.
   // That order is documented there as having to be stable, so the default here
@@ -61,6 +68,11 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
     useTableSort(unsortedRows, CHAIN_PAYOUT_COLUMNS, {
       initialCol: 'slots', initialDir: 'desc', tieBreak: 'memberId',
     })
+
+  // ⚠️ Built from the SORTED rows, so the link pays exactly the people the
+  // reader can see, in the order they are looking at them.
+  const batchUrl = useMemo(() => batchPayLink(rows), [rows])
+  const payableCount = rows.filter((r) => r.payout > 0).length
   const note = useMemo(() => unpayableNote(event, signups, outcome), [event, signups, outcome])
   const raffle = raffleRuns(outcome)
 
@@ -135,6 +147,41 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
             })}
           </ul>
         </div>
+      )}
+
+      {/* ⚠️ Above the table, not inside it: a batch link built from rows the
+          reader can still see is one they can check before clicking. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {batchUrl && (
+            <a href={batchUrl} target="_blank" rel="noreferrer" data-testid="batch-pay"
+              className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm">
+              Batch pay {payableCount} <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+          {batchUrl && (
+            <button type="button" data-testid="batch-pay-copy"
+              onClick={() => navigator.clipboard?.writeText(batchUrl)}
+              className="btn-secondary px-3 py-1.5 text-sm">
+              {/* ⚠️ Copy as well as open: the OC and RW sheets both offer the
+                  link as text, because Torn's controls tab does not always
+                  survive being opened in a new tab from a different origin. */}
+              Copy link
+            </button>
+          )}
+        </div>
+        {canEdit && onUpdateEvent && (
+          <button type="button" data-testid="payout-settings"
+            onClick={() => setSettingsOpen((v) => !v)}
+            aria-expanded={settingsOpen}
+            className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm">
+            <Settings className="h-4 w-4" /> Payout settings
+          </button>
+        )}
+      </div>
+
+      {settingsOpen && canEdit && onUpdateEvent && (
+        <PayoutSettings event={event} onSave={onUpdateEvent} onClose={() => setSettingsOpen(false)} />
       )}
 
       <div className="card overflow-hidden p-0">

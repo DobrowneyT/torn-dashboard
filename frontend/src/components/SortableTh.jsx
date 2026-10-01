@@ -16,19 +16,22 @@ import { sortRows, nextDirection } from '../utils/tableSort.js'
  * qualifier on the original request.
  */
 export default function SortableTh({
-  col, sortCol, sortDir, onSort, className = '', label, children,
+  col, sortCol, sortDir, onSort, className = '', label, style, children,
 }) {
   const key = typeof col === 'string' ? col : col?.key
   const sortable = typeof col === 'string' ? true : col?.sortable !== false
   const active = sortCol === key
 
   if (!sortable) {
-    return <th className={`px-3 py-1.5 font-medium ${className}`}>{children}</th>
+    return <th className={`px-3 py-1.5 font-medium ${className}`} style={style}>{children}</th>
   }
 
   return (
     <th
       className={`px-3 py-1.5 font-medium ${className}`}
+      // ⚠️ Passed through because callers set column widths here. A dropped
+      // `style` is invisible — the table just lays out differently.
+      style={style}
       // ⚠️ Real `aria-sort`, not just an arrow. A screen reader otherwise gets
       // a button with no indication of what the current order is.
       aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
