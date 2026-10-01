@@ -18,6 +18,37 @@ surface it automatically.
 
 ---
 
+## [3.159.0] - 2026-10-01
+
+### Added
+- **Sorting on six payout tables** (#803, slice #836, first half). `RWPayoutsView`
+  and `PayoutsView` — the RW payout modal's member and pre/post breakdown
+  tables, and the OC weekly payout, per-member crime and week-comparison tables.
+
+### Changed
+- ⚠️ **An ineligible member with no payout now sorts LAST**, in both directions.
+  The old comparator read `a[sortCol] ?? 0`, so somebody excluded from a payout
+  sorted among the people who earned nothing — and descending, that put them
+  above anybody on a genuine zero.
+- ⚠️ A member present in only **one** of two compared weeks sorts to the end
+  rather than counting as zero. "Earned nothing" and "was not here" are
+  different answers.
+
+### Notes
+- ⚠️ **Correction to the audit on #803:** `PayoutsView`'s main table was already
+  fully sortable. The recorded "1 of 18" counted all three tables in the file
+  and missed that its headers are `SortHeader` components rather than raw
+  `<th>`. The real gap was the two detail tables, which had nothing.
+- ⚠️ `executed_at` in the crime detail table is **epoch seconds**, not a
+  Postgres timestamp string. Declaring it a `date` would hand `parseDbTime` a
+  number, which it rejects, and the column would silently sort nothing.
+- ⚠️ Reward sorts on what the cell **shows** — zero unless the crime succeeded —
+  because a failed crime renders "-" while `rewards_money` may still hold a
+  figure, and would otherwise outrank a successful one.
+- ⚠️ A switch statement with eight cases and a `default` that fell through to
+  `payout` is gone: a column added to it later sorted by payout and looked like
+  it worked.
+
 ## [3.158.0] - 2026-10-01
 
 ### Changed
