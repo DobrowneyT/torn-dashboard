@@ -138,8 +138,14 @@ describe('sorting', () => {
   it('offers a sort for every column', () => {
     // ⚠️ The guard behind "every table should be sortable": a column added
     // later without one silently does nothing when clicked.
+    // ⚠️ `accessor` since #835 — the field was `sort` when this table had its
+    // own comparator. The shared one needs a value-getter plus a declared
+    // `kind`, so both are asserted: a column with an accessor and no kind falls
+    // back to a text compare, which is how a numeric column starts sorting
+    // "10" before "9" without anybody noticing.
     for (const c of SNAPSHOT_COLUMNS) {
-      expect(typeof c.sort).toBe('function')
+      expect(typeof c.accessor, c.key).toBe('function')
+      expect(c.kind, c.key).toBeTruthy()
       expect(() => sortSnapshot(rows, c.key, 1)).not.toThrow()
     }
   })
