@@ -7,6 +7,25 @@ import { Trophy, Plus, X, Award, Pin } from 'lucide-react'
 import { boundaryValue, windowLabel } from '../utils/competitionWindow'
 import { buildPrizes, buildPrizePayload, prizeTableRows, formatPrize, ordinal } from '../utils/competitionPrizes'
 import InfoTooltip, { InfoDot } from './InfoTooltip'
+import SortableTh, { useTableSort } from './SortableTh.jsx'
+
+/**
+ * A competition's standings.
+ *
+ * ⚠️ Ties are the normal case here, not an edge: live forge data has two
+ * members on 15. `tieBreak: 'member'` is what stops them swapping on every
+ * re-render.
+ *
+ * ⚠️ `prize` is empty for most rows until a board is resolved, so it sinks —
+ * sorting by it should surface who WON something, not bury them under everyone
+ * who did not.
+ */
+export const STANDINGS_COLUMNS = [
+  { key: 'rank',   kind: 'number', accessor: (r) => r.rank },
+  { key: 'member', kind: 'text',   accessor: (r) => r.member_name },
+  { key: 'value',  kind: 'number', accessor: (r) => r.value },
+  { key: 'prize',  kind: 'number', accessor: (r) => r.prize },
+]
 
 function fmtDate(d) {
   if (!d) return ''
@@ -297,18 +316,27 @@ function Leaderboard({ standings, lottery = false }) {
   // Frozen history rows carry no `qualified` flag — they are all pool members.
   // A resolved board carries the prize each member earned (#239) → show it.
   const showPrize = standings.some((r) => r.prize)
+  // ⚠️ Opens on rank, which is the order a standings board is published in.
+  // `#` and `Value` are the same sort — rank is derived from value — and both
+  // are offered because people reach for whichever column they are reading.
+  const { sorted: sortedStandings, sortCol, sortDir, onSort } =
+    useTableSort(standings, STANDINGS_COLUMNS, {
+      initialCol: 'rank', initialDir: 'asc', tieBreak: 'member',
+    })
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="text-xs text-gray-500 dark:text-gray-400 text-left">
-          <th className="py-1 px-2 w-10">#</th>
-          <th className="py-1 px-2">Member</th>
-          <th className="py-1 px-2 text-right">Value</th>
-          {showPrize && <th className="py-1 px-2 text-right">Prize</th>}
+          <SortableTh col="rank"   sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Rank" className="py-1 px-2 w-10">#</SortableTh>
+          <SortableTh col="member" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Member" className="py-1 px-2">Member</SortableTh>
+          <SortableTh col="value"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Value" className="py-1 px-2 text-right">Value</SortableTh>
+          {showPrize && (
+            <SortableTh col="prize" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Prize" className="py-1 px-2 text-right">Prize</SortableTh>
+          )}
         </tr>
       </thead>
       <tbody>
-        {standings.map((r) => {
+        {sortedStandings.map((r) => {
           const dimmed = lottery && r.qualified === false
           return (
             <tr key={r.member_id} className={`border-t border-gray-100 dark:border-slate-700/50 ${dimmed ? 'opacity-40' : ''}`}>

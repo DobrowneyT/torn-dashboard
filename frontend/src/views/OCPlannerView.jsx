@@ -14,6 +14,7 @@ import {
   selectPausingSlots,
   buildSpawnPlan,
 } from '../utils/ocPlanner'
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
 
 // ── Presentation maps ────────────────────────────────────────────────────────
 const CAT_META = {
@@ -171,6 +172,29 @@ export default function OCPlannerView() {
     out: avail.members.filter((m) => m.category === cat && m.source === 'coming').length,
   })
 
+  // ⚠️ The ROWS here are category strings; their data lives in `plan.rows[c]`
+  // and `splitFor(c)`, so every accessor is a lookup rather than a field.
+  //
+  // ⚠️ Keys are stable ids, NOT the header text. Two headers carry a horizon
+  // that changes with a control ("Free / Out ≤3d"), and sort state keyed on
+  // the rendered label would break the moment somebody changed the horizon.
+  const plannerColumns = useMemo(() => ([
+    { key: 'category',   kind: 'text',   accessor: (c) => c },
+    { key: 'free',       kind: 'number', accessor: (c) => splitFor(c).free },
+    { key: 'available',  kind: 'number', accessor: (c) => plan.rows[c]?.members },
+    { key: 'pausing',    kind: 'number', accessor: (c) => plan.rows[c]?.pausing },
+    { key: 'spawn',      kind: 'number', accessor: (c) => plan.rows[c]?.scenariosToSpawn },
+    { key: 'crewsShort', kind: 'number', accessor: (c) => plan.rows[c]?.crewsShort },
+    { key: 'scope',      kind: 'number', accessor: (c) => plan.rows[c]?.scopeCost },
+  ]), [plan, avail])
+
+  // ⚠️ Opens on category, preserving the order this table already read in —
+  // the planner groups by category and people know where to look.
+  const { sorted: sortedPlannable, sortCol, sortDir, onSort } =
+    useTableSort(plan.plannable, plannerColumns, {
+      initialCol: 'category', tieBreak: 'category',
+    })
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -259,17 +283,17 @@ export default function OCPlannerView() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                    <th className="py-2 pr-3 font-semibold">Category</th>
-                    <th className="py-2 px-3 font-semibold text-right">Free / Out ≤{memberHorizon}</th>
-                    <th className="py-2 px-3 font-semibold text-right">Available</th>
-                    <th className="py-2 px-3 font-semibold text-right">Pausing ≤{crimesHorizon}</th>
-                    <th className="py-2 px-3 font-semibold text-right">Spawn</th>
-                    <th className="py-2 px-3 font-semibold text-right">Crews short</th>
-                    <th className="py-2 pl-3 font-semibold text-right">Scope</th>
+                    <SortableTh col="category" className="py-2 pr-3 font-semibold" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Category">Category</SortableTh>
+                    <SortableTh col="free" className="py-2 px-3 font-semibold text-right" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Free">Free / Out ≤{memberHorizon}</SortableTh>
+                    <SortableTh col="available" className="py-2 px-3 font-semibold text-right" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Available">Available</SortableTh>
+                    <SortableTh col="pausing" className="py-2 px-3 font-semibold text-right" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Pausing">Pausing ≤{crimesHorizon}</SortableTh>
+                    <SortableTh col="spawn" className="py-2 px-3 font-semibold text-right" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Spawn">Spawn</SortableTh>
+                    <SortableTh col="crewsShort" className="py-2 px-3 font-semibold text-right" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Crews short">Crews short</SortableTh>
+                    <SortableTh col="scope" className="py-2 pl-3 font-semibold text-right" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Scope">Scope</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {plan.plannable.map((c) => {
+                  {sortedPlannable.map((c) => {
                     const r = plan.rows[c]
                     const { free, out } = splitFor(c)
                     return (

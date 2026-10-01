@@ -7,6 +7,23 @@
 import { formatCurrencyShort } from '../utils/payoutCalculations'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { summariseWarPayoutRow } from '../utils/warPayoutHistory'
+import SortableTh, { useTableSort } from './SortableTh.jsx'
+
+/**
+ * Saved war payouts. ⚠️ `Actions` is deliberately absent — it is buttons.
+ *
+ * ⚠️ `savedAt` is already a Date here (the row builder parses it), so the
+ * column is `number` over `getTime()` rather than `date`: handing `parseDbTime`
+ * a Date is not what it expects.
+ */
+export const PAYOUT_HISTORY_COLUMNS = [
+  { key: 'warId',             kind: 'number', accessor: (r) => r.warId },
+  { key: 'totalPayout',       kind: 'number', accessor: (r) => r.totalPayout },
+  { key: 'memberCount',       kind: 'number', accessor: (r) => r.memberCount },
+  { key: 'opponent',          kind: 'text',   accessor: (r) => r.opponent },
+  { key: 'factionCutPercent', kind: 'number', accessor: (r) => r.factionCutPercent },
+  { key: 'savedBy',           kind: 'text',   accessor: (r) => r.savedBy },
+]
 
 export default function WarPayoutHistory({ payouts, loading, onRefresh, onLoad, onDelete }) {
   if (loading) {
@@ -20,7 +37,11 @@ export default function WarPayoutHistory({ payouts, loading, onRefresh, onLoad, 
     )
   }
 
-  const rows = payouts.map(summariseWarPayoutRow)
+  // ⚠️ Newest war first, which is how this list already read.
+  const { sorted: rows, sortCol, sortDir, onSort } =
+    useTableSort(payouts.map(summariseWarPayoutRow), PAYOUT_HISTORY_COLUMNS, {
+      initialCol: 'warId', initialDir: 'desc', tieBreak: 'warId',
+    })
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-4">
@@ -41,12 +62,12 @@ export default function WarPayoutHistory({ payouts, loading, onRefresh, onLoad, 
           <table className="w-full text-sm">
             <thead className="border-b-2 border-gray-200 dark:border-slate-700">
               <tr className="text-left">
-                <th className="py-2 px-2 font-semibold text-xs">War</th>
-                <th className="py-2 px-2 font-semibold text-xs">Total Payout</th>
-                <th className="py-2 px-2 font-semibold text-xs">Members</th>
-                <th className="py-2 px-2 font-semibold text-xs">Opponent</th>
-                <th className="py-2 px-2 font-semibold text-xs">Faction Cut</th>
-                <th className="py-2 px-2 font-semibold text-xs">Saved By</th>
+                <SortableTh col={PAYOUT_HISTORY_COLUMNS[0]} className="py-2 px-2 font-semibold text-xs" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="War">War</SortableTh>
+                <SortableTh col={PAYOUT_HISTORY_COLUMNS[1]} className="py-2 px-2 font-semibold text-xs" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Total Payout">Total Payout</SortableTh>
+                <SortableTh col={PAYOUT_HISTORY_COLUMNS[2]} className="py-2 px-2 font-semibold text-xs" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Members">Members</SortableTh>
+                <SortableTh col={PAYOUT_HISTORY_COLUMNS[3]} className="py-2 px-2 font-semibold text-xs" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Opponent">Opponent</SortableTh>
+                <SortableTh col={PAYOUT_HISTORY_COLUMNS[4]} className="py-2 px-2 font-semibold text-xs" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Faction Cut">Faction Cut</SortableTh>
+                <SortableTh col={PAYOUT_HISTORY_COLUMNS[5]} className="py-2 px-2 font-semibold text-xs" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Saved By">Saved By</SortableTh>
                 <th className="py-2 px-2 font-semibold text-xs">Actions</th>
               </tr>
             </thead>

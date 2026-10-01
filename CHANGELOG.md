@@ -18,6 +18,32 @@ surface it automatically.
 
 ---
 
+## [3.165.0] - 2026-10-01
+
+### Added
+- **The eight tables that had no sorting at all now sort** (#803, slice #839):
+  the Dashboard's OC and war strips, the OC Planner, Chain Watch payouts,
+  Competition standings, saved War Payout history and the faction Roles table.
+
+### Notes
+- ⚠️ **Chain Watch payouts keep their documented opening order** — slots
+  descending, member id ascending, which `chainPayout.ORDER` states has to be
+  stable. A first draft opened on payout and would have silently changed what a
+  leader sees.
+- ⚠️ **Faction Roles: Torn ID sorts numerically.** It is `text` in
+  `role_assignments` and `bigint` in `members`, and a lexical sort puts
+  `1712182` before `873341`. `Roles` sorts by **count** — "who has the most
+  access" is the question that table answers.
+- ⚠️ **Ticket range sorts on its first number**, not the rendered `first–last`
+  span, which would order "10–19" before "9".
+- ⚠️ **The Dashboard's war Score sorts on the member's own contribution**, which
+  is what the cell renders — not the faction scoreline.
+- ⚠️ **The OC Planner's keys are stable ids, not header text.** Two of its
+  headers carry a horizon that changes with a control, and sort state keyed on
+  the rendered label would break when the horizon changed.
+- ⚠️ Competition standings tie constantly — live forge data has two members on
+  15 — so the tie-break is what stops rows swapping on every re-render.
+
 ## [3.164.0] - 2026-10-01
 
 ### Added

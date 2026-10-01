@@ -8,6 +8,24 @@ import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient'
 import { PAYOUT_MODES, DEFAULT_PAYOUT_MODE } from '../utils/payoutCalculations'
 import { CheckCircle2, AlertTriangle, Trash2, Loader2, Image as ImageIcon } from 'lucide-react'
 import InfoTooltip from '../components/InfoTooltip'
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+
+/**
+ * Who holds which leadership role.
+ *
+ * ⚠️ `Torn ID` must sort NUMERICALLY. It is `text` in `role_assignments` and
+ * `bigint` in `members` — a cast is needed to join them — and a lexical sort
+ * puts 1712182 before 873341.
+ *
+ * ⚠️ `Roles` is a multi-value cell. It sorts by COUNT: "who has the most
+ * access" is the question somebody opens this table to answer, and sorting by
+ * the first role alphabetically would answer nothing.
+ */
+export const ROLE_TABLE_COLUMNS = [
+  { key: 'torn_user_id', label: 'Torn ID', kind: 'number', accessor: (m) => m.torn_user_id },
+  { key: 'member_name', label: 'Name',    kind: 'text',   accessor: (m) => m.member_name },
+  { key: 'roles',       label: 'Roles',   kind: 'number', accessor: (m) => (m.grants?.length ?? 0) },
+]
 
 // Read a picked file as a data: URL (base64) for the branding upload endpoint.
 function fileToDataUrl(file) {
@@ -143,6 +161,15 @@ function RolesSection({ readOnly }) {
       byId.get(r.torn_user_id).grants.push({ role: r.role, granted_by: r.granted_by })
     }
   }
+
+  // ⚠️ AFTER `members` is built. Declared above it this was a temporal dead
+  // zone — the component would throw on render, and no test mounts it so
+  // nothing would have caught that.
+  const { sorted: sortedMembers, sortCol, sortDir, onSort } =
+    useTableSort(members, ROLE_TABLE_COLUMNS, {
+      initialCol: 'member_name', tieBreak: 'member_name',
+    })
+
   const [loading, setLoading] = useState(true)
   const [newId, setNewId] = useState('')
   const [newRole, setNewRole] = useState('warlead')
@@ -197,13 +224,14 @@ function RolesSection({ readOnly }) {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                <th className="py-2 pr-4">Torn ID</th>
-                <th className="py-2 pr-4">Name</th>
-                <th className="py-2 pr-4">Roles</th>
+                {ROLE_TABLE_COLUMNS.map(c => (
+                  <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir}
+                              onSort={onSort} label={c.label} className="py-2 pr-4">{c.label}</SortableTh>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {members.map((m) => (
+              {sortedMembers.map((m) => (
                 <tr key={m.torn_user_id} className="border-b border-gray-100 dark:border-slate-700/50">
                   <td className="py-2 pr-4 text-gray-900 dark:text-white">{m.torn_user_id}</td>
                   <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">{m.member_name || '—'}</td>

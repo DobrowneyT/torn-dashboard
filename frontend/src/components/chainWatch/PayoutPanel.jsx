@@ -2,6 +2,32 @@ import { useMemo } from 'react'
 import { AlertTriangle, ExternalLink } from 'lucide-react'
 import { payoutRows, payLink, raffleRuns, unpayableNote } from '../../utils/chainPayout'
 import { tctLabel } from '../../utils/chainWatch'
+import SortableTh, { useTableSort } from '../SortableTh.jsx'
+
+/**
+ * Chain Watch payouts.
+ *
+ * ⚠️ `ticketRange` renders a span (first–last) and sorts on `first`, the
+ * number that actually orders the ranges. Sorting the rendered string would
+ * order "10–19" before "9" lexically.
+ *
+ * ⚠️ `tickets` and `ticketRange` only exist when the event ran a raffle, so
+ * their headers are conditional — the column config carries them regardless,
+ * because a column nobody can click is harmless where a missing one is a
+ * silent no-op.
+ */
+export const CHAIN_PAYOUT_COLUMNS = [
+  { key: 'watcher',     kind: 'text',   accessor: (r) => r.member_name ?? String(r.member_id) },
+  { key: 'slots',       kind: 'number', accessor: (r) => r.slots },
+  { key: 'bonus',       kind: 'number', accessor: (r) => r.bonus },
+  { key: 'tickets',     kind: 'number', accessor: (r) => r.tickets },
+  { key: 'ticketRange', kind: 'number', accessor: (r) => r.first },
+  { key: 'payout',      kind: 'number', accessor: (r) => r.payout },
+  // ⚠️ Not rendered. It exists to reproduce `chainPayout.ORDER`'s tie-break
+  // exactly — "slots descending, then member id ascending", which that file
+  // states has to be stable.
+  { key: 'memberId',    kind: 'text',   accessor: (r) => String(r.member_id) },
+]
 
 /**
  * Who gets paid what, and which rows a leader still has to look at (#773).
@@ -26,7 +52,15 @@ const FLAG_TONE = {
 }
 
 export default function PayoutPanel({ event, signups, removed, outcome, canEdit, onDecide, busyKey }) {
-  const { rows, totals } = useMemo(() => payoutRows(event, signups), [event, signups])
+  const { rows: unsortedRows, totals } = useMemo(() => payoutRows(event, signups), [event, signups])
+  // ⚠️ Opens in `chainPayout.ORDER` — slots descending, member id ascending.
+  // That order is documented there as having to be stable, so the default here
+  // reproduces it rather than inventing a new one. My first version opened on
+  // payout and would have silently changed what a leader sees.
+  const { sorted: rows, sortCol, sortDir, onSort } =
+    useTableSort(unsortedRows, CHAIN_PAYOUT_COLUMNS, {
+      initialCol: 'slots', initialDir: 'desc', tieBreak: 'memberId',
+    })
   const note = useMemo(() => unpayableNote(event, signups, outcome), [event, signups, outcome])
   const raffle = raffleRuns(outcome)
 
@@ -108,12 +142,15 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-400 dark:border-slate-600">
-                <th className="px-3 py-2 text-left font-medium">Watcher</th>
-                <th className="px-3 py-2 text-right font-medium">Slots</th>
-                <th className="px-3 py-2 text-right font-medium">Bonus</th>
-                {raffle && <th className="px-3 py-2 text-right font-medium">Tickets</th>}
-                {raffle && <th className="px-3 py-2 text-right font-medium">Ticket range</th>}
-                <th className="px-3 py-2 text-right font-medium">Payout</th>
+                <SortableTh col="watcher" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Watcher" className="px-3 py-2 text-left font-medium">Watcher</SortableTh>
+                <SortableTh col="slots"   sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Slots" className="px-3 py-2 text-right font-medium">Slots</SortableTh>
+                <SortableTh col="bonus"   sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Bonus" className="px-3 py-2 text-right font-medium">Bonus</SortableTh>
+                {raffle && <SortableTh col="tickets" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Tickets" className="px-3 py-2 text-right font-medium">Tickets</SortableTh>}
+                {/* ⚠️ Ticket range is a RENDERED SPAN (first–last), so it sorts
+                    on `first` — the number that orders the ranges. */}
+                {raffle && <SortableTh col="ticketRange" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Ticket range" className="px-3 py-2 text-right font-medium">Ticket range</SortableTh>}
+                <SortableTh col="payout"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Payout" className="px-3 py-2 text-right font-medium">Payout</SortableTh>
+                {/* ⚠️ The unpaid marker column. Not sortable — it is an icon. */}
                 <th className="px-3 py-2" />
               </tr>
             </thead>
