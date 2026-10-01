@@ -12,10 +12,31 @@
  */
 import { compareToObserved } from '../utils/ocObservedFit'
 
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+
+/**
+ * Observed success by crew-CPR band.
+ *
+ * ⚠️ `band` sorts on `lo`, the bottom of the range. The cell renders "lo–hi"
+ * and a lexical sort on that would put "10–19" before "9".
+ */
+export const OBSERVED_COLUMNS = [
+  { key: 'band', kind: 'number', accessor: (b) => b.lo },
+  { key: 'runs', kind: 'number', accessor: (b) => b.runs },
+  { key: 'rate', kind: 'number', accessor: (b) => b.rate },
+]
+
 const pct = (v) => (v === null || v === undefined ? '—' : `${(v * 100).toFixed(1)}%`)
 const cpr = (v) => (v === null || v === undefined ? '—' : Math.round(v))
 
 export function ObservedPanel({ observed, predicted, crewCpr }) {
+  // ⚠️ Opens on the band ascending, because this table is read as a CURVE:
+  // success rate against CPR only means anything in band order.
+  const { sorted: sortedBuckets, sortCol, sortDir, onSort } =
+    useTableSort(observed?.buckets ?? [], OBSERVED_COLUMNS, {
+      initialCol: 'band', initialDir: 'asc', tieBreak: 'band',
+    })
+
   if (!observed) return null
 
   if (!observed.enough) {
@@ -78,13 +99,13 @@ export function ObservedPanel({ observed, predicted, crewCpr }) {
       <table className="mt-2 w-full text-xs">
         <thead className="text-gray-500 dark:text-gray-400">
           <tr className="text-left">
-            <th className="font-medium py-0.5">CREW CPR</th>
-            <th className="font-medium py-0.5">RUNS</th>
-            <th className="font-medium py-0.5">SUCCEEDED</th>
+            <SortableTh col="band" className="font-medium py-0.5" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Crew CPR">CREW CPR</SortableTh>
+            <SortableTh col="runs" className="font-medium py-0.5" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Runs">RUNS</SortableTh>
+            <SortableTh col="rate" className="font-medium py-0.5" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Succeeded">SUCCEEDED</SortableTh>
           </tr>
         </thead>
         <tbody>
-          {observed.buckets.map((b) => (
+          {sortedBuckets.map((b) => (
             <tr key={b.lo} className="border-t border-gray-200 dark:border-gray-800">
               <td className="py-0.5 tabular-nums">{cpr(b.lo)}–{cpr(b.hi)}</td>
               <td className="py-0.5 tabular-nums">{b.runs}</td>
