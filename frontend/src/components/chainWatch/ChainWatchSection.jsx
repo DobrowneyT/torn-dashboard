@@ -123,6 +123,22 @@ export default function ChainWatchSection({ isLeadership }) {
         `/api/chain-events/${eventId}/signups/${encodeURIComponent(signup.hour_start)}/${signup.slot_index}/decision`,
         { decision }))
 
+  // ⚠️ The same PATCH the event form uses. It is LEAD-gated and validates
+  // every field on the server; the settings panel adds no new authority.
+  //
+  // ⚠️ Reloads afterwards rather than patching state locally: every figure on
+  // the payout sheet is DERIVED from these values, so a stale copy would show
+  // numbers that disagree with what was just saved.
+  // ⚠️ Goes through `run` like every other write, so it shares the busy key,
+  // the 409 handling and the quiet reload. A bespoke path here would be the one
+  // that forgets to refresh.
+  //
+  // ⚠️ The reload matters more than usual: every figure on the payout sheet is
+  // DERIVED from these settings, so a stale copy would show numbers that
+  // disagree with what was just saved.
+  const updateEvent = (patch) =>
+    run('event:settings', () => apiPatch(`/api/chain-events/${eventId}`, patch))
+
   const pick = (memberId) => {
     const { row, slotIndex } = picking
     setPicking(null)
@@ -300,6 +316,7 @@ export default function ChainWatchSection({ isLeadership }) {
             <PayoutPanel
               event={event} signups={payload.signups ?? []} removed={payload.removed ?? []}
               outcome={payload.outcome} canEdit={canEdit} onDecide={decide} busyKey={busyKey}
+              onUpdateEvent={updateEvent}
             />
           )}
           <div className="card overflow-hidden p-0">
