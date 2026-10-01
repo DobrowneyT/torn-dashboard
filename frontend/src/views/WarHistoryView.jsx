@@ -30,8 +30,65 @@ import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, RefreshCw } from 'lucide-react'
 import StacksSnapshotSection from '../components/warroom/StacksSnapshotSection'
 import InfoTooltip from '../components/InfoTooltip'
+import { sortRows } from '../utils/tableSort.js'
 
 const PAGE_SIZE = 50
+
+/**
+ * A war's outcome, derived rather than stored.
+ *
+ * ⚠️ Lifted to module scope for the column config below. It was declared
+ * INSIDE the component, so a module-level accessor referencing it would have
+ * thrown the moment anybody sorted by Result — and nothing would have caught
+ * that until somebody clicked the header.
+ */
+function getWarResult(war) {
+  if (!war.end_at || war.end_at === 0) return 'ongoing'
+  // ⚠️ `getFactionId()` called here rather than closing over the component's
+  // `OUR_FACTION_ID`, which is also component-scoped. Lifting a config to
+  // module scope drags its dependencies with it, and each one that is missed
+  // is a runtime throw nobody sees until the header is clicked.
+  return war.winner_faction_id === getFactionId() ? 'win' : 'loss'
+}
+
+/**
+ * The war list's columns.
+ *
+ * ⚠️ The scores were coerced with `|| 0`, which makes an ongoing war showing a
+ * genuine 0 indistinguishable from one with no score recorded. They are plain
+ * numbers now, and an absent score sinks rather than ranking as zero.
+ *
+ * ⚠️ `result` is DERIVED by `getWarResult`, not a field — a war's result
+ * depends on whether it has ended and who scored higher.
+ *
+ * ⚠️ `is_termed` sorts as a bool so termed and real wars GROUP, which is the
+ * only reason to sort that column. It is hand-set on the dashboard, so the
+ * grouping is only as good as somebody having remembered to toggle it — the
+ * same caveat the score line carries.
+ */
+export const WAR_LIST_COLUMNS = [
+  { key: 'opponent',       kind: 'text',   accessor: (w) => w.opponent_name },
+  { key: 'our_score',      kind: 'number', accessor: (w) => w.our_score },
+  { key: 'opponent_score', kind: 'number', accessor: (w) => w.opponent_score },
+  { key: 'result',         kind: 'text',   accessor: (w) => getWarResult(w) },
+  { key: 'start_at',       kind: 'number', accessor: (w) => w.start_at },
+  { key: 'is_termed',      kind: 'bool',   accessor: (w) => !!w.is_termed },
+]
+
+/**
+ * ⚠️ `score` sorts on the NORMALISED value — the bracketed number, not the
+ * leading one. It is what payout shares are computed from, so the order matches
+ * who is actually near a threshold, which is the reason anybody opens this
+ * table.
+ */
+export const WAR_MEMBER_COLUMNS = [
+  { key: 'name',    kind: 'text',   accessor: (m) => m.member_name },
+  { key: 'level',   kind: 'number', accessor: (m) => m.level },
+  { key: 'score',   kind: 'number', accessor: (m) => Number(m.score) },
+  { key: 'attacks', kind: 'number', accessor: (m) => m.attacks },
+  { key: 'assists', kind: 'number', accessor: (m) => m.assists },
+  { key: 'losses',  kind: 'number', accessor: (m) => m.losses },
+]
 
 export default function WarHistoryView({ isLeadership, isAdmin }) {
   const { user, isWarLead } = useAuth()
@@ -217,31 +274,13 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
     }
   }
 
-  function getWarResult(war) {
-    if (!war.end_at || war.end_at === 0) return 'ongoing'
-    return war.winner_faction_id === OUR_FACTION_ID ? 'win' : 'loss'
-  }
-
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortCol(col); setSortDir('desc') }
   }
 
   const sortedWars = useMemo(() => {
-    const d = sortDir === 'asc' ? 1 : -1
-    return wars.slice().sort((a, b) => {
-      switch (sortCol) {
-        case 'start_at': return d * ((a.start_at || 0) - (b.start_at || 0))
-        case 'opponent': return d * (a.opponent_name || '').localeCompare(b.opponent_name || '')
-        case 'our_score': return d * ((a.our_score || 0) - (b.our_score || 0))
-        case 'opponent_score': return d * ((a.opponent_score || 0) - (b.opponent_score || 0))
-        case 'result': {
-          const rA = getWarResult(a), rB = getWarResult(b)
-          return d * rA.localeCompare(rB)
-        }
-        default: return d * ((a.start_at || 0) - (b.start_at || 0))
-      }
-    })
+    return sortRows(wars, WAR_LIST_COLUMNS, sortCol, sortDir, { tieBreak: 'start_at' })
   }, [wars, sortCol, sortDir])
 
   function SortHeader({ col, label, className = '' }) {
@@ -282,24 +321,8 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
   const modalContribs = modalWarId ? (contributions[modalWarId] || []) : []
   const ourContribs = modalContribs.filter(c => c.faction_id === OUR_FACTION_ID)
 
-  const sortedModalContribs = (() => {
-    const d = contribSort.dir === 'asc' ? 1 : -1
-    return ourContribs.slice().sort((a, b) => {
-      switch (contribSort.col) {
-        case 'name': return d * (a.member_name || '').localeCompare(b.member_name || '')
-        case 'level': return d * ((a.level || 0) - (b.level || 0))
-        // ⚠️ Sorted on the NORMALISED score, which is the bracketed number, not
-        // the leading one. It is what payout shares are computed from, so the
-        // order matches who is actually near a threshold — the reason anybody
-        // opens this table.
-        case 'score': return d * (Number(a.score) - Number(b.score))
-        case 'attacks': return d * ((a.attacks || 0) - (b.attacks || 0))
-        case 'assists': return d * ((a.assists || 0) - (b.assists || 0))
-        case 'losses': return d * ((a.losses || 0) - (b.losses || 0))
-        default: return d * (Number(a.score) - Number(b.score))
-      }
-    })
-  })()
+  const sortedModalContribs = sortRows(
+    ourContribs, WAR_MEMBER_COLUMNS, contribSort.col, contribSort.dir, { tieBreak: 'name' })
 
   return (
     <div className="space-y-4">
@@ -378,7 +401,7 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
                   <SortHeader col="opponent_score" label="Their Score" className="text-right" />
                   <SortHeader col="result" label="Result" />
                   <SortHeader col="start_at" label="Date" />
-                  <th className="py-2 px-3 text-xs font-semibold sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700">Type</th>
+                  <SortHeader col="is_termed" label="Type" />
                   {isLeadership && (
                     <th className="py-2 px-3 text-xs font-semibold sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700">Actions</th>
                   )}

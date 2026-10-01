@@ -976,12 +976,40 @@ function FairFightCell({ mine, target }) {
   )
 }
 
+/**
+ * The roster table's header cell.
+ *
+ * ⚠️ **Deliberately NOT the shared `SortableTh` (#838).** Two reasons, and both
+ * are about this table specifically:
+ *
+ * 1. The whole `<th>` is the click target, not a button around the label. In a
+ *    war room people are clicking fast at small headers; shrinking the target
+ *    to the text would be a real cost for a cosmetic gain.
+ * 2. This table's comparator is NOT generic and should not become so. It ranks
+ *    activity, roll-call and flags by meaning rather than value, sinks unknown
+ *    FF and missing stat readings in both directions, falls back through
+ *    status → activity → name for timers, and returns 0 for revive chance
+ *    until the fetch lands so the prior order stands. Every one of those is a
+ *    decision the shared comparator has no way to express.
+ *
+ * What it DID lack is accessibility: a click handler on a `<th>` is invisible
+ * to a keyboard and announces nothing. That is fixed here rather than by
+ * replacing the component.
+ */
 function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title }) {
   const active = sortCol === col
   return (
     <th
       onClick={() => onSort(col)}
-      className={`py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors whitespace-nowrap ${className}`}
+      // ⚠️ Keyboard parity for a cell that is not a button. Enter and Space
+      // both sort, and Space must not also scroll the page.
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(col) }
+      }}
+      tabIndex={0}
+      role="columnheader"
+      aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={`py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors whitespace-nowrap ${className}`}
     >
       <span className="flex items-center gap-1">
         {children}
