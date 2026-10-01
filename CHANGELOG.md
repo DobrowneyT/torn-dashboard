@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.162.0] - 2026-10-01
+
+### Added
+- **Qualification and Next Tier are sortable** on Tier Management (#803, slice
+  #837). They are derived from `config.tierRequirements`, so the columns are
+  built inside the component rather than at module scope.
+
+### Changed
+- `CrimesView`, `InventoryManagement`, `TierManagement` and the OC crime
+  ranking now use the shared comparator, completing slice #837.
+
+### Fixed
+- ⚠️ **Inventory would throw on an item with no name.** Its comparator called
+  `aVal.toLowerCase()` with no guard, so one null name blanked the whole table.
+- ⚠️ `CrimesView` had **no coercion at all** — a raw `<` / `>` on whatever the
+  API returned, so nulls returned 0 and scattered, and every lower-case crime
+  name sorted after every upper-case one.
+
+### Notes
+- ⚠️ `sortRanking` stays **key-agnostic**. `sortRows` returns rows unchanged for
+  a column it does not know, so narrowing it to the declared set would mean a
+  caller passing any other field silently gets no sort. A test caught that.
+- ⚠️ Tier Management keeps `?? 6` rather than `|| 6`: tier 0 is "Review" and
+  must not coalesce, and a member with no tier is deliberately treated as the
+  lowest band rather than as missing data.
+- ⚠️ Qualification sorts on a **ratio**, not the met count — tiers have
+  different numbers of requirements, so "3 met" means something different per
+  tier and the raw count would compare unlike things.
+
 ## [3.161.0] - 2026-10-01
 
 ### Added
