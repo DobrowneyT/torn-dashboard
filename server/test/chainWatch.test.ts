@@ -258,7 +258,11 @@ describe('releasing and removing', () => {
     // so while there is still time to refill it. Forcing them to ask a leader
     // makes the SILENT NO-SHOW the path of least resistance.
     const ev = await newEvent({ starts_at: new Date(Date.now() - 2 * 3600_000).toISOString() })
-    const started = new Date(Math.floor((Date.now() - 3600_000) / 3600_000) * 3600_000).toISOString()
+    // ⚠️ The hour that is RUNNING, not one that finished. A member may claim
+    // the hour they are in (the claim boundary is the hour's END), and may not
+    // release it once it has begun — the two rules meet here, so the fixture
+    // has to sit between them.
+    const started = new Date(Math.floor(Date.now() / 3600_000) * 3600_000).toISOString()
     const ahead = new Date(Math.floor((Date.now() + 3600_000) / 3600_000) * 3600_000).toISOString()
     await claim(ev.id, started, 0, member)
     await claim(ev.id, ahead, 0, member)
@@ -312,7 +316,11 @@ describe('leadership editing slots', () => {
     // reconciling the payout.
     const ev = await newEvent({ starts_at: new Date(Date.now() - 4 * 3600_000).toISOString() })
     const past = new Date(Math.floor((Date.now() - 2 * 3600_000) / 3600_000) * 3600_000).toISOString()
-    await claim(ev.id, past, 0, member)
+    // ⚠️ Placed BY the lead. A member can no longer claim a finished hour, so a
+    // fixture that did so was describing a state the app will not produce.
+    // This is the real shape of the scenario: a leader reconciling the payout,
+    // putting somebody in and taking somebody out after the fact.
+    expect((await claim(ev.id, past, 0, lead, { member_id: '9200' })).status).toBe(201)
     expect((await release(ev.id, past, 0, lead, { reason: 'no-show' })).status).toBe(200)
   })
 })
@@ -566,5 +574,74 @@ describe('⚠️ every mutation is gated, one route at a time', () => {
     const ev = await newEvent()
     expect((await api('GET', `/api/chain-events/${ev.id}`, member)).status).toBe(200)
     expect((await api('GET', '/api/chain-events', visitor)).status).toBe(200)
+  })
+})
+
+// ── a finished hour is read-only for members (MonChoon, 2026-10-01) ─────────
+//
+// ⚠️ The hole this closes was a PAYOUT hole, not a UI annoyance. `checkSlot`
+// only asked whether an hour was inside the event window, and `is_payable` only
+// asks whether it fell before the chain ended — neither asked whether the claim
+// came BEFORE the hour ran. Any member could back-fill every elapsed hour of an
+// open event and be paid `payout_per_slot` for each.
+describe('claiming an hour that has already run', () => {
+  // An event that started well in the past, so its early hours are finished.
+  const PAST_START = new Date(Date.now() - 48 * 3600_000).toISOString().slice(0, 13) + ':00:00.000Z'
+  const hourAt = (startIso: string, n: number) =>
+    new Date(Date.parse(startIso) + n * 3600_000).toISOString()
+
+  it('refuses a member, naming the hour as the reason', async () => {
+    const ev = await newEvent({ starts_at: PAST_START, days: 3 })
+    const past = hourAt(PAST_START, 1)
+    const res = await claim(ev.id, past, 0, member)
+    expect(res.status).toBe(409)
+    expect(String(res.body.error)).toMatch(/already finished/i)
+  })
+
+  it('⚠️ still allows leadership, who have to correct slots after the fact', async () => {
+    // Somebody watched but could not claim, or a no-show needs removing. The
+    // back-fill is auditable rather than blocked: created_by and created_at
+    // record who did it and when.
+    const ev = await newEvent({ starts_at: PAST_START, days: 3 })
+    const past = hourAt(PAST_START, 2)
+    const res = await claim(ev.id, past, 0, lead, { member_id: '9200' })
+    expect(res.status).toBe(201)
+    expect(res.body.created_by).toBe('9100')
+    expect(res.body.member_id).toBe('9200')
+  })
+
+  it('⚠️ allows a member the hour they are IN — the boundary is the END', async () => {
+    // You are watching it; nothing about that claim is retrospective.
+    const nowHour = new Date(Date.now()).toISOString().slice(0, 13) + ':00:00.000Z'
+    const ev = await newEvent({
+      starts_at: new Date(Date.parse(nowHour) - 3600_000).toISOString(), days: 2,
+    })
+    const res = await claim(ev.id, nowHour, 0, member)
+    expect(res.status).toBe(201)
+  })
+
+  it('allows a member a future hour', async () => {
+    const ev = await newEvent({ starts_at: PAST_START, days: 4 })
+    const future = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 13) + ':00:00.000Z'
+    const res = await claim(ev.id, future, 0, member)
+    expect(res.status).toBe(201)
+  })
+
+  it('reports when each slot was claimed, as an epoch number', async () => {
+    // ⚠️ `created_ms`, not `created_at`. The timestamptz arrives with a bare
+    // two-digit offset that `new Date()` reads as NaN (#140), so the grid
+    // cannot show "claimed at" without this.
+    const ev = await newEvent({ starts_at: PAST_START, days: 4 })
+    const future = new Date(Date.now() + 6 * 3600_000).toISOString().slice(0, 13) + ':00:00.000Z'
+    expect((await claim(ev.id, future, 0, member)).status).toBe(201)
+    const res = await api('GET', `/api/chain-events/${ev.id}`, member)
+    // ⚠️ Found by slot id rather than by matching the timestamp string: the
+    // server serves timestamptz with a bare offset and `db.ts` rewrites the
+    // space to a T process-wide, so string matching here is testing the
+    // serialiser rather than the field under test.
+    const signup = (res.body as any).signups.find((s: any) => String(s.member_id) === '9200')
+    expect(signup).toBeTruthy()
+    expect(Number.isFinite(Number(signup.created_ms))).toBe(true)
+    expect(Number(signup.created_ms)).toBeGreaterThan(Date.now() - 60_000)
   })
 })

@@ -18,6 +18,40 @@ surface it automatically.
 
 ---
 
+## [3.169.0] - 2026-10-01
+
+### Fixed
+- ⚠️ **A member could be paid for hours they never watched.** The Chain Watch
+  history tab rendered its "Sign up" button unconditionally, and the server's
+  `checkSlot` only asked whether an hour was inside the event window — never
+  whether it had already run. `is_payable` only asks whether an hour fell
+  before the chain ended, so a back-filled claim on an open event was paid
+  `payout_per_slot` like any other.
+
+  Not exploited: checked read-only on forge — 1 sign-up total, 0 claimed after
+  the hour ran.
+
+### Changed
+- **A finished hour is read-only for members**, in the UI and on the server.
+  ⚠️ The boundary is the hour's **end**, not its start: claiming the hour you
+  are in is legitimate, because you are watching it.
+- **Leadership keeps the back-fill**, deliberately — slots need correcting after
+  the fact, and no-shows need removing. `created_by` and `created_at` already
+  record who did it and when, so it is auditable rather than invisible.
+- The grid shows **when a slot was claimed**, and flags one claimed after its
+  hour ran.
+
+### Notes
+- ⚠️ The DELETE route already had this guard, refusing once an hour has *begun*,
+  with leadership exempt and the reasoning documented. Only the claim path was
+  missing it — and that asymmetry is how it survived.
+- ⚠️ `created_ms` is served alongside `created_at` for the same reason as
+  `hour_ms`: the timestamptz arrives with a bare two-digit offset that
+  `new Date()` reads as NaN (#140).
+- ⚠️ Two existing tests needed their **fixtures** changed, not their
+  assertions: both claimed a finished hour as a member to set up a scenario the
+  app will no longer produce.
+
 ## [3.168.0] - 2026-10-01
 
 ### Added
