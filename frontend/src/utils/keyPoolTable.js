@@ -3,6 +3,7 @@
 // any column. Null/empty values (a missing member has no level/consent/claim)
 // always sort last, regardless of direction, so populated rows stay together.
 import { parseDbTime } from './time'
+import { sortRows } from './tableSort.js'
 
 export function keyPoolStatus(row) {
   if (row?.missing) return 'missing'
@@ -24,22 +25,26 @@ const ACCESSORS = {
 
 const isEmpty = (v) => v === null || v === undefined || v === ''
 
+/**
+ * Sort the key-pool table by one column.
+ *
+ * ⚠️ **Delegates to the shared comparator (#838).** Kept as a named export with
+ * its own tests unchanged, because those tests prove `sortRows` reproduces this
+ * table's behaviour — empties last regardless of direction, which is what keeps
+ * populated rows together when somebody flips a column.
+ *
+ * ⚠️ `last_claimed` is pre-resolved to epoch ms by its accessor, so the column
+ * is `number` rather than `date`: the parsing already happened, and declaring
+ * it a date would hand `parseDbTime` a number it rejects.
+ */
 export function sortKeyPoolRows(rows, key, dir = 'asc') {
-  const accessor = ACCESSORS[key]
-  if (!accessor) return [...rows]
-  const sign = dir === 'desc' ? -1 : 1
-  return [...rows].sort((a, b) => {
-    const va = accessor(a)
-    const vb = accessor(b)
-    const ea = isEmpty(va)
-    const eb = isEmpty(vb)
-    if (ea && eb) return 0
-    if (ea) return 1 // empties last regardless of direction
-    if (eb) return -1
-    if (va < vb) return -1 * sign
-    if (va > vb) return 1 * sign
-    return 0
-  })
+  return sortRows(rows, KEY_POOL_SORT_COLUMNS, key, dir)
 }
+
+const KEY_POOL_SORT_COLUMNS = Object.entries(ACCESSORS).map(([key, accessor]) => ({
+  key,
+  kind: key === 'level' || key === 'last_claimed' ? 'number' : 'text',
+  accessor,
+}))
 
 export const KEY_POOL_COLUMNS = ['member', 'level', 'consent', 'status', 'last_claimed', 'last_error']
