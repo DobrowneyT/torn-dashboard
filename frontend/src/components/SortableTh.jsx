@@ -16,7 +16,7 @@ import { sortRows, nextDirection } from '../utils/tableSort.js'
  * qualifier on the original request.
  */
 export default function SortableTh({
-  col, sortCol, sortDir, onSort, className = '', children,
+  col, sortCol, sortDir, onSort, className = '', label, children,
 }) {
   const key = typeof col === 'string' ? col : col?.key
   const sortable = typeof col === 'string' ? true : col?.sortable !== false
@@ -36,7 +36,11 @@ export default function SortableTh({
       <button
         type="button"
         onClick={() => onSort(key)}
-        aria-label={`Sort by ${typeof children === 'string' ? children : key}`}
+        // ⚠️ `label` exists because children are not always text — a header can
+        // wrap its name in a tooltip, and "Sort by [object Object]" is the
+        // failure a screen reader would get. Falls back to the children when
+        // they are a plain string, then to the key.
+        aria-label={`Sort by ${label ?? (typeof children === 'string' ? children : key)}`}
         className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
       >
         {children}

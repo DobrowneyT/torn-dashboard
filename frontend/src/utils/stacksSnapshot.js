@@ -19,6 +19,7 @@
 //     reads as a contradiction rather than as the revision it is.
 import { rollCallLabel, rollCallState } from './rollCall'
 import { parseDbTime } from './time'
+import { sortRows } from './tableSort.js'
 
 /** Seconds of inactivity below which somebody was, in any useful sense, there. */
 export const ACTIVE_WINDOW_SEC = 15 * 60
@@ -125,34 +126,31 @@ export function energyValue(row) {
 
 /** Every column, with how it sorts. Shared by the table and the CSV so the two cannot drift. */
 export const SNAPSHOT_COLUMNS = [
-  { key: 'member',   label: 'Member',    align: 'left',  sort: (r) => (r.member_name || '').toLowerCase() },
-  { key: 'rollCall', label: 'Roll call', align: 'left',  sort: (r) => rollCallLabel(r) },
-  { key: 'energy',   label: 'Energy',    align: 'right', sort: (r) => energyValue(r) },
-  { key: 'od',       label: 'OD',        align: 'left',  sort: (r) => (r.od_flagged_prewar ? 1 : 0) },
-  { key: 'activity', label: 'LA',        align: 'right', sort: (r) => idleRank(r) },
-  { key: 'outcome',  label: 'Outcome',   align: 'left',  sort: (r) => outcome(r).label },
-  { key: 'revised',  label: 'Revised',   align: 'left',  sort: (r) => (r.revised ? 1 : 0) },
+  // ⚠️ `kind` is DECLARED rather than sniffed from the value (#835). The old
+  // comparator asked `typeof av === 'number'` per pair, which silently fell back
+  // to a string compare whenever a column went null for one row — exactly the
+  // class of bug the shared comparator exists to remove.
+  { key: 'member',   label: 'Member',    align: 'left',  kind: 'text',   accessor: (r) => (r.member_name || '').toLowerCase() },
+  { key: 'rollCall', label: 'Roll call', align: 'left',  kind: 'text',   accessor: (r) => rollCallLabel(r) },
+  { key: 'energy',   label: 'Energy',    align: 'right', kind: 'number', accessor: (r) => energyValue(r) },
+  { key: 'od',       label: 'OD',        align: 'left',  kind: 'number', accessor: (r) => (r.od_flagged_prewar ? 1 : 0) },
+  { key: 'activity', label: 'LA',        align: 'right', kind: 'number', accessor: (r) => idleRank(r) },
+  { key: 'outcome',  label: 'Outcome',   align: 'left',  kind: 'text',   accessor: (r) => outcome(r).label },
+  { key: 'revised',  label: 'Revised',   align: 'left',  kind: 'number', accessor: (r) => (r.revised ? 1 : 0) },
 ]
 
 /**
  * Sort rows by one column.
  *
- * ⚠️ `null` sinks in BOTH directions, and name always breaks the tie in a fixed
- * direction — without that, rows with equal values reshuffle every render and
- * the table appears to move on its own.
+ * ⚠️ **Delegates to the shared comparator now (#835).** It is kept as a named
+ * export, with its own tests unchanged, because those tests ARE the proof that
+ * `sortRows` reproduces this table's behaviour exactly — `null` sinking in both
+ * directions and member name always breaking the tie in a fixed direction.
+ * If they go red, the shared primitive does not do what this table needs.
+ *
+ * `dir` stays numeric here (1 / -1) because that is what the callers pass.
  */
 export function sortSnapshot(rows, key, dir = 1) {
-  const col = SNAPSHOT_COLUMNS.find(c => c.key === key) ?? SNAPSHOT_COLUMNS[0]
-  const name = SNAPSHOT_COLUMNS[0].sort
-  return [...rows].sort((a, b) => {
-    const av = col.sort(a), bv = col.sort(b)
-    const aNull = av == null || av === '', bNull = bv == null || bv === ''
-    if (aNull && bNull) return name(a).localeCompare(name(b))
-    if (aNull) return 1
-    if (bNull) return -1
-    const cmp = typeof av === 'number' && typeof bv === 'number'
-      ? av - bv
-      : String(av).localeCompare(String(bv))
-    return cmp !== 0 ? dir * cmp : name(a).localeCompare(name(b))
-  })
+  return sortRows(rows, SNAPSHOT_COLUMNS, key, dir < 0 ? 'desc' : 'asc',
+                  { tieBreak: 'member' })
 }

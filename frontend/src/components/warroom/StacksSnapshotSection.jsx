@@ -11,12 +11,13 @@
 // why the CSV had eight columns and the table five.
 import { useState, useMemo } from 'react'
 import { ChevronRight, Download } from 'lucide-react'
+import SortableTh, { useTableSort } from '../SortableTh.jsx'
 import { apiGet } from '../../utils/apiClient'
 import InfoTooltip from '../InfoTooltip'
 import { rollCallLabel, rollCallTitle, formatTct } from '../../utils/rollCall'
 import { parseDbTime } from '../../utils/time'
 import {
-  SNAPSHOT_COLUMNS, sortSnapshot, idleSeconds, formatIdle, outcome,
+  SNAPSHOT_COLUMNS, idleSeconds, formatIdle, outcome,
   ACTIVE_WINDOW_SEC, OUTCOME_LEGEND,
 } from '../../utils/stacksSnapshot'
 
@@ -72,10 +73,12 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
   const [rows, setRows] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [sortKey, setSortKey] = useState('member')
-  const [sortDir, setSortDir] = useState(1)
-
-  const sorted = useMemo(() => sortSnapshot(rows ?? [], sortKey, sortDir), [rows, sortKey, sortDir])
+  // ⚠️ `tieBreak: 'member'` preserves what this table already did: without it
+  // rows with equal values reshuffle every render and the table appears to move
+  // on its own.
+  const { sorted, sortCol, sortDir, onSort } = useTableSort(rows ?? [], SNAPSHOT_COLUMNS, {
+    initialCol: 'member', tieBreak: 'member',
+  })
 
   // When the readings were taken. The capture window is the last 60s before
   // the war starts, so this doubles as "at war start" for a reader.
@@ -84,11 +87,6 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
   const capturedDate = parseDbTime(rows?.[0]?.captured_at)
   const capturedTct = capturedDate ? formatTct(Math.floor(capturedDate.getTime() / 1000)) : null
   const anyActivity = (rows ?? []).some(r => r.last_action_epoch)
-
-  function onSort(key) {
-    if (key === sortKey) setSortDir(d => -d)
-    else { setSortKey(key); setSortDir(1) }
-  }
 
   async function toggle() {
     const next = !open
@@ -166,16 +164,15 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
                   <thead>
                     <tr className="text-left text-gray-500 dark:text-gray-400">
                       {SNAPSHOT_COLUMNS.map(col => (
-                        <th
+                        <SortableTh
                           key={col.key}
-                          className={`py-1 pr-3 sticky top-0 z-10 bg-white dark:bg-slate-800 font-medium ${col.align === 'right' ? 'text-right' : ''}`}
+                          col={col}
+                          sortCol={sortCol}
+                          sortDir={sortDir}
+                          onSort={onSort}
+                          label={col.label}
+                          className={`py-1 pr-3 sticky top-0 z-10 bg-white dark:bg-slate-800 ${col.align === 'right' ? 'text-right' : ''}`}
                         >
-                          <button
-                            type="button"
-                            onClick={() => onSort(col.key)}
-                            aria-label={`Sort by ${col.label}`}
-                            className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
-                          >
                             {col.key === 'outcome' ? (
                               <InfoTooltip label={col.label} decoration="no-underline">
                                 {/* ⚠️ Every value spelled out. "Turned up" vs
@@ -197,11 +194,7 @@ export default function StacksSnapshotSection({ warId, warLabel }) {
                                 {headerTip[col.key]}
                               </InfoTooltip>
                             ) : col.label}
-                            <span className={sortKey === col.key ? '' : 'opacity-0'} aria-hidden="true">
-                              {sortDir === 1 ? '▲' : '▼'}
-                            </span>
-                          </button>
-                        </th>
+                        </SortableTh>
                       ))}
                     </tr>
                   </thead>

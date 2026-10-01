@@ -18,6 +18,27 @@ surface it automatically.
 
 ---
 
+## [3.158.0] - 2026-10-01
+
+### Changed
+- **The other two sort conventions are gone** (#803, slice #835).
+  `StacksSnapshotSection` and `MemberOverview` now use the shared primitive, so
+  the app has one way to sort a table instead of three.
+
+### Notes
+- ⚠️ `sortSnapshot` is kept as a named export that delegates to `sortRows`,
+  because its 19 tests are what prove the shared comparator reproduces that
+  table's behaviour exactly — nulls sinking in both directions, member name
+  always breaking the tie.
+- ⚠️ **Column kinds are now declared rather than sniffed per comparison.** Both
+  files previously asked `typeof value === 'string'` on each pair, which falls
+  back to a different comparison the moment one row's value is a different type.
+- ⚠️ **One deliberate behaviour change:** an identity column whose value is the
+  empty string (a member with no property) now sorts **last** rather than first,
+  because the shared comparator treats `''` as missing. Stat columns are
+  unaffected: they fall back to `-Infinity`, which is a real number and still
+  sorts first ascending, exactly as before.
+
 ## [3.157.0] - 2026-10-01
 
 ### Added
