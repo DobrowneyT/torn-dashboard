@@ -72,13 +72,19 @@ describe('competition standings', () => {
 })
 
 describe('chain watch payouts', () => {
-  it('sorts Ticket range on its first number, not the rendered span', () => {
-    // ⚠️ The cell renders "first–last". A lexical sort on that puts "10–19"
-    // before "9".
+  it('sorts Ticket range on firstTicket, not the rendered span', () => {
+    // ⚠️ The cell renders "firstTicket–lastTicket". A lexical sort on that puts
+    // "10–19" before "9".
+    //
+    // ⚠️ This test USED TO SAY `{ first: 9 }` — the same wrong field name the
+    // accessor had — so it passed against a column that read nothing. A
+    // hand-written fixture carries the author's typo with it, which is why
+    // `sortAccessorsReadRealFields.test.js` builds its rows from `payoutRows`
+    // instead.
     const c = CHAIN_PAYOUT_COLUMNS.find(c => c.key === 'ticketRange')
-    expect(c.accessor({ first: 9 })).toBe(9)
-    const rows = [{ member_id: 1, first: 10 }, { member_id: 2, first: 9 }]
-    expect(sortRows(rows, CHAIN_PAYOUT_COLUMNS, 'ticketRange', 'asc')[0].first).toBe(9)
+    expect(c.accessor({ firstTicket: 9 })).toBe(9)
+    const rows = [{ member_id: 1, firstTicket: 10 }, { member_id: 2, firstTicket: 9 }]
+    expect(sortRows(rows, CHAIN_PAYOUT_COLUMNS, 'ticketRange', 'asc')[0].firstTicket).toBe(9)
   })
 
   it('carries a memberId column for the documented tie-break', () => {
