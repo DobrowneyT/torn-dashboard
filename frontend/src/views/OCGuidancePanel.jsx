@@ -13,6 +13,27 @@
  */
 import { useState } from 'react'
 
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+
+/**
+ * Per-role CPR guidance.
+ *
+ * ⚠️ `impact` is `weight` — how much a role moves the crime's success — and is
+ * the reason this table is read at all: it answers "where does training pay
+ * off most". It opens on that, descending.
+ *
+ * ⚠️ `canFill` sorts on how many members are eligible, not on the rendered
+ * fraction. A role nobody can fill is the finding, so it has to be orderable.
+ */
+export const GUIDANCE_COLUMNS = [
+  { key: 'role',     kind: 'text',   accessor: (r) => r.roleName },
+  { key: 'impact',   kind: 'number', accessor: (r) => r.weight },
+  { key: 'publish',  kind: 'number', accessor: (r) => r.published },
+  { key: 'model',    kind: 'number', accessor: (r) => r.readings },
+  { key: 'expected', kind: 'number', accessor: (r) => r.expected },
+  { key: 'canFill',  kind: 'number', accessor: (r) => r.eligible },
+]
+
 const fmtMoney = (v) =>
   v === null || v === undefined ? null : `$${Math.round(v).toLocaleString()}`
 
@@ -90,6 +111,12 @@ function nameOf(guidance, positionIds) {
 }
 
 export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chainOf, chainCrew, chainSource, onCompute, computing }) {
+  // ⚠️ Opens on impact descending — "where does training pay off most" is
+  // the question this table exists to answer.
+  const { sorted: sortedRoles, sortCol, sortDir, onSort } =
+    useTableSort(guidance?.roles ?? [], GUIDANCE_COLUMNS, {
+      initialCol: 'impact', initialDir: 'desc', tieBreak: 'role',
+    })
   const [showWorking, setShowWorking] = useState(false)
   // Downstream links only — the view drops the root, whose crew the search
   // overrides per candidate anyway.
@@ -151,16 +178,16 @@ export function GuidancePanel({ guidance, reason, limitingRoles, chainsTo, chain
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase text-gray-500 dark:text-gray-400">
-              <th className="py-1 pr-3">Role</th>
-              <th className="py-1 pr-3">Impact</th>
-              <th className="py-1 pr-3">Publish</th>
-              <th className="py-1 pr-3">Model used</th>
-              <th className="py-1 pr-3">Expected crew</th>
-              <th className="py-1 pr-3">Can fill</th>
+              <SortableTh col="role" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Role">Role</SortableTh>
+              <SortableTh col="impact" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Impact">Impact</SortableTh>
+              <SortableTh col="publish" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Publish">Publish</SortableTh>
+              <SortableTh col="model" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Model used">Model used</SortableTh>
+              <SortableTh col="expected" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Expected crew">Expected crew</SortableTh>
+              <SortableTh col="canFill" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Can fill">Can fill</SortableTh>
             </tr>
           </thead>
           <tbody>
-            {guidance.roles.map((r) => (
+            {sortedRoles.map((r) => (
               <tr key={r.positionId} className="border-t border-gray-200 dark:border-gray-700 align-top">
                 <td className="py-1.5 pr-3">
                   <div className="font-medium">{r.roleName}</div>

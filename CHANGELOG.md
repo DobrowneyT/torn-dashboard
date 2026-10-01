@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.166.0] - 2026-10-01
+
+### Added
+- **A guard so this cannot happen again** (#803, slice #840). A test scans
+  `frontend/src` for a `<table>` with header cells and no sort wiring, and fails
+  naming the file. Its allowlist is **empty**.
+- **The three OC Simulator panels sort** — Guidance, Joint and Observed. ⚠️ They
+  were on #839's list and I missed them; the new guard is what found that, on
+  its first run.
+
+### Notes
+- ⚠️ **The allowlist must stay empty.** A guard that ships listing the remaining
+  offenders documents debt instead of preventing more.
+- ⚠️ **What the guard cannot catch**, stated in the test itself: a table whose
+  headers come from an unrecognised component, a sort helper imported under
+  another name, or a column wired to a sort that does nothing. It catches the
+  careless case — a new table with plain `<th>` and no wiring — which is the
+  case that actually happened, eight times.
+- ⚠️ Comments are stripped before counting headers. `BattleStatsCell` matched
+  `<th` twice from prose inside a block comment, which is how a non-table ended
+  up on the audit's list of unsorted tables in the first place.
+- ⚠️ The guard accepts per-file header adapters, not just the shared component.
+  `GlobalAdminView` and `WarRoomViewV2` keep their own for stated reasons; the
+  question it asks is whether a table sorts, not whether it was written the
+  same way.
+- Guidance opens on **impact** descending ("where does training pay off most"),
+  Observed on the **CPR band** ascending (it is read as a curve), and Joint
+  alphabetically — the order `Object.keys(...).sort()` already gave it.
+
 ## [3.165.0] - 2026-10-01
 
 ### Added
