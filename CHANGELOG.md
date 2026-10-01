@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.161.0] - 2026-10-01
+
+### Added
+- **Sorting on the three Members detail tables** (#803, slice #837, first part):
+  a member's crime history, their weekly payout history and their loaned items.
+  None of them could be reordered before.
+
+### Changed
+- `MembersView`'s roster now uses the shared comparator. ⚠️ Its `id` column was
+  coerced with `parseInt(x) || 0`, which collapses a real zero and a missing id
+  into the same value.
+
+### Notes
+- ⚠️ **Correction to the audit on #803:** the roster is **three** columns
+  (Member, Tier/CPR, Actions) and was already sorting both that make sense. The
+  recorded "2 of 26" counted all four tables in the file. The gap was the three
+  detail tables, which had nothing.
+- ⚠️ The crime table's `executed_at` is **epoch seconds**, not a Postgres
+  timestamp — the same trap as the OC payout screen.
+- ⚠️ The payout table's Week cell renders a date **range**; it sorts on
+  `week_start`, because sorting the rendered string orders by text.
+- ⚠️ `Diff` can be negative and is the column that shows somebody was paid less
+  than theoretical, so nothing in its path coerces with `|| 0`.
+- ⚠️ Loaned items sort Type by the **category order** (armour, weapons,
+  temporaries, …), not alphabetically — which is how the list has always read.
+  That order is kept as the table's default.
+
 ## [3.160.0] - 2026-10-01
 
 ### Changed
