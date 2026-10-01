@@ -18,6 +18,29 @@ surface it automatically.
 
 ---
 
+## [3.163.0] - 2026-10-01
+
+### Added
+- **The Global Admin scraper tables sort** (#803, slice #838, first part). Jobs
+  and runs had no sorting at all — on the screen somebody opens *when something
+  is already wrong*.
+
+### Notes
+- ⚠️ The `activity-sample` failure earlier this cycle ran for two days across
+  477 runs. Being able to order that table by status would have surfaced it
+  immediately; that is the case this change is for.
+- ⚠️ `started_at` here IS a Postgres timestamp string (`fmtDbTime` renders it),
+  so it is a real `date` column — unlike the epoch-seconds timestamps in the OC
+  and Members tables. A string sort on a `+00` offset is the #140 trap.
+- ⚠️ A run that wrote **0 rows** is a finding, not a missing value — it is how a
+  silently-failing job looks — so zero stays a real number and sorts as one.
+- ⚠️ Runs with no error sink in **both** directions when sorting by Error;
+  dragging healthy runs to the top would bury the ones that failed.
+- ⚠️ `GlobalAdminView` had its own `SortableTh`, a **fifth** sort convention,
+  shadowing the shared component's name. It is a thin adapter now.
+- `sortKeyPoolRows` delegates to the shared comparator with its 8 tests
+  unchanged, as the proof the behaviour is identical.
+
 ## [3.162.0] - 2026-10-01
 
 ### Added
