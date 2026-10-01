@@ -18,6 +18,27 @@ surface it automatically.
 
 ---
 
+## [3.167.0] - 2026-10-01
+
+### Fixed
+- ⚠️ **Chain Watch's Bonus column did not sort.** Its accessor read `r.bonus`
+  where the field is `r.bonusSlots`, so every value was `undefined`, the
+  comparator treated them all as blank, and the tie-break produced the **same
+  order in both directions** — the arrow flipped and nothing moved. Ticket range
+  had the same fault (`r.first` for `r.firstTicket`).
+
+### Added
+- **A guard that every sort accessor reads a real field**, built from the actual
+  row producers rather than hand-written fixtures.
+
+### Notes
+- ⚠️ This is the gap #840's guard does not cover: that one asks whether a table
+  *has* sorting, and cannot tell whether an accessor reads a field that exists.
+  Reading a missing one is not an error — it is `undefined`.
+- ⚠️ The rows in the new test come from `payoutRows` and `summariseWarPayoutRow`
+  themselves. A fixture written beside the accessor would carry the same typo
+  and pass.
+
 ## [3.166.0] - 2026-10-01
 
 ### Added

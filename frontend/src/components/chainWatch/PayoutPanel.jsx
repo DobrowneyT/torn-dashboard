@@ -17,11 +17,16 @@ import SortableTh, { useTableSort } from '../SortableTh.jsx'
  * silent no-op.
  */
 export const CHAIN_PAYOUT_COLUMNS = [
-  { key: 'watcher',     kind: 'text',   accessor: (r) => r.member_name ?? String(r.member_id) },
+  { key: 'watcher',     kind: 'text',   accessor: (r) => r.member_name },
   { key: 'slots',       kind: 'number', accessor: (r) => r.slots },
-  { key: 'bonus',       kind: 'number', accessor: (r) => r.bonus },
+  // ⚠️ `bonusSlots`, not `bonus`. Reading the wrong field made every value
+  // blank, so the column returned an identical order in BOTH directions — the
+  // tie-break alone — and looked like sorting was broken rather than reading
+  // nothing. Nothing caught it: an accessor for a field that does not exist is
+  // not an error, it is `undefined`.
+  { key: 'bonus',       kind: 'number', accessor: (r) => r.bonusSlots },
   { key: 'tickets',     kind: 'number', accessor: (r) => r.tickets },
-  { key: 'ticketRange', kind: 'number', accessor: (r) => r.first },
+  { key: 'ticketRange', kind: 'number', accessor: (r) => r.firstTicket },
   { key: 'payout',      kind: 'number', accessor: (r) => r.payout },
   // ⚠️ Not rendered. It exists to reproduce `chainPayout.ORDER`'s tie-break
   // exactly — "slots descending, then member id ascending", which that file
