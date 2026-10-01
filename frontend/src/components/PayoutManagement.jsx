@@ -35,6 +35,34 @@ import { coverageVerdict, formatDelta } from '../utils/occupancyReport'
 import { fmtDbTime } from '../utils/time'
 import { X } from 'lucide-react'
 import InfoTooltip, { InfoDot } from './InfoTooltip'
+import { sortRows, nextDirection } from '../utils/tableSort.js'
+
+/**
+ * The OC weekly payout sheet's sortable columns.
+ *
+ * ⚠️ Replaces a comparator that coerced ONLY `name` and let every other column
+ * fall through to a raw `<` / `>` on whatever the API returned — the exact
+ * defect epic #803 was filed about. `userId` is the clearest casualty: it
+ * arrives as a string, so it was compared lexically and "1712182" sorted before
+ * "873341".
+ *
+ * ⚠️ `timePercent` and `sharePercent` are fractions, `timeSpent` and
+ * `observedSeconds` are seconds, and the money columns are whole numbers — all
+ * numeric, none of them safe to compare as text.
+ */
+export const OC_PAYOUT_COLUMNS = [
+  { key: 'name',              kind: 'text',   accessor: (m) => m.name },
+  { key: 'userId',            kind: 'number', accessor: (m) => m.userId },
+  { key: 'tier',              kind: 'number', accessor: (m) => m.tier },
+  { key: 'timeSpent',         kind: 'number', accessor: (m) => m.timeSpent },
+  { key: 'observedSeconds',   kind: 'number', accessor: (m) => m.observedSeconds },
+  { key: 'timePercent',       kind: 'number', accessor: (m) => m.timePercent },
+  { key: 'baseTickets',       kind: 'number', accessor: (m) => m.baseTickets },
+  { key: 'sitOutPenalty',     kind: 'number', accessor: (m) => m.sitOutPenalty },
+  { key: 'sharePercent',      kind: 'number', accessor: (m) => m.sharePercent },
+  { key: 'payout',            kind: 'number', accessor: (m) => m.payout },
+  { key: 'theoreticalPayout', kind: 'number', accessor: (m) => m.theoreticalPayout },
+]
 
 /**
  * Recompute payout totals + per-member payouts from the current unit values
@@ -839,30 +867,12 @@ export default function PayoutManagement() {
 
     const sorted = [...payoutResults.members]
 
-    if (sortConfig.key) {
-      sorted.sort((a, b) => {
-        let aVal = a[sortConfig.key]
-        let bVal = b[sortConfig.key]
-
-        if (sortConfig.key === 'name') {
-          aVal = (aVal || '').toLowerCase()
-          bVal = (bVal || '').toLowerCase()
-        }
-
-        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
-        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
-        return 0
-      })
-    }
-
-    return sorted
+    return sortRows(sorted, OC_PAYOUT_COLUMNS, sortConfig.key, sortConfig.direction,
+                    { tieBreak: 'name' })
   }, [payoutResults, sortConfig])
 
   const handleSort = (key) => {
-    setSortConfig(prev => ({
-      key,
-      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
-    }))
+    setSortConfig(prev => ({ key, direction: nextDirection(key, prev.key, prev.direction) }))
   }
 
   const SortIcon = ({ columnKey }) => {

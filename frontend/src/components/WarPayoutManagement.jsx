@@ -21,6 +21,79 @@ import {
   compareContributionSources,
   deriveWarScoresByMember,
 } from '../utils/warPayoutCalculations'
+import SortableTh, { useTableSort } from './SortableTh.jsx'
+
+/**
+ * Every sortable field on the war payout sheet, as key → accessor.
+ *
+ * ⚠️ Replaces a 28-case switch whose `default` fell through to payout — so a
+ * key that was not listed, including a typo, sorted by payout and looked like
+ * it worked.
+ *
+ * ⚠️ All numeric except `name`. `eligible` is a boolean rendered as a toggle;
+ * it sorts so the excluded members group together, which is the question
+ * somebody asks of that column.
+ */
+const WAR_MEMBER_FIELDS = {
+  name: ['text', (m) => m.memberName],
+  leaves: ['number', (m) => m.leaves],
+  mugs: ['number', (m) => m.mugs],
+  hosp: ['number', (m) => m.hosp],
+  warHits: ['number', (m) => m.warHits],
+  won: ['number', (m) => m.won],
+  assists: ['number', (m) => m.assists],
+  losses: ['number', (m) => m.losses],
+  totalHits: ['number', (m) => m.totalHits],
+  warHitScore: ['number', (m) => m.warHitScore],
+  assistScore: ['number', (m) => m.assistScore],
+  lossScore: ['number', (m) => m.lossScore],
+  partScore: ['number', (m) => m.participationScore],
+  partShare: ['number', (m) => m.participationShare],
+  // ⚠️ The fallback chain is preserved from the switch: older payouts carry
+  // `score` where newer ones carry `respectGained`.
+  respect: ['number', (m) => m.respectGained ?? m.score],
+  bonusRespect: ['number', (m) => m.bonusRespect],
+  adjustedRespect: ['number', (m) => m.adjustedRespect],
+  contribShare: ['number', (m) => m.contributionShare],
+  effort: ['number', (m) => m.effortShare],
+  shares: ['number', (m) => m.shares],
+  regularHits: ['number', (m) => m.regularHits],
+  regularHitScore: ['number', (m) => m.regularHitScore],
+  preCutoffScore: ['number', (m) => m.preCutoffScore],
+  score: ['number', (m) => m.score],
+  bonusReduction: ['number', (m) => m.bonusReduction],
+  postCutoffScore: ['number', (m) => m.postCutoffScore],
+  preCutoffPayout: ['number', (m) => m.preCutoffPayout],
+  postCutoffPayout: ['number', (m) => m.postCutoffPayout],
+  payout: ['number', (m) => m.payoutAmount],
+  eligible: ['bool', (m) => !!m.isEligible],
+}
+
+/**
+ * ⚠️ Race wars add dual-block columns keyed `pre.warHits` / `post.partScore`.
+ *
+ * Both windows are generated ALWAYS, not discovered from the rows. Deriving
+ * them from the data looked tidier and was wrong: before the payout loads, or
+ * for a member with no `pre` block, the column would not exist and a sort held
+ * on it would silently do nothing — where the switch this replaces handled any
+ * dotted key regardless. A few dozen unused column objects cost nothing; a
+ * sort that quietly stops working costs an afternoon.
+ */
+export function buildWarMemberColumns() {
+  const cols = Object.entries(WAR_MEMBER_FIELDS).map(([key, [kind, accessor]]) => ({
+    key, kind, accessor,
+  }))
+  for (const w of ['pre', 'post']) {
+    for (const key of Object.keys(WAR_MEMBER_FIELDS)) {
+      if (key === 'name' || key === 'eligible') continue
+      // ⚠️ The dotted accessor reads the RAW key inside the window block, which
+      // is what the switch did — `pre.partScore` is `m.pre.partScore`, not the
+      // `participationScore` the flat column maps to.
+      cols.push({ key: `${w}.${key}`, kind: 'number', accessor: (m) => m?.[w]?.[key] })
+    }
+  }
+  return cols
+}
 
 // #393: identity is read AT USE TIME, never captured at module scope.
 //
@@ -453,8 +526,6 @@ export default function WarPayoutManagement() {
   const [loadError, setLoadError] = useState(null)
 
   // Results table sort
-  const [sortCol, setSortCol] = useState('payout')
-  const [sortDir, setSortDir] = useState('desc')
 
   // Hit report tab state
   const [activeTab, setActiveTab] = useState('payout')           // 'payout' | 'hits' | 'hits-pre' | 'hits-post'
@@ -1094,110 +1165,39 @@ export default function WarPayoutManagement() {
     }
   })()
 
-  function handleSortCol(col) {
-    if (sortCol === col) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortCol(col)
-      setSortDir('desc')
-    }
-  }
+  // ⚠️ Columns are DERIVED from a key→field map, not a 28-case switch. The old
+  // switch had a `default` that fell through to payout, so any key not listed —
+  // including a typo — sorted by payout and looked like it worked.
+  const memberColumns = useMemo(() => buildWarMemberColumns(), [])
 
-  function sortedMembers() {
-    const dir = sortDir === 'asc' ? 1 : -1
-    return effectiveMembers.slice().sort((a, b) => {
-      switch (sortCol) {
-        case 'name':         return dir * a.memberName.localeCompare(b.memberName)
-        case 'leaves':       return dir * ((a.leaves ?? 0) - (b.leaves ?? 0))
-        case 'mugs':         return dir * ((a.mugs ?? 0) - (b.mugs ?? 0))
-        case 'hosp':         return dir * ((a.hosp ?? 0) - (b.hosp ?? 0))
-        case 'warHits':      return dir * ((a.warHits ?? 0) - (b.warHits ?? 0))
-        case 'won':          return dir * ((a.won ?? 0) - (b.won ?? 0))
-        case 'assists':      return dir * ((a.assists ?? 0) - (b.assists ?? 0))
-        case 'losses':       return dir * ((a.losses ?? 0) - (b.losses ?? 0))
-        case 'totalHits':    return dir * ((a.totalHits ?? 0) - (b.totalHits ?? 0))
-        case 'warHitScore':      return dir * ((a.warHitScore ?? 0) - (b.warHitScore ?? 0))
-        case 'assistScore':      return dir * ((a.assistScore ?? 0) - (b.assistScore ?? 0))
-        case 'lossScore':        return dir * ((a.lossScore ?? 0) - (b.lossScore ?? 0))
-        case 'partScore':        return dir * ((a.participationScore ?? 0) - (b.participationScore ?? 0))
-        case 'partShare':        return dir * ((a.participationShare ?? 0) - (b.participationShare ?? 0))
-        case 'respect':          return dir * ((a.respectGained ?? a.score ?? 0) - (b.respectGained ?? b.score ?? 0))
-        case 'bonusRespect':     return dir * ((a.bonusRespect ?? 0) - (b.bonusRespect ?? 0))
-        case 'adjustedRespect':  return dir * ((a.adjustedRespect ?? 0) - (b.adjustedRespect ?? 0))
-        case 'contribShare':     return dir * ((a.contributionShare ?? 0) - (b.contributionShare ?? 0))
-        case 'effort':           return dir * ((a.effortShare ?? 0) - (b.effortShare ?? 0))
-        case 'shares':           return dir * ((a.shares ?? 0) - (b.shares ?? 0))
-        case 'regularHits':      return dir * ((a.regularHits ?? 0) - (b.regularHits ?? 0))
-        case 'regularHitScore':  return dir * ((a.regularHitScore ?? 0) - (b.regularHitScore ?? 0))
-        case 'preCutoffScore':   return dir * ((a.preCutoffScore ?? 0) - (b.preCutoffScore ?? 0))
-        case 'score':            return dir * ((a.score ?? 0) - (b.score ?? 0))
-        case 'bonusReduction':   return dir * ((a.bonusReduction ?? 0) - (b.bonusReduction ?? 0))
-        case 'postCutoffScore':  return dir * ((a.postCutoffScore ?? 0) - (b.postCutoffScore ?? 0))
-        case 'preCutoffPayout':  return dir * ((a.preCutoffPayout ?? 0) - (b.preCutoffPayout ?? 0))
-        case 'postCutoffPayout': return dir * ((a.postCutoffPayout ?? 0) - (b.postCutoffPayout ?? 0))
-        case 'payout':           return dir * (a.payoutAmount - b.payoutAmount)
-        case 'eligible':         return dir * ((a.isEligible ? 1 : 0) - (b.isEligible ? 1 : 0))
-        default:
-          // Race dual-block columns use dotted keys like "pre.warHits" / "post.participationScore".
-          if (sortCol.includes('.')) {
-            const [w, k] = sortCol.split('.')
-            return dir * ((a[w]?.[k] ?? 0) - (b[w]?.[k] ?? 0))
-          }
-          return dir * (a.payoutAmount - b.payoutAmount)
-      }
+  const { sorted: sortedMemberRows, sortCol, sortDir, onSort: handleSortCol } =
+    useTableSort(effectiveMembers, memberColumns, {
+      initialCol: 'payout', initialDir: 'desc', tieBreak: 'name',
     })
-  }
 
-  function SortHeader({ col, label, className = '', title }) {
-    const active = sortCol === col
+  // Kept as a function call because every call site already invokes it.
+  const sortedMembers = () => sortedMemberRows
+
+  const SortHeader = ({ col, label, className = '', title }) => {
+    // ⚠️ The frozen first column sets its own sticky positioning; the generic
+    // sticky-top must not also apply or the two compete. This is the corner
+    // cell the frozen-column work (#841) has to respect.
     const hasStickyLeft = className.includes('left-0')
-    const stickyTop = hasStickyLeft
-      ? '' // explicit sticky already set in className
-      : 'sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700'
+    const stickyTop = hasStickyLeft ? '' : 'sticky top-[32px] z-10 bg-gray-50 dark:bg-slate-700'
     return (
-      <th
-        className={`px-3 py-1.5 font-medium cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${stickyTop} ${className}`}
-        onClick={() => handleSortCol(col)}
+      <SortableTh
+        col={col} sortCol={sortCol} sortDir={sortDir} onSort={handleSortCol} label={label}
+        className={`px-3 py-1.5 font-medium transition-colors ${stickyTop} ${className}`}
       >
         {label}
         {title && (
-          // ⚠️ stopPropagation: the whole <th> sorts on click, so reading a
+          // ⚠️ stopPropagation: the header sorts on click, so reading a
           // column's meaning must not also re-sort the sheet.
           <span onClick={(e) => e.stopPropagation()} className="inline-flex ml-1 align-middle">
             <InfoDot label={`About the ${label} column`} size={11}>{title}</InfoDot>
           </span>
         )}
-        <span className="ml-1 text-gray-400 text-xs">
-          {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-        </span>
-      </th>
-    )
-  }
-
-  // ── Race dual-block payout-sheet helpers ────────────────────────────────
-  // For race wars the Hit Report / Participation / Contribution sections are
-  // duplicated into a Pre-Cutoff block and a Post-Cutoff block, each reading
-  // from m.pre / m.post and each editing its own per-member multiplier overrides.
-  const racePartColSpan = viewMode === 'leader' ? 12 : 7
-
-  function raceGroupHeaders(label, flat = false) {
-    const th = (cls, span, text) => (
-      <th className={`px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 text-center ${cls}`} colSpan={span}>{text}</th>
-    )
-    if (flat) {
-      return (
-        <>
-          {th('bg-blue-50 dark:bg-slate-800 text-blue-800 dark:text-blue-300', 8, `${label} · Hit Report`)}
-          {th('bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300', 2, `${label} · Flat Shares`)}
-        </>
-      )
-    }
-    return (
-      <>
-        {th('bg-blue-50 dark:bg-slate-800 text-blue-800 dark:text-blue-300', 8, `${label} · Hit Report`)}
-        {th('bg-emerald-50 dark:bg-slate-800 text-emerald-800 dark:text-emerald-300', racePartColSpan, `${label} · Participation`)}
-        {th('bg-amber-50 dark:bg-slate-800 text-amber-800 dark:text-amber-300', 4, `${label} · Contribution`)}
-      </>
+      </SortableTh>
     )
   }
 
