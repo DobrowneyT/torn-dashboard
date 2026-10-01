@@ -18,6 +18,29 @@ surface it automatically.
 
 ---
 
+## [3.160.0] - 2026-10-01
+
+### Changed
+- **The two payout management sheets now use the shared sort primitive** (#803,
+  slice #836, second half) — `WarPayoutManagement` and `PayoutManagement`,
+  completing the slice.
+
+### Notes
+- ⚠️ **`userId` sorted lexically before this**, so `1712182` came before
+  `873341`. `PayoutManagement`'s comparator coerced only `name` and let every
+  other column fall through to a raw `<` / `>` — the exact defect this epic was
+  filed about.
+- ⚠️ A **28-case switch** in `WarPayoutManagement` is gone. Its `default` fell
+  through to payout, so any key not listed — including a typo — sorted by payout
+  and looked like it worked.
+- ⚠️ Race wars add dual-block columns keyed `pre.warHits` / `post.partScore`.
+  Both windows are generated **always**, not discovered from the rows: deriving
+  them from data looked tidier and was wrong, because before the payout loads
+  the column would not exist and a sort held on it would silently do nothing.
+- ⚠️ `pre.partScore` reads `m.pre.partScore`, **not** the `participationScore`
+  that the flat `partScore` column maps to. The two differ on purpose, and the
+  difference is pinned by a test.
+
 ## [3.159.0] - 2026-10-01
 
 ### Added
