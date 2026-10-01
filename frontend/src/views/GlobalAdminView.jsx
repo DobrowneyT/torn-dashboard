@@ -5,6 +5,26 @@ import { Fragment, useEffect, useState, useCallback, useMemo } from 'react'
 import { apiGet, apiPost, apiPut } from '../utils/apiClient'
 import { fmtDbTime } from '../utils/time'
 import { keyPoolStatus, sortKeyPoolRows } from '../utils/keyPoolTable'
+import SortableTh from '../components/SortableTh.jsx'
+import { sortRows, nextDirection } from '../utils/tableSort.js'
+
+// ⚠️ `started_at` is a Postgres timestamp string here — `fmtDbTime` renders
+// it — so it is a real `date` column, unlike the epoch-seconds timestamps
+// elsewhere in the app. A string sort on a `+00` offset is the #140 trap.
+export const RUN_COLUMNS = [
+  { key: 'job_name',     kind: 'text' },
+  { key: 'started_at',   kind: 'date' },
+  { key: 'status',       kind: 'text' },
+  { key: 'rows_written', kind: 'number' },
+  { key: 'error',        kind: 'text' },
+]
+export const JOB_COLUMNS = [
+  { key: 'job_name', kind: 'text' },
+  { key: 'schedule', kind: 'text' },
+  { key: 'enabled',  kind: 'bool' },
+]
+// ⚠️ Newest run first, which is how this list already read.
+
 import { scraperJobSummary } from '../utils/scraperJobInfo'
 import InfoTooltip from '../components/InfoTooltip'
 import CronEditor from '../components/CronEditor'
@@ -184,19 +204,20 @@ function StatusBadge({ status }) {
   )
 }
 
-// A sortable table header cell: click to sort by `col`, click again to flip.
-function SortableTh({ label, col, sort, onSort, last }) {
-  const active = sort.key === col
+/**
+ * ⚠️ This file had its own `SortableTh` — a fifth sort convention, shadowing
+ * the shared component's name. It is a thin adapter now: the `{key, dir}` shape
+ * its three tables use is kept, because changing it would touch every call site
+ * for no behavioural gain.
+ */
+function AdminTh({ label, col, sort, onSort, last }) {
   return (
-    <th
-      className={`py-2 ${last ? '' : 'pr-4'} cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200`}
-      onClick={() => onSort(col)}
+    <SortableTh
+      col={col} sortCol={sort.key} sortDir={sort.dir} onSort={onSort} label={label}
+      className={`py-2 ${last ? '' : 'pr-4'}`}
     >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        <span className={active ? '' : 'opacity-0'}>{sort.dir === 'asc' ? '↑' : '↓'}</span>
-      </span>
-    </th>
+      {label}
+    </SortableTh>
   )
 }
 
@@ -215,11 +236,24 @@ export default function GlobalAdminView() {
   // Key Pool Health sort (all columns). Default: missing members surfaced first.
   const [keySort, setKeySort] = useState({ key: 'status', dir: 'desc' })
 
+  const [runSort, setRunSort] = useState({ key: 'started_at', dir: 'desc' })
+  const [jobSort, setJobSort] = useState({ key: 'job_name', dir: 'asc' })
   const sortedKeys = useMemo(() => sortKeyPoolRows(keys, keySort.key, keySort.dir), [keys, keySort])
   const keyTotals = useMemo(() => ({
     total: keys.filter((k) => !k.missing).length,
     missing: keys.filter((k) => k.missing).length,
   }), [keys])
+  const sortedRuns = useMemo(
+    () => sortRows(runs, RUN_COLUMNS, runSort.key, runSort.dir, { tieBreak: 'job_name' }),
+    [runs, runSort])
+  const sortedJobs = useMemo(
+    () => sortRows(jobs, JOB_COLUMNS, jobSort.key, jobSort.dir, { tieBreak: 'job_name' }),
+    [jobs, jobSort])
+  const toggleRunSort = (key) =>
+    setRunSort((s) => ({ key, dir: nextDirection(key, s.key, s.dir) }))
+  const toggleJobSort = (key) =>
+    setJobSort((s) => ({ key, dir: nextDirection(key, s.key, s.dir) }))
+
   const toggleKeySort = (key) =>
     setKeySort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }))
 
@@ -366,14 +400,15 @@ export default function GlobalAdminView() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                <th className="py-2 pr-4">Job</th>
-                <th className="py-2 pr-4">Schedule</th>
-                <th className="py-2 pr-4">Enabled</th>
+                <AdminTh label="Job"      col="job_name" sort={jobSort} onSort={toggleJobSort} />
+                <AdminTh label="Schedule" col="schedule" sort={jobSort} onSort={toggleJobSort} />
+                <AdminTh label="Enabled"  col="enabled"  sort={jobSort} onSort={toggleJobSort} />
+                {/* ⚠️ Actions deliberately does not sort. */}
                 <th className="py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job) => (
+              {sortedJobs.map((job) => (
                 <Fragment key={job.job_name}>
                 <tr className={`border-gray-100 dark:border-slate-700/50 ${editingJob === job.job_name ? '' : 'border-b'}`}>
                   <td className="py-2 pr-4 font-medium text-gray-900 dark:text-white">
@@ -443,15 +478,15 @@ export default function GlobalAdminView() {
           <table className="min-w-full text-sm">
             <thead className="sticky top-0 z-10 bg-white dark:bg-slate-800">
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                <th className="py-2 pr-4">Job</th>
-                <th className="py-2 pr-4">Started</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2 pr-4">Rows</th>
-                <th className="py-2">Error</th>
+                <AdminTh label="Job"     col="job_name"     sort={runSort} onSort={toggleRunSort} />
+                <AdminTh label="Started" col="started_at"   sort={runSort} onSort={toggleRunSort} />
+                <AdminTh label="Status"  col="status"       sort={runSort} onSort={toggleRunSort} />
+                <AdminTh label="Rows"    col="rows_written" sort={runSort} onSort={toggleRunSort} />
+                <AdminTh label="Error"   col="error"        sort={runSort} onSort={toggleRunSort} last />
               </tr>
             </thead>
             <tbody>
-              {runs.map((run) => (
+              {sortedRuns.map((run) => (
                 <tr key={run.id} className="border-b border-gray-100 dark:border-slate-700/50">
                   <td className="py-2 pr-4 text-gray-900 dark:text-white">{run.job_name}</td>
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{fmtDbTime(run.started_at)}</td>
@@ -503,12 +538,12 @@ export default function GlobalAdminView() {
           <table className="min-w-full text-sm">
             <thead className="sticky top-0 z-10 bg-white dark:bg-slate-800">
               <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
-                <SortableTh label="Member"       col="member"       sort={keySort} onSort={toggleKeySort} />
-                <SortableTh label="Level"        col="level"        sort={keySort} onSort={toggleKeySort} />
-                <SortableTh label="Consent"      col="consent"      sort={keySort} onSort={toggleKeySort} />
-                <SortableTh label="Status"       col="status"       sort={keySort} onSort={toggleKeySort} />
-                <SortableTh label="Last claimed" col="last_claimed" sort={keySort} onSort={toggleKeySort} />
-                <SortableTh label="Last error"   col="last_error"   sort={keySort} onSort={toggleKeySort} last />
+                <AdminTh label="Member"       col="member"       sort={keySort} onSort={toggleKeySort} />
+                <AdminTh label="Level"        col="level"        sort={keySort} onSort={toggleKeySort} />
+                <AdminTh label="Consent"      col="consent"      sort={keySort} onSort={toggleKeySort} />
+                <AdminTh label="Status"       col="status"       sort={keySort} onSort={toggleKeySort} />
+                <AdminTh label="Last claimed" col="last_claimed" sort={keySort} onSort={toggleKeySort} />
+                <AdminTh label="Last error"   col="last_error"   sort={keySort} onSort={toggleKeySort} last />
               </tr>
             </thead>
             <tbody>
