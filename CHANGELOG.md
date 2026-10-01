@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.157.0] - 2026-10-01
+
+### Added
+- **A shared table sort primitive** — `utils/tableSort.js` and
+  `components/SortableTh.jsx`. First slice of the sortable-tables epic (#803,
+  slice #834). `RollCallResultsTable` now uses it, and its existing tests pass
+  **unchanged**, which is what proves the lift was faithful.
+
+### Notes
+- ⚠️ **Lifted, not designed.** `RollCallResultsTable` already had the right
+  shape — a per-column comparator map and a header that renders its own
+  affordance — while three other conventions grew up elsewhere in the app.
+- ⚠️ **The affordances were never the real defect.** The audit counted 22 tables
+  missing sort controls, but the damage was in the comparators: a column with no
+  explicit coercion fell through to a raw `<`/`>`, so `null` returned 0 and
+  scattered rows to arbitrary positions, `"10" < "9"` sorted lexically, and
+  `parseInt(x) || 0` collapsed a real zero into a missing value.
+- ⚠️ **Blanks are resolved BEFORE the direction is applied**, which is what
+  keeps them last in both directions. Reversing a sort reverses the rows that
+  have data; it does not haul the empty ones to the top, where they read as a
+  broken sort rather than as missing data.
+- ⚠️ **The tie-break runs in a fixed direction**, never the sort's — otherwise a
+  live table reshuffles as rows arrive.
+- ⚠️ Dates go through `parseDbTime`, and an unparseable one sorts as unknown
+  rather than as epoch zero, which would place it in 1970 and therefore first.
+- ⚠️ Comparators take the **value**, never the rendered cell: `DashboardView`
+  renders Score as `"42015 - 54904"`, and sorting that string is a lexical sort
+  on a composite.
+
 ## [3.156.0] - 2026-09-30
 
 ### Added

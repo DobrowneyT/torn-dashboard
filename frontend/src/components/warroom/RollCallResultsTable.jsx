@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import SortableTh, { useTableSort } from '../SortableTh.jsx'
 import { availabilityLabel, rollCallTally, compareRollCall } from '../../utils/rollCall'
 
 // Shared table of roll-call responses. Edited responses (revised=true) are
@@ -9,19 +9,38 @@ import { availabilityLabel, rollCallTally, compareRollCall } from '../../utils/r
 // — the notes panel and RollCallResultsModal — and threading it through both
 // would mean one of them quietly not getting it.
 
-const SORTERS = {
-  name: (a, b) => (a.member_name || '').localeCompare(b.member_name || '', undefined, { sensitivity: 'base' }),
-  // Yes first when ascending: the people turning up are what a lead is counting.
-  start: (a, b) => Number(!!b.on_at_start) - Number(!!a.on_at_start),
-  // ⚠️ Self-hosp only means anything for a "no" — the column renders "—" for
-  // everybody who IS on at the start, and sorting those into the middle would
-  // scatter the rows the column exists to compare.
-  selfHosp: (a, b) => selfHospRank(a) - selfHospRank(b),
-  // ⚠️ By availability ORDER, never by label text. Alphabetical gives
-  // "1–2 Hours Late, 3–5, 6+, On time, Will not be available" — which buries
-  // the people who are turning up in the middle of the list.
-  availability: (a, b) => compareRollCall(a, b, 1),
-}
+// ⚠️ The comparators are UNCHANGED from the SORTERS map this replaces (#834).
+// Each one carried a reason that is still true, so each one moved verbatim onto
+// its column rather than being re-expressed as a `kind`.
+const COLUMNS = [
+  {
+    key: 'name',
+    compare: (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { sensitivity: 'base' }),
+    accessor: r => r.member_name,
+  },
+  {
+    // Yes first when ascending: the people turning up are what a lead is counting.
+    key: 'start',
+    accessor: r => r,
+    compare: (a, b) => Number(!!b.on_at_start) - Number(!!a.on_at_start),
+  },
+  {
+    // ⚠️ Self-hosp only means anything for a "no" — the column renders "—" for
+    // everybody who IS on at the start, and sorting those into the middle would
+    // scatter the rows the column exists to compare.
+    key: 'selfHosp',
+    accessor: r => r,
+    compare: (a, b) => selfHospRank(a) - selfHospRank(b),
+  },
+  {
+    // ⚠️ By availability ORDER, never by label text. Alphabetical gives
+    // "1–2 Hours Late, 3–5, 6+, On time, Will not be available" — which buries
+    // the people who are turning up in the middle of the list.
+    key: 'availability',
+    accessor: r => r,
+    compare: (a, b) => compareRollCall(a, b, 1),
+  },
+]
 
 function selfHospRank(r) {
   if (r.on_at_start) return 3            // not applicable
@@ -30,45 +49,13 @@ function selfHospRank(r) {
   return 2                               // answered neither
 }
 
-function SortableTh({ col, sortCol, sortDir, onSort, children }) {
-  const active = sortCol === col
-  return (
-    <th className="px-3 py-1.5 font-medium">
-      <button
-        type="button"
-        onClick={() => onSort(col)}
-        aria-label={`Sort by ${children}`}
-        className="inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200"
-      >
-        {children}
-        <span className={active ? '' : 'opacity-0'} aria-hidden="true">
-          {sortDir === 'asc' ? '▲' : '▼'}
-        </span>
-      </button>
-    </th>
-  )
-}
-
 export default function RollCallResultsTable({ rows = [] }) {
-  const [sortCol, setSortCol] = useState('name')
-  const [sortDir, setSortDir] = useState('asc')
-
-  const onSort = (col) => {
-    if (col === sortCol) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortCol(col); setSortDir('asc') }
-  }
-
-  const sorted = useMemo(() => {
-    const cmp = SORTERS[sortCol] ?? SORTERS.name
-    const d = sortDir === 'asc' ? 1 : -1
-    // ⚠️ Name breaks every tie, in a FIXED direction. Without it the order
-    // within a group depends on whatever order the rows arrived in, so the
-    // table reshuffles under a lead as responses come in.
-    return [...rows].sort((a, b) => {
-      const primary = d * cmp(a, b)
-      return primary !== 0 ? primary : SORTERS.name(a, b)
-    })
-  }, [rows, sortCol, sortDir])
+  // ⚠️ `tieBreak: 'name'` preserves the behaviour the old comment spelled out:
+  // without it the order within a group depends on whatever order the rows
+  // arrived in, so the table reshuffles under a lead as responses come in.
+  const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, COLUMNS, {
+    initialCol: 'name', tieBreak: 'name',
+  })
 
   const tally = rollCallTally(rows)
 
