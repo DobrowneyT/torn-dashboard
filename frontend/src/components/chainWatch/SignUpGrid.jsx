@@ -64,6 +64,12 @@ export default function SignUpGrid({
             </span>
           </div>
 
+          {/* ⚠️ A past row is dimmed with COLOUR, never `opacity`. Opacity
+              applies to the whole subtree and cannot be undone by a child, so
+              the bonus badge's tooltip — which renders inline rather than in a
+              portal — inherited it and looked half-transparent next to every
+              other tooltip on the site. Colour is inherited too, but the
+              tooltip panel sets its own, so it is unaffected. */}
           {day.rows.map((row) => (
             <div
               key={row.hourIso}
@@ -71,7 +77,7 @@ export default function SignUpGrid({
               data-testid={`hour-${row.hourIso}`}
               className={`grid grid-cols-[7rem_1fr] items-center gap-3 px-3 py-1.5 ${
                 row.isNow ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-              } ${row.isPast ? 'opacity-60' : ''}`}
+              } ${row.isPast ? 'text-gray-400 dark:text-slate-500' : ''}`}
             >
               <div className="flex flex-col leading-tight">
                 <span className="flex items-baseline gap-1 font-mono text-sm tabular-nums">
@@ -120,7 +126,13 @@ export default function SignUpGrid({
                     // correcting after the fact — somebody watched but could
                     // not claim, or a no-show needs removing. `created_by` and
                     // `created_at` record who did it and when.
-                    const claimable = !row.isPast || canEdit
+                    // ⚠️ Nobody gets a "Sign up" button on an hour that has
+                    // run — not even leadership. A leader filling a slot after
+                    // the fact is ASSIGNING somebody, which is what the person
+                    // button beside it does; offering "Sign up" there would
+                    // claim it for the leader themselves, which is never what
+                    // they meant (MonChoon, 2026-10-01).
+                    const claimable = !row.isPast
                     return (
                       <div key={i} className="flex gap-1">
                         {claimable ? (
@@ -133,15 +145,16 @@ export default function SignUpGrid({
                           Sign up
                         </button>
                         ) : (
-                          // ⚠️ Rendered as a dash rather than a disabled
-                          // button. A greyed-out control invites a click and
-                          // then refuses it; an empty cell says "this hour is
-                          // done" without pretending there is something to do.
+                          // ⚠️ Flat text, not a disabled button. A greyed-out
+                          // control invites a click and then refuses it; this
+                          // says what the slot IS — an hour that ran with
+                          // nobody on it, which is the thing a post-mortem
+                          // wants to see.
                           <span
                             data-testid={`closed-${row.hourIso}-${i}`}
-                            className="flex-1 rounded border border-dashed border-gray-200 px-2 py-1 text-center text-xs text-gray-300 dark:border-slate-700 dark:text-slate-600"
-                            title="This hour has finished"
-                          >—</span>
+                            className="flex-1 rounded bg-red-50 px-2 py-1 text-center text-[11px] font-semibold uppercase tracking-wide text-red-400 dark:bg-red-950/30 dark:text-red-400/70"
+                            title="This hour ran with nobody in this slot"
+                          >Not filled</span>
                         )}
                         {canEdit && (
                           <button

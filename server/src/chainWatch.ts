@@ -329,6 +329,42 @@ export function registerChainWatchRoutes(
     return rows[0]
   })
 
+  /**
+   * Nix (or restore) a member's pay for a whole event (#773 follow-up).
+   *
+   * ⚠️ **A blanket switch over the per-slot decisions**, not a separate field.
+   * `pay_decision` already decides what is paid, and adding a second mechanism
+   * beside it would give two answers to "is this slot money" — which is exactly
+   * the drift that made the spreadsheet pay 59 slots where 31 were marked.
+   *
+   * ⚠️ Restoring sets `null`, NOT 'paid'. Null is undecided-and-payable, the
+   * default state; 'paid' would override a genuine flag and quietly pay an hour
+   * somebody was abroad for.
+   *
+   * ⚠️ It OVERWRITES per-slot calls, and that is what "blanket" means. A leader
+   * who had ruled on individual hours and then flips the member switch has
+   * replaced those rulings — the response says how many rows moved so the
+   * sheet can say so too.
+   */
+  app.patch('/api/chain-events/:id/members/:memberId/eligibility', LEAD, async (req, reply) => {
+    const p = req.params as { id: string; memberId: string }
+    const body = (req.body ?? {}) as { eligible?: unknown }
+    if (typeof body.eligible !== 'boolean') {
+      return reply.status(400).send({ error: 'eligible must be true or false' })
+    }
+    const decision = body.eligible ? null : 'unpaid'
+    const { rows } = await db.query(
+      `UPDATE chain_watch_signups
+          SET pay_decision = $3, decided_by = $4, decided_at = now()
+        WHERE event_id = $1 AND member_id = $2 AND removed_at IS NULL
+        RETURNING id`,
+      [Number(p.id), p.memberId, decision, actor(req)])
+    if (rows.length === 0) {
+      return reply.status(404).send({ error: 'That member holds no slots on this event' })
+    }
+    return { member_id: p.memberId, eligible: body.eligible, slots_changed: rows.length }
+  })
+
   app.delete('/api/chain-events/:id', LEAD, async (req, reply) => {
     const id = Number((req.params as { id: string }).id)
     const { rowCount } = await db.query('DELETE FROM chain_events WHERE id = $1', [id])

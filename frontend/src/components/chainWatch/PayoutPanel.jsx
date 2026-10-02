@@ -57,7 +57,9 @@ const FLAG_TONE = {
   abroad: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
 }
 
-export default function PayoutPanel({ event, signups, removed, outcome, canEdit, onDecide, busyKey, onUpdateEvent }) {
+export default function PayoutPanel({
+  event, signups, removed, outcome, canEdit, onDecide, busyKey, onUpdateEvent, onSetEligible,
+}) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { rows: unsortedRows, totals } = useMemo(() => payoutRows(event, signups), [event, signups])
   // ⚠️ Opens in `chainPayout.ORDER` — slots descending, member id ascending.
@@ -113,7 +115,12 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
         <p className="card text-sm text-gray-600 dark:text-gray-300" data-testid="unpayable-note">{note}</p>
       )}
 
-      {awaiting.length > 0 && (
+      {/* ⚠️ Leadership only (MonChoon, 2026-10-01). This is a queue of calls a
+          leader has to make, and it names members beside a flag — "absent while
+          the chain was at risk" is an accusation until somebody has ruled on
+          it. A member reading their own name here would see a verdict that has
+          not been reached. */}
+      {canEdit && awaiting.length > 0 && (
         <div className="card space-y-2" data-testid="flag-queue">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -197,8 +204,12 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
                     on `first` — the number that orders the ranges. */}
                 {raffle && <SortableTh col="ticketRange" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Ticket range" className="px-3 py-2 text-right font-medium">Ticket range</SortableTh>}
                 <SortableTh col="payout"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Payout" className="px-3 py-2 text-right font-medium">Payout</SortableTh>
-                {/* ⚠️ The unpaid marker column. Not sortable — it is an icon. */}
+                {/* ⚠️ The pay-link column. Not sortable — it is a link. */}
                 <th className="px-3 py-2" />
+                {/* ⚠️ Leadership only: a blanket switch over a member's whole
+                    event. Not sortable — it is a control, and `slots` already
+                    orders by the same fact. */}
+                {canEdit && onSetEligible && <th className="px-3 py-2" />}
               </tr>
             </thead>
             <tbody>
@@ -236,6 +247,30 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
                       </a>
                     )}
                   </td>
+                  {canEdit && onSetEligible && (
+                    <td className="px-3 py-1.5 text-right">
+                      {/* ⚠️ A blanket switch over the member's whole event. It
+                          OVERWRITES per-slot calls, which is what "blanket"
+                          means — the label says which way it will go, rather
+                          than showing a state the reader has to interpret. */}
+                      <button
+                        type="button"
+                        disabled={busyKey === `eligible:${r.member_id}`}
+                        onClick={() => onSetEligible(r, r.slots === 0)}
+                        data-testid={`eligible-${r.member_id}`}
+                        className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide disabled:opacity-50 ${
+                          r.slots === 0
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-300'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-400'
+                        }`}
+                        title={r.slots === 0
+                          ? 'Not being paid — click to restore every slot'
+                          : 'Being paid — click to withhold the whole event'}
+                      >
+                        {r.slots === 0 ? 'Not paid' : 'Eligible'}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {/* ⚠️ Computed from the rows above. The sheet's totals row read
@@ -255,10 +290,13 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
         </div>
       </div>
 
-      {removed?.length > 0 && (
+      {/* ⚠️ Leadership only (MonChoon, 2026-10-01). It is a log of who took
+          whom off which hour — a moderation record, not a payout figure. */}
+      {canEdit && removed?.length > 0 && (
         // ⚠️ Removed is NOT the same as never signed up. A member who worked an
         // hour and was later taken off it sees a smaller number with no
-        // explanation otherwise, and this panel is the only place anyone looks.
+        // explanation otherwise, and this panel is the only place a LEADER can
+        // see why.
         <div className="card space-y-1" data-testid="removed-slots">
           <h3 className="text-sm font-semibold">Removed from hours that had already run</h3>
           <ul className="text-sm text-gray-500 dark:text-gray-400">
