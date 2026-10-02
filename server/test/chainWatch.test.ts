@@ -645,3 +645,75 @@ describe('claiming an hour that has already run', () => {
     expect(Number(signup.created_ms)).toBeGreaterThan(Date.now() - 60_000)
   })
 })
+
+// ── nixing a member's pay for the whole event ───────────────────────────────
+describe('blanket eligibility', () => {
+  const setEligible = (id: number, memberId: string, eligible: boolean, token: string) =>
+    api('PATCH', `/api/chain-events/${id}/members/${memberId}/eligibility`, token, { eligible })
+
+  it('withholds every slot a member holds', async () => {
+    const ev = await newEvent()
+    await claim(ev.id, '2027-10-26T10:00:00Z', 0, member)
+    await claim(ev.id, '2027-10-26T11:00:00Z', 0, member)
+    const res = await setEligible(ev.id, '9200', false, lead)
+    expect(res.status).toBe(200)
+    expect(res.body.slots_changed).toBe(2)
+    const { rows } = await stack.db.query(
+      `SELECT pay_decision FROM chain_watch_signups
+        WHERE event_id = $1 AND member_id = '9200' AND removed_at IS NULL`, [ev.id])
+    expect(rows.every((r: any) => r.pay_decision === 'unpaid')).toBe(true)
+  })
+
+  it('⚠️ restores to NULL, not to paid', async () => {
+    // Null is undecided-and-payable, the default state. 'paid' would override a
+    // genuine flag and quietly pay an hour somebody was abroad for.
+    const ev = await newEvent()
+    await claim(ev.id, '2027-10-26T12:00:00Z', 0, member)
+    await setEligible(ev.id, '9200', false, lead)
+    await setEligible(ev.id, '9200', true, lead)
+    const { rows } = await stack.db.query(
+      `SELECT pay_decision FROM chain_watch_signups
+        WHERE event_id = $1 AND member_id = '9200' AND removed_at IS NULL`, [ev.id])
+    expect(rows[0].pay_decision).toBeNull()
+  })
+
+  it('records who made the call', async () => {
+    const ev = await newEvent()
+    await claim(ev.id, '2027-10-26T13:00:00Z', 0, member)
+    await setEligible(ev.id, '9200', false, lead)
+    const { rows } = await stack.db.query(
+      `SELECT decided_by FROM chain_watch_signups
+        WHERE event_id = $1 AND member_id = '9200' AND removed_at IS NULL`, [ev.id])
+    expect(rows[0].decided_by).toBe('9100')
+  })
+
+  it('refuses a plain member', async () => {
+    const ev = await newEvent()
+    await claim(ev.id, '2027-10-26T14:00:00Z', 0, member)
+    expect((await setEligible(ev.id, '9200', false, member)).status).toBe(403)
+  })
+
+  it('refuses a body that is not a boolean', async () => {
+    const ev = await newEvent()
+    await claim(ev.id, '2027-10-26T15:00:00Z', 0, member)
+    const res = await api('PATCH',
+      `/api/chain-events/${ev.id}/members/9200/eligibility`, lead, { eligible: 'no' })
+    expect(res.status).toBe(400)
+  })
+
+  it('404s for a member who holds nothing, rather than reporting success', async () => {
+    // ⚠️ A silent 200 on zero rows reads as "withheld" when nothing happened.
+    const ev = await newEvent()
+    expect((await setEligible(ev.id, '9300', false, lead)).status).toBe(404)
+  })
+
+  it('⚠️ leaves removed slots alone', async () => {
+    // A removed slot is already out of the payout; touching it would resurrect
+    // a decision on a row nobody is counting.
+    const ev = await newEvent()
+    const h = '2027-10-26T16:00:00Z'
+    await claim(ev.id, h, 0, member)
+    await release(ev.id, h, 0, lead, { reason: 'no-show' })
+    expect((await setEligible(ev.id, '9200', false, lead)).status).toBe(404)
+  })
+})

@@ -139,6 +139,14 @@ export default function ChainWatchSection({ isLeadership }) {
   const updateEvent = (patch) =>
     run('event:settings', () => apiPatch(`/api/chain-events/${eventId}`, patch))
 
+  // ⚠️ Blanket pay switch for one member across the whole event. Goes through
+  // `run` like every other write, so it shares the busy key and the reload —
+  // the payout figures are all derived, so a stale copy would show numbers that
+  // disagree with what was just saved.
+  const setEligible = (row, eligible) =>
+    run(`eligible:${row.member_id}`, () =>
+      apiPatch(`/api/chain-events/${eventId}/members/${row.member_id}/eligibility`, { eligible }))
+
   const pick = (memberId) => {
     const { row, slotIndex } = picking
     setPicking(null)
@@ -316,7 +324,7 @@ export default function ChainWatchSection({ isLeadership }) {
             <PayoutPanel
               event={event} signups={payload.signups ?? []} removed={payload.removed ?? []}
               outcome={payload.outcome} canEdit={canEdit} onDecide={decide} busyKey={busyKey}
-              onUpdateEvent={updateEvent}
+              onUpdateEvent={updateEvent} onSetEligible={setEligible}
             />
           )}
           <div className="card overflow-hidden p-0">

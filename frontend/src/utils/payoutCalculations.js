@@ -312,7 +312,21 @@ export function validateNoOverlappingCrimes(crimesData) {
  * @param {number} factionCutPercent - Faction cut as decimal (e.g., 0.20 for 20%)
  * @returns {Object} Payout calculation results
  */
-export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent = 0.20, mode = 'tiered') {
+/**
+ * @param ineligibleMembers  member ids a leader has manually excluded.
+ *
+ * ⚠️ **Excluded from the DENOMINATOR, not just zeroed.** The pot is fixed, so
+ * withholding somebody's pay has to give their share to everybody else —
+ * otherwise the faction quietly keeps it and the sheet's total stops matching
+ * what was actually handed out. This is how `warPayoutCalculations` does it,
+ * and two payout sheets that answer "is this member paid" differently is how a
+ * leader learns one screen and is wrong on the other.
+ *
+ * ⚠️ The ticket penalty is NOT a substitute. Sitting out costs tickets, which is
+ * proportionate on a ticket-weighted week — but on `equal` and `flat-weighted`
+ * tickets do not enter the arithmetic at all, which is exactly why this exists.
+ */
+export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent = 0.20, mode = 'tiered', ineligibleMembers = new Set()) {
   console.log('\n===========================================')
   console.log('PAYOUT CALCULATION START')
   console.log('===========================================')
@@ -749,21 +763,30 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
     member.theoreticalPayout = theoreticalByMember[member.userId.toString()] || 0
   }
 
+  // ⚠️ Applied BEFORE the total is taken, not after. Zeroing a member's
+  // tickets once the denominator is already summed leaves their share stranded
+  // — the sheet pays out less than the pot and nobody can see where it went.
+  for (const member of memberArray) {
+    member.isEligible = !ineligibleMembers.has(String(member.userId))
+    if (!member.isEligible) member.adjustedTickets = 0
+  }
+
   // Calculate total adjusted tickets
   const totalAdjustedTickets = memberArray.reduce((sum, m) => sum + m.adjustedTickets, 0)
 
   // Calculate share and payout for each member.
+
   if (mode === 'equal') {
     // Even split among members who did at least one OC (participated in the
     // window) — no ticket weighting, no sit-out floor.
     // ticketTimeSpent, not timeSpent: a member whose only activity was a
     // left-early stint has no ticket time, so they do not take an equal share
     // while banked time is excluded from the money (#389).
-    const participants = memberArray.filter(m => m.ticketTimeSpent > 0)
+    const participants = memberArray.filter(m => m.ticketTimeSpent > 0 && m.isEligible)
     const share = participants.length > 0 ? 1 / participants.length : 0
     const each = participants.length > 0 ? Math.floor(memberPayoutTotal / participants.length) : 0
     for (const member of memberArray) {
-      const isParticipant = member.ticketTimeSpent > 0
+      const isParticipant = member.ticketTimeSpent > 0 && member.isEligible
       member.sharePercent = isParticipant ? share : 0
       member.payout = isParticipant ? each : 0
     }
