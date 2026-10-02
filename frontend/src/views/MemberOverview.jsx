@@ -18,6 +18,7 @@ import {
 } from '../utils/leadershipViews'
 import StatPickerModal from '../components/StatPickerModal'
 import ThresholdModal from '../components/ThresholdModal'
+import { sortRows, nextDirection } from '../utils/tableSort.js'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Constants & built-in views
@@ -67,7 +68,12 @@ const BUILT_IN_VIEWS = [
 // Identity columns — not in STAT_PATHS, sourced from members + profile + gym
 // ────────────────────────────────────────────────────────────────────────────
 
-const IDENTITY_COLUMNS = {
+// ⚠️ The only identity columns whose sort value is text. Everything else —
+// level, tier, days, streak, battle stats, gym energy — is numeric and must not
+// be compared with localeCompare, which would order 10 before 9.
+export const TEXT_COLUMNS = new Set(['name', 'property'])
+
+export const IDENTITY_COLUMNS = {
   name: {
     label: 'Name',
     sortValue: r => r.member_name?.toLowerCase() ?? '',
@@ -323,25 +329,33 @@ export default function MemberOverview() {
   )
 
   // ── Sort ──
-  const sortedRows = useMemo(() => {
-    const col = resolveColumn(sortCol)
-    if (!col) return filteredRows
-    const dir = sortDir === 'asc' ? 1 : -1
-    return [...filteredRows].sort((a, b) => {
-      const va = col.sortValue(a)
-      const vb = col.sortValue(b)
-      if (va == null && vb == null) return 0
-      if (va == null) return 1
-      if (vb == null) return -1
-      if (typeof va === 'string' && typeof vb === 'string') return dir * va.localeCompare(vb)
-      return dir * ((va > vb) - (va < vb))
-    })
-  }, [filteredRows, sortCol, sortDir])
+  //
+  // ⚠️ Columns are synthesised on demand (`resolveColumn`), so the array the
+  // shared comparator needs is built per render from the visible set rather
+  // than declared once.
+  //
+  // ⚠️ `kind` is declared per column instead of sniffed per pair. The old
+  // comparator asked `typeof va === 'string'` on each comparison, which falls
+  // back to a numeric `(va > vb) - (va < vb)` the moment one row's value is a
+  // different type — the inconsistency this epic exists to remove.
+  const sortColumns = useMemo(
+    () => visibleColumns.map(colId => {
+      const def = resolveColumn(colId)
+      if (!def) return null
+      return { key: colId, kind: TEXT_COLUMNS.has(colId) ? 'text' : 'number', accessor: def.sortValue }
+    }).filter(Boolean),
+    [visibleColumns]
+  )
+
+  const sortedRows = useMemo(
+    () => sortRows(filteredRows, sortColumns, sortCol, sortDir),
+    [filteredRows, sortColumns, sortCol, sortDir]
+  )
 
   // ── Handlers ──
   const handleSort = (colId) => {
-    if (sortCol === colId) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(colId); setSortDir('asc') }
+    setSortDir(d => nextDirection(colId, sortCol, d))
+    setSortCol(colId)
   }
 
   const openNewView = () => { setViewModalMode('new'); setViewModalOpen(true) }

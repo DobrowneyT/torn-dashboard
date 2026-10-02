@@ -18,6 +18,354 @@ surface it automatically.
 
 ---
 
+## [3.169.0] - 2026-10-01
+
+### Fixed
+- ⚠️ **A member could be paid for hours they never watched.** The Chain Watch
+  history tab rendered its "Sign up" button unconditionally, and the server's
+  `checkSlot` only asked whether an hour was inside the event window — never
+  whether it had already run. `is_payable` only asks whether an hour fell
+  before the chain ended, so a back-filled claim on an open event was paid
+  `payout_per_slot` like any other.
+
+  Not exploited: checked read-only on forge — 1 sign-up total, 0 claimed after
+  the hour ran.
+
+### Changed
+- **A finished hour is read-only for members**, in the UI and on the server.
+  ⚠️ The boundary is the hour's **end**, not its start: claiming the hour you
+  are in is legitimate, because you are watching it.
+- **Leadership keeps the back-fill**, deliberately — slots need correcting after
+  the fact, and no-shows need removing. `created_by` and `created_at` already
+  record who did it and when, so it is auditable rather than invisible.
+- The grid shows **when a slot was claimed**, and flags one claimed after its
+  hour ran.
+
+### Notes
+- ⚠️ The DELETE route already had this guard, refusing once an hour has *begun*,
+  with leadership exempt and the reasoning documented. Only the claim path was
+  missing it — and that asymmetry is how it survived.
+- ⚠️ `created_ms` is served alongside `created_at` for the same reason as
+  `hour_ms`: the timestamptz arrives with a bare two-digit offset that
+  `new Date()` reads as NaN (#140).
+- ⚠️ Two existing tests needed their **fixtures** changed, not their
+  assertions: both claimed a finished hour as a member to set up a scenario the
+  app will no longer produce.
+
+## [3.168.0] - 2026-10-01
+
+### Added
+- **Batch pay on the Chain Watch payout sheet** — one link paying everybody
+  owed, in the same `batbal_` shape the OC and RW payout sheets use, plus a
+  copy button.
+- **A payout settings panel** for leadership: payout per slot, bonus hours,
+  bonus multiplier and what the bonus applies to, editable from the sheet.
+- **Dates on the Dashboard strips** — the war range (start → end, or "Ongoing")
+  and each crime's execution date, both sortable.
+
+### Notes
+- ⚠️ **The settings panel adds no new authority.** `PATCH /api/chain-events/:id`
+  was already leadership-gated and validates every field; this is a frontend
+  surface on an existing route. The bounds it checks are copied from that route
+  verbatim so the two agree.
+- ⚠️ **Changing a setting recalculates hours already served**, which is the
+  point — every figure is derived from the event, never stamped onto a sign-up.
+  The save reloads rather than patching state locally, or the sheet would show
+  numbers that disagree with what was just saved.
+- ⚠️ **Batch pay drops rows owed nothing** rather than sending a zero. Torn
+  accepts a zero and does nothing, but it pads the link with members who were
+  never owed anything, which a leader scanning the result cannot distinguish
+  from somebody they expected to pay.
+- ⚠️ The war Dates column sorts on `start_at`, not the rendered range; the crime
+  Executed column is epoch **seconds**, not a Postgres timestamp.
+- ⚠️ `SortableTh` now passes `style` through. It did not, so a caller setting a
+  column width was silently ignored — invisible, because the table just lays out
+  differently.
+
+## [3.167.0] - 2026-10-01
+
+### Fixed
+- ⚠️ **Chain Watch's Bonus column did not sort.** Its accessor read `r.bonus`
+  where the field is `r.bonusSlots`, so every value was `undefined`, the
+  comparator treated them all as blank, and the tie-break produced the **same
+  order in both directions** — the arrow flipped and nothing moved. Ticket range
+  had the same fault (`r.first` for `r.firstTicket`).
+
+### Added
+- **A guard that every sort accessor reads a real field**, built from the actual
+  row producers rather than hand-written fixtures.
+
+### Notes
+- ⚠️ This is the gap #840's guard does not cover: that one asks whether a table
+  *has* sorting, and cannot tell whether an accessor reads a field that exists.
+  Reading a missing one is not an error — it is `undefined`.
+- ⚠️ The rows in the new test come from `payoutRows` and `summariseWarPayoutRow`
+  themselves. A fixture written beside the accessor would carry the same typo
+  and pass.
+
+## [3.166.0] - 2026-10-01
+
+### Added
+- **A guard so this cannot happen again** (#803, slice #840). A test scans
+  `frontend/src` for a `<table>` with header cells and no sort wiring, and fails
+  naming the file. Its allowlist is **empty**.
+- **The three OC Simulator panels sort** — Guidance, Joint and Observed. ⚠️ They
+  were on #839's list and I missed them; the new guard is what found that, on
+  its first run.
+
+### Notes
+- ⚠️ **The allowlist must stay empty.** A guard that ships listing the remaining
+  offenders documents debt instead of preventing more.
+- ⚠️ **What the guard cannot catch**, stated in the test itself: a table whose
+  headers come from an unrecognised component, a sort helper imported under
+  another name, or a column wired to a sort that does nothing. It catches the
+  careless case — a new table with plain `<th>` and no wiring — which is the
+  case that actually happened, eight times.
+- ⚠️ Comments are stripped before counting headers. `BattleStatsCell` matched
+  `<th` twice from prose inside a block comment, which is how a non-table ended
+  up on the audit's list of unsorted tables in the first place.
+- ⚠️ The guard accepts per-file header adapters, not just the shared component.
+  `GlobalAdminView` and `WarRoomViewV2` keep their own for stated reasons; the
+  question it asks is whether a table sorts, not whether it was written the
+  same way.
+- Guidance opens on **impact** descending ("where does training pay off most"),
+  Observed on the **CPR band** ascending (it is read as a curve), and Joint
+  alphabetically — the order `Object.keys(...).sort()` already gave it.
+
+## [3.165.0] - 2026-10-01
+
+### Added
+- **The eight tables that had no sorting at all now sort** (#803, slice #839):
+  the Dashboard's OC and war strips, the OC Planner, Chain Watch payouts,
+  Competition standings, saved War Payout history and the faction Roles table.
+
+### Notes
+- ⚠️ **Chain Watch payouts keep their documented opening order** — slots
+  descending, member id ascending, which `chainPayout.ORDER` states has to be
+  stable. A first draft opened on payout and would have silently changed what a
+  leader sees.
+- ⚠️ **Faction Roles: Torn ID sorts numerically.** It is `text` in
+  `role_assignments` and `bigint` in `members`, and a lexical sort puts
+  `1712182` before `873341`. `Roles` sorts by **count** — "who has the most
+  access" is the question that table answers.
+- ⚠️ **Ticket range sorts on its first number**, not the rendered `first–last`
+  span, which would order "10–19" before "9".
+- ⚠️ **The Dashboard's war Score sorts on the member's own contribution**, which
+  is what the cell renders — not the faction scoreline.
+- ⚠️ **The OC Planner's keys are stable ids, not header text.** Two of its
+  headers carry a horizon that changes with a control, and sort state keyed on
+  the rendered label would break when the horizon changed.
+- ⚠️ Competition standings tie constantly — live forge data has two members on
+  15 — so the tie-break is what stops rows swapping on every re-render.
+
+## [3.164.0] - 2026-10-01
+
+### Added
+- **RW History: the Type column sorts**, so termed and real wars group (#803,
+  slice #838). It had no sort at all.
+- **The War Room's headers are keyboard-operable** and announce their sort
+  state. A click handler on a `<th>` was invisible to a keyboard.
+
+### Fixed
+- ⚠️ RW History's scores were coerced with `|| 0`, making an ongoing war showing
+  a genuine **0** indistinguishable from one with no score recorded. An absent
+  score now sinks; a zero is a number.
+
+### Notes
+- ⚠️ **The War Room's comparator is deliberately NOT on the shared primitive.**
+  It ranks activity, roll-call and flags by meaning rather than value, sinks
+  unknown FF and missing stat readings in both directions, falls back through
+  status → activity → name for timers, and returns 0 for revive chance until the
+  fetch lands so the prior order stands. The shared comparator cannot express
+  any of that, and the roster table was already fully sortable — 13 columns,
+  with only Dibs and Action plain, both correctly so.
+- ⚠️ **`MobileWarRoomView` keeps its sort chips** and gains no tappable headers.
+  It is a card list, and an explicit control is the better pattern at phone
+  width — the decision #838 asked to be stated either way.
+
+## [3.163.0] - 2026-10-01
+
+### Added
+- **The Global Admin scraper tables sort** (#803, slice #838, first part). Jobs
+  and runs had no sorting at all — on the screen somebody opens *when something
+  is already wrong*.
+
+### Notes
+- ⚠️ The `activity-sample` failure earlier this cycle ran for two days across
+  477 runs. Being able to order that table by status would have surfaced it
+  immediately; that is the case this change is for.
+- ⚠️ `started_at` here IS a Postgres timestamp string (`fmtDbTime` renders it),
+  so it is a real `date` column — unlike the epoch-seconds timestamps in the OC
+  and Members tables. A string sort on a `+00` offset is the #140 trap.
+- ⚠️ A run that wrote **0 rows** is a finding, not a missing value — it is how a
+  silently-failing job looks — so zero stays a real number and sorts as one.
+- ⚠️ Runs with no error sink in **both** directions when sorting by Error;
+  dragging healthy runs to the top would bury the ones that failed.
+- ⚠️ `GlobalAdminView` had its own `SortableTh`, a **fifth** sort convention,
+  shadowing the shared component's name. It is a thin adapter now.
+- `sortKeyPoolRows` delegates to the shared comparator with its 8 tests
+  unchanged, as the proof the behaviour is identical.
+
+## [3.162.0] - 2026-10-01
+
+### Added
+- **Qualification and Next Tier are sortable** on Tier Management (#803, slice
+  #837). They are derived from `config.tierRequirements`, so the columns are
+  built inside the component rather than at module scope.
+
+### Changed
+- `CrimesView`, `InventoryManagement`, `TierManagement` and the OC crime
+  ranking now use the shared comparator, completing slice #837.
+
+### Fixed
+- ⚠️ **Inventory would throw on an item with no name.** Its comparator called
+  `aVal.toLowerCase()` with no guard, so one null name blanked the whole table.
+- ⚠️ `CrimesView` had **no coercion at all** — a raw `<` / `>` on whatever the
+  API returned, so nulls returned 0 and scattered, and every lower-case crime
+  name sorted after every upper-case one.
+
+### Notes
+- ⚠️ `sortRanking` stays **key-agnostic**. `sortRows` returns rows unchanged for
+  a column it does not know, so narrowing it to the declared set would mean a
+  caller passing any other field silently gets no sort. A test caught that.
+- ⚠️ Tier Management keeps `?? 6` rather than `|| 6`: tier 0 is "Review" and
+  must not coalesce, and a member with no tier is deliberately treated as the
+  lowest band rather than as missing data.
+- ⚠️ Qualification sorts on a **ratio**, not the met count — tiers have
+  different numbers of requirements, so "3 met" means something different per
+  tier and the raw count would compare unlike things.
+
+## [3.161.0] - 2026-10-01
+
+### Added
+- **Sorting on the three Members detail tables** (#803, slice #837, first part):
+  a member's crime history, their weekly payout history and their loaned items.
+  None of them could be reordered before.
+
+### Changed
+- `MembersView`'s roster now uses the shared comparator. ⚠️ Its `id` column was
+  coerced with `parseInt(x) || 0`, which collapses a real zero and a missing id
+  into the same value.
+
+### Notes
+- ⚠️ **Correction to the audit on #803:** the roster is **three** columns
+  (Member, Tier/CPR, Actions) and was already sorting both that make sense. The
+  recorded "2 of 26" counted all four tables in the file. The gap was the three
+  detail tables, which had nothing.
+- ⚠️ The crime table's `executed_at` is **epoch seconds**, not a Postgres
+  timestamp — the same trap as the OC payout screen.
+- ⚠️ The payout table's Week cell renders a date **range**; it sorts on
+  `week_start`, because sorting the rendered string orders by text.
+- ⚠️ `Diff` can be negative and is the column that shows somebody was paid less
+  than theoretical, so nothing in its path coerces with `|| 0`.
+- ⚠️ Loaned items sort Type by the **category order** (armour, weapons,
+  temporaries, …), not alphabetically — which is how the list has always read.
+  That order is kept as the table's default.
+
+## [3.160.0] - 2026-10-01
+
+### Changed
+- **The two payout management sheets now use the shared sort primitive** (#803,
+  slice #836, second half) — `WarPayoutManagement` and `PayoutManagement`,
+  completing the slice.
+
+### Notes
+- ⚠️ **`userId` sorted lexically before this**, so `1712182` came before
+  `873341`. `PayoutManagement`'s comparator coerced only `name` and let every
+  other column fall through to a raw `<` / `>` — the exact defect this epic was
+  filed about.
+- ⚠️ A **28-case switch** in `WarPayoutManagement` is gone. Its `default` fell
+  through to payout, so any key not listed — including a typo — sorted by payout
+  and looked like it worked.
+- ⚠️ Race wars add dual-block columns keyed `pre.warHits` / `post.partScore`.
+  Both windows are generated **always**, not discovered from the rows: deriving
+  them from data looked tidier and was wrong, because before the payout loads
+  the column would not exist and a sort held on it would silently do nothing.
+- ⚠️ `pre.partScore` reads `m.pre.partScore`, **not** the `participationScore`
+  that the flat `partScore` column maps to. The two differ on purpose, and the
+  difference is pinned by a test.
+
+## [3.159.0] - 2026-10-01
+
+### Added
+- **Sorting on six payout tables** (#803, slice #836, first half). `RWPayoutsView`
+  and `PayoutsView` — the RW payout modal's member and pre/post breakdown
+  tables, and the OC weekly payout, per-member crime and week-comparison tables.
+
+### Changed
+- ⚠️ **An ineligible member with no payout now sorts LAST**, in both directions.
+  The old comparator read `a[sortCol] ?? 0`, so somebody excluded from a payout
+  sorted among the people who earned nothing — and descending, that put them
+  above anybody on a genuine zero.
+- ⚠️ A member present in only **one** of two compared weeks sorts to the end
+  rather than counting as zero. "Earned nothing" and "was not here" are
+  different answers.
+
+### Notes
+- ⚠️ **Correction to the audit on #803:** `PayoutsView`'s main table was already
+  fully sortable. The recorded "1 of 18" counted all three tables in the file
+  and missed that its headers are `SortHeader` components rather than raw
+  `<th>`. The real gap was the two detail tables, which had nothing.
+- ⚠️ `executed_at` in the crime detail table is **epoch seconds**, not a
+  Postgres timestamp string. Declaring it a `date` would hand `parseDbTime` a
+  number, which it rejects, and the column would silently sort nothing.
+- ⚠️ Reward sorts on what the cell **shows** — zero unless the crime succeeded —
+  because a failed crime renders "-" while `rewards_money` may still hold a
+  figure, and would otherwise outrank a successful one.
+- ⚠️ A switch statement with eight cases and a `default` that fell through to
+  `payout` is gone: a column added to it later sorted by payout and looked like
+  it worked.
+
+## [3.158.0] - 2026-10-01
+
+### Changed
+- **The other two sort conventions are gone** (#803, slice #835).
+  `StacksSnapshotSection` and `MemberOverview` now use the shared primitive, so
+  the app has one way to sort a table instead of three.
+
+### Notes
+- ⚠️ `sortSnapshot` is kept as a named export that delegates to `sortRows`,
+  because its 19 tests are what prove the shared comparator reproduces that
+  table's behaviour exactly — nulls sinking in both directions, member name
+  always breaking the tie.
+- ⚠️ **Column kinds are now declared rather than sniffed per comparison.** Both
+  files previously asked `typeof value === 'string'` on each pair, which falls
+  back to a different comparison the moment one row's value is a different type.
+- ⚠️ **One deliberate behaviour change:** an identity column whose value is the
+  empty string (a member with no property) now sorts **last** rather than first,
+  because the shared comparator treats `''` as missing. Stat columns are
+  unaffected: they fall back to `-Infinity`, which is a real number and still
+  sorts first ascending, exactly as before.
+
+## [3.157.0] - 2026-10-01
+
+### Added
+- **A shared table sort primitive** — `utils/tableSort.js` and
+  `components/SortableTh.jsx`. First slice of the sortable-tables epic (#803,
+  slice #834). `RollCallResultsTable` now uses it, and its existing tests pass
+  **unchanged**, which is what proves the lift was faithful.
+
+### Notes
+- ⚠️ **Lifted, not designed.** `RollCallResultsTable` already had the right
+  shape — a per-column comparator map and a header that renders its own
+  affordance — while three other conventions grew up elsewhere in the app.
+- ⚠️ **The affordances were never the real defect.** The audit counted 22 tables
+  missing sort controls, but the damage was in the comparators: a column with no
+  explicit coercion fell through to a raw `<`/`>`, so `null` returned 0 and
+  scattered rows to arbitrary positions, `"10" < "9"` sorted lexically, and
+  `parseInt(x) || 0` collapsed a real zero into a missing value.
+- ⚠️ **Blanks are resolved BEFORE the direction is applied**, which is what
+  keeps them last in both directions. Reversing a sort reverses the rows that
+  have data; it does not haul the empty ones to the top, where they read as a
+  broken sort rather than as missing data.
+- ⚠️ **The tie-break runs in a fixed direction**, never the sort's — otherwise a
+  live table reshuffles as rows arrive.
+- ⚠️ Dates go through `parseDbTime`, and an unparseable one sorts as unknown
+  rather than as epoch zero, which would place it in 1970 and therefore first.
+- ⚠️ Comparators take the **value**, never the rendered cell: `DashboardView`
+  renders Score as `"42015 - 54904"`, and sorting that string is a lexical sort
+  on a composite.
+
 ## [3.156.0] - 2026-09-30
 
 ### Added

@@ -1,3 +1,12 @@
+  const SortTh = ({ col, label, className = '' }) => (
+    <SortableTh
+      col={col} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} label={label}
+      className={`px-2 py-2 text-xs font-semibold sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700 ${className}`}
+    >
+      {label}
+    </SortableTh>
+  )
+
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getFactionId } from '../utils/factionIdentity'
@@ -7,6 +16,51 @@ import { formatCurrency, formatCurrencyShort } from '../utils/payoutCalculations
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import { X, Info } from 'lucide-react'
 import StatCards from '../components/StatCards'
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+
+// ⚠️ ONE definition, used by both the header row and the sort columns. Two
+// lists would drift and a header would sort by the column beside it — the
+// quietest possible bug on a money screen.
+export const BREAKDOWN_KEYS = [
+  ['leaves', 'Leaves'], ['mugs', 'Mugs'], ['hosp', 'Hosp'], ['warHits', 'War'],
+  ['won', 'Won'], ['assists', 'Assist'], ['losses', 'Lost'], ['totalHits', 'Total'],
+]
+
+const bdValue = (m, win, key) => m?.race_breakdown?.[win]?.[key] ?? 0
+
+/**
+ * The sortable columns for the member tables.
+ *
+ * ⚠️ At module scope so it can be tested without rendering a modal that needs a
+ * war, a payout and a member list. This file had NO tests before #836, which is
+ * how "1 of 18 columns sorts" survived in a payout screen.
+ *
+ * ⚠️ Kinds are declared, not inferred. The old comparator read `a[sortCol] ?? 0`
+ * and then subtracted — so a null payout became 0 and an INELIGIBLE member
+ * sorted among the people who earned nothing rather than at the end with the
+ * other blanks.
+ */
+export function buildMemberColumns(win) {
+  return [
+    { key: 'member_name',    kind: 'text' },
+    { key: 'war_hits',       kind: 'number' },
+    { key: 'assist_attacks', kind: 'number' },
+    { key: 'losses',         kind: 'number' },
+    { key: 'mugs',           kind: 'number' },
+    { key: 'regular_hits',   kind: 'number' },
+    { key: 'score',          kind: 'number' },
+    { key: 'payout_amount',  kind: 'number' },
+    // ⚠️ The pre/post breakdown lives at `race_breakdown[win][key]`, so these
+    // close over the active window. Switching tab re-derives them, and a sort
+    // held on one then reads the other window — which is what somebody
+    // comparing the two halves of a race actually wants.
+    ...BREAKDOWN_KEYS.map(([key]) => ({
+      key: `bd_${key}`, kind: 'number', accessor: (m) => bdValue(m, win, key),
+    })),
+    { key: 'bd_respectGained', kind: 'number', accessor: (m) => bdValue(m, win, 'respectGained') },
+    { key: 'bd_payout',        kind: 'number', accessor: (m) => bdValue(m, win, 'payout') },
+  ]
+}
 
 // #393: read at use time, never captured at module scope — see the note in
 // WarPayoutManagement.jsx. A module-scope capture resolves before bootstrap
@@ -250,8 +304,6 @@ function RwPayoutInfoModal({ onClose }) {
 }
 
 function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
-  const [sortCol, setSortCol] = useState('payout_amount')
-  const [sortDir, setSortDir] = useState('desc')
 
   const war = wp.war_payouts?.ranked_wars
   const payoutData = wp.war_payouts
@@ -284,21 +336,23 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
   // payouts (no breakdown) fall back to their original real/termed rendering.
   const hasBreakdown = members.some(m => m.race_breakdown)
   const bd = (m, win, key) => m.race_breakdown?.[win]?.[key] ?? 0
+  // Which half of a race the breakdown table is showing, for the sort accessors.
+  const breakdownWin = tab === 'hits-post' ? 'post' : 'pre'
 
-  function handleSort(col) {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortCol(col); setSortDir('desc') }
-  }
+  // ⚠️ Column kinds are declared, not inferred. The old comparator read
+  // `a[sortCol] ?? 0` and then `Number(av) - Number(bv)` for everything except
+  // member_name — so a null payout became 0 and an INELIGIBLE member sorted
+  // among the people who earned nothing, rather than at the end with the other
+  // blanks.
+  const memberColumns = useMemo(() => buildMemberColumns(breakdownWin), [breakdownWin])
 
-  const sortedMembers = useMemo(() => {
-    const d = sortDir === 'asc' ? 1 : -1
-    return members.slice().sort((a, b) => {
-      const av = a[sortCol] ?? 0
-      const bv = b[sortCol] ?? 0
-      if (sortCol === 'member_name') return d * (a.member_name || '').localeCompare(b.member_name || '')
-      return d * (Number(av) - Number(bv))
+  // ⚠️ `tieBreak: 'member_name'` so equal-valued rows — and there are many,
+  // since most members have 0 mugs — keep a stable order instead of reshuffling
+  // whenever the payout is recalculated.
+  const { sorted: sortedMembers, sortCol, sortDir, onSort: handleSort } =
+    useTableSort(members, memberColumns, {
+      initialCol: 'payout_amount', initialDir: 'desc', tieBreak: 'member_name',
     })
-  }, [members, sortCol, sortDir])
 
   const hitTotals = useMemo(() => ({
     warHits:     members.reduce((s, m) => s + (m.war_hits || 0), 0),
@@ -526,20 +580,17 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
 
             {(tab === 'hits-pre' || tab === 'hits-post') && (() => {
               const win = tab === 'hits-pre' ? 'pre' : 'post'
-              const cols = [
-                ['leaves', 'Leaves'], ['mugs', 'Mugs'], ['hosp', 'Hosp'], ['warHits', 'War'],
-                ['won', 'Won'], ['assists', 'Assist'], ['losses', 'Lost'], ['totalHits', 'Total'],
-              ]
+              const cols = BREAKDOWN_KEYS
               return (
                 <table className="w-full text-xs border-separate border-spacing-0">
                   <thead>
                     <tr className="text-left text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-700">
-                      <th className="px-2 py-2 text-xs font-semibold text-left sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">Member</th>
-                      {cols.map(([, lbl]) => (
-                        <th key={lbl} className="px-2 py-2 text-xs font-semibold text-right sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">{lbl}</th>
+                      <SortTh col="member_name" label="Member" className="text-left" />
+                      {cols.map(([key, lbl]) => (
+                        <SortTh key={key} col={`bd_${key}`} label={lbl} className="text-right" />
                       ))}
-                      <th className="px-2 py-2 text-xs font-semibold text-right sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">Respect</th>
-                      <th className="px-2 py-2 text-xs font-semibold text-right sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700">{win === 'pre' ? 'Pre-Cutoff $' : 'Post-Cutoff $'}</th>
+                      <SortTh col="bd_respectGained" label="Respect" className="text-right" />
+                      <SortTh col="bd_payout" label={win === 'pre' ? 'Pre-Cutoff $' : 'Post-Cutoff $'} className="text-right" />
                     </tr>
                   </thead>
                   <tbody>

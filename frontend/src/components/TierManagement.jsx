@@ -3,6 +3,8 @@ import { apiGet, apiPut } from '../utils/apiClient'
 import { useAuth } from '../contexts/AuthContext'
 import { config } from '../config'
 import { CheckCircle2, AlertTriangle } from 'lucide-react'
+import SortableTh from './SortableTh.jsx'
+import { sortRows } from '../utils/tableSort.js'
 
 export default function TierManagement() {
   const { user } = useAuth()
@@ -84,20 +86,26 @@ export default function TierManagement() {
         m.id.toString().includes(searchTerm)
       )
     }
-    return [...list].sort((a, b) => {
-      let aVal, bVal
-      if (sortColumn === 'tier') {
-        // Use ?? to preserve tier 0 (Review) — || would coalesce it to 6.
-        aVal = a.tier ?? 6
-        bVal = b.tier ?? 6
-      } else {
-        aVal = (a.name || '').toLowerCase()
-        bVal = (b.name || '').toLowerCase()
-      }
-      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1
-      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
-      return 0
-    })
+    // ⚠️ Built here rather than at module scope because two columns are
+    // DERIVED: qualification depends on `config.tierRequirements`, which this
+    // component reads. A module-level config could not reach it.
+    const columns = [
+      { key: 'name', kind: 'text', accessor: (m) => m.name },
+      // ⚠️ `?? 6`, not `|| 6`, and kept as a real VALUE rather than a blank.
+      // Tier 0 is "Review" and must not coalesce to 6; a member with no tier is
+      // deliberately treated as the lowest band, so they group with Review
+      // rather than sinking to the end as missing data.
+      { key: 'tier', kind: 'number', accessor: (m) => m.tier ?? 6 },
+      // How far through the requirements of the tier somebody is IN.
+      { key: 'qualification', kind: 'number', accessor: (m) => qualificationRatio(m, m.tier ?? 6) },
+      // ...and of the tier above. `null` when there is none, which sinks those
+      // members rather than ranking them as zero.
+      { key: 'nextTier', kind: 'number', accessor: (m) => {
+        const next = (m.tier ?? 6) - 1
+        return next >= 0 ? qualificationRatio(m, next) : null
+      } },
+    ]
+    return sortRows(list, columns, sortColumn, sortDir, { tieBreak: 'name' })
   }, [members, searchTerm, sortColumn, sortDir])
 
   function handleSort(column) {
@@ -146,6 +154,19 @@ export default function TierManagement() {
       console.error('Error saving tier:', err)
       alert(`Failed to save tier: ${err.message}`)
     }
+  }
+
+  /**
+   * How far through a tier's requirements somebody is, 0..1.
+   *
+   * ⚠️ A RATIO, not the met count: tiers have different numbers of
+   * requirements, so "3 met" means something different per tier and sorting on
+   * the raw count would compare unlike things.
+   */
+  function qualificationRatio(member, tier) {
+    const q = getMeetsRequirements(member, tier)
+    if (!q || !q.totalCount) return null
+    return q.metCount / q.totalCount
   }
 
   function getMeetsRequirements(member, tier) {
@@ -246,8 +267,12 @@ export default function TierManagement() {
                 <th className="py-3 px-4 font-semibold text-sm cursor-pointer select-none hover:bg-gray-50 dark:hover:bg-slate-700/50" onClick={() => handleSort('tier')}>
                   Current Tier <SortIcon column="tier" />
                 </th>
-                <th className="py-3 px-4 font-semibold text-sm">Qualification</th>
-                <th className="py-3 px-4 font-semibold text-sm">Next Tier</th>
+                <SortableTh col="qualification" sortCol={sortColumn} sortDir={sortDir}
+                            onSort={handleSort} label="Qualification"
+                            className="py-3 px-4 font-semibold text-sm">Qualification</SortableTh>
+                <SortableTh col="nextTier" sortCol={sortColumn} sortDir={sortDir}
+                            onSort={handleSort} label="Next Tier"
+                            className="py-3 px-4 font-semibold text-sm">Next Tier</SortableTh>
                 <th className="py-3 px-4 font-semibold text-sm">Actions</th>
               </tr>
             </thead>

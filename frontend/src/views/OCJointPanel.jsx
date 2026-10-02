@@ -12,6 +12,8 @@
  */
 import { formatCurrency } from '../utils/payoutCalculations'
 
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+
 const REASONS = {
   'no-readings': 'never observed anyone in one of its roles — a gap in what we have measured, not a verdict',
   'not-crewable': 'nobody clears the bar on at least one role',
@@ -45,7 +47,25 @@ export function JointPanel({ plan, onSolve, solving, crimeCount }) {
     )
   }
 
-  const names = Object.keys(plan.chosen).sort()
+  const names = Object.keys(plan.chosen)
+
+  // ⚠️ The ROWS are crime names; their data lives in `plan.chosen[name]` and
+  // `plan.concessions[name]`, so every accessor is a lookup.
+  //
+  // ⚠️ `thresholds` renders a joined vector ("45 / 50 / 55") and sorts on its
+  // MINIMUM — the binding constraint, and the number somebody is comparing
+  // crimes by. Sorting the rendered string would be lexical on a composite.
+  const jointColumns = [
+    { key: 'crime',      kind: 'text',   accessor: (n) => n },
+    { key: 'thresholds', kind: 'number', accessor: (n) => Math.min(...Object.values(plan.chosen[n]?.vector ?? { x: 0 })) },
+    { key: 'crews',      kind: 'number', accessor: (n) => plan.chosen[n]?.crews },
+    { key: 'gaveUp',     kind: 'number', accessor: (n) => plan.concessions[n]?.pointsGivenUp },
+  ]
+
+  // ⚠️ Opens alphabetically, which is what `Object.keys(...).sort()` did before
+  // — the order people already know this list in.
+  const { sorted: sortedNames, sortCol, sortDir, onSort } =
+    useTableSort(names, jointColumns, { initialCol: 'crime', initialDir: 'asc', tieBreak: 'crime' })
   const skipped = Object.entries(plan.skipped ?? {})
 
   return (
@@ -67,14 +87,14 @@ export function JointPanel({ plan, onSolve, solving, crimeCount }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs uppercase text-gray-500 dark:text-gray-400">
-                <th className="py-1 pr-3">Crime</th>
-                <th className="py-1 pr-3">Thresholds</th>
-                <th className="py-1 pr-3">Crews</th>
-                <th className="py-1 pr-3">Gave up</th>
+                <SortableTh col="crime" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Crime">Crime</SortableTh>
+                <SortableTh col="thresholds" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Thresholds">Thresholds</SortableTh>
+                <SortableTh col="crews" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Crews">Crews</SortableTh>
+                <SortableTh col="gaveUp" className="py-1 pr-3" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Gave up">Gave up</SortableTh>
               </tr>
             </thead>
             <tbody>
-              {names.map((name) => {
+              {sortedNames.map((name) => {
                 const pick = plan.chosen[name]
                 const gave = plan.concessions[name]
                 return (

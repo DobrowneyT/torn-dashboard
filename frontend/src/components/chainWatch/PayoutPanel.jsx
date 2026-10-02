@@ -1,7 +1,39 @@
-import { useMemo } from 'react'
-import { AlertTriangle, ExternalLink } from 'lucide-react'
-import { payoutRows, payLink, raffleRuns, unpayableNote } from '../../utils/chainPayout'
+import { useMemo, useState } from 'react'
+import { AlertTriangle, ExternalLink, Settings } from 'lucide-react'
+import { payoutRows, payLink, batchPayLink, raffleRuns, unpayableNote } from '../../utils/chainPayout'
 import { tctLabel } from '../../utils/chainWatch'
+import SortableTh, { useTableSort } from '../SortableTh.jsx'
+import PayoutSettings from './PayoutSettings'
+
+/**
+ * Chain Watch payouts.
+ *
+ * ⚠️ `ticketRange` renders a span (first–last) and sorts on `first`, the
+ * number that actually orders the ranges. Sorting the rendered string would
+ * order "10–19" before "9" lexically.
+ *
+ * ⚠️ `tickets` and `ticketRange` only exist when the event ran a raffle, so
+ * their headers are conditional — the column config carries them regardless,
+ * because a column nobody can click is harmless where a missing one is a
+ * silent no-op.
+ */
+export const CHAIN_PAYOUT_COLUMNS = [
+  { key: 'watcher',     kind: 'text',   accessor: (r) => r.member_name },
+  { key: 'slots',       kind: 'number', accessor: (r) => r.slots },
+  // ⚠️ `bonusSlots`, not `bonus`. Reading the wrong field made every value
+  // blank, so the column returned an identical order in BOTH directions — the
+  // tie-break alone — and looked like sorting was broken rather than reading
+  // nothing. Nothing caught it: an accessor for a field that does not exist is
+  // not an error, it is `undefined`.
+  { key: 'bonus',       kind: 'number', accessor: (r) => r.bonusSlots },
+  { key: 'tickets',     kind: 'number', accessor: (r) => r.tickets },
+  { key: 'ticketRange', kind: 'number', accessor: (r) => r.firstTicket },
+  { key: 'payout',      kind: 'number', accessor: (r) => r.payout },
+  // ⚠️ Not rendered. It exists to reproduce `chainPayout.ORDER`'s tie-break
+  // exactly — "slots descending, then member id ascending", which that file
+  // states has to be stable.
+  { key: 'memberId',    kind: 'text',   accessor: (r) => String(r.member_id) },
+]
 
 /**
  * Who gets paid what, and which rows a leader still has to look at (#773).
@@ -25,8 +57,22 @@ const FLAG_TONE = {
   abroad: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
 }
 
-export default function PayoutPanel({ event, signups, removed, outcome, canEdit, onDecide, busyKey }) {
-  const { rows, totals } = useMemo(() => payoutRows(event, signups), [event, signups])
+export default function PayoutPanel({ event, signups, removed, outcome, canEdit, onDecide, busyKey, onUpdateEvent }) {
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const { rows: unsortedRows, totals } = useMemo(() => payoutRows(event, signups), [event, signups])
+  // ⚠️ Opens in `chainPayout.ORDER` — slots descending, member id ascending.
+  // That order is documented there as having to be stable, so the default here
+  // reproduces it rather than inventing a new one. My first version opened on
+  // payout and would have silently changed what a leader sees.
+  const { sorted: rows, sortCol, sortDir, onSort } =
+    useTableSort(unsortedRows, CHAIN_PAYOUT_COLUMNS, {
+      initialCol: 'slots', initialDir: 'desc', tieBreak: 'memberId',
+    })
+
+  // ⚠️ Built from the SORTED rows, so the link pays exactly the people the
+  // reader can see, in the order they are looking at them.
+  const batchUrl = useMemo(() => batchPayLink(rows), [rows])
+  const payableCount = rows.filter((r) => r.payout > 0).length
   const note = useMemo(() => unpayableNote(event, signups, outcome), [event, signups, outcome])
   const raffle = raffleRuns(outcome)
 
@@ -103,17 +149,55 @@ export default function PayoutPanel({ event, signups, removed, outcome, canEdit,
         </div>
       )}
 
+      {/* ⚠️ Above the table, not inside it: a batch link built from rows the
+          reader can still see is one they can check before clicking. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {batchUrl && (
+            <a href={batchUrl} target="_blank" rel="noreferrer" data-testid="batch-pay"
+              className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm">
+              Batch pay {payableCount} <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+          {batchUrl && (
+            <button type="button" data-testid="batch-pay-copy"
+              onClick={() => navigator.clipboard?.writeText(batchUrl)}
+              className="btn-secondary px-3 py-1.5 text-sm">
+              {/* ⚠️ Copy as well as open: the OC and RW sheets both offer the
+                  link as text, because Torn's controls tab does not always
+                  survive being opened in a new tab from a different origin. */}
+              Copy link
+            </button>
+          )}
+        </div>
+        {canEdit && onUpdateEvent && (
+          <button type="button" data-testid="payout-settings"
+            onClick={() => setSettingsOpen((v) => !v)}
+            aria-expanded={settingsOpen}
+            className="btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm">
+            <Settings className="h-4 w-4" /> Payout settings
+          </button>
+        )}
+      </div>
+
+      {settingsOpen && canEdit && onUpdateEvent && (
+        <PayoutSettings event={event} onSave={onUpdateEvent} onClose={() => setSettingsOpen(false)} />
+      )}
+
       <div className="card overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-400 dark:border-slate-600">
-                <th className="px-3 py-2 text-left font-medium">Watcher</th>
-                <th className="px-3 py-2 text-right font-medium">Slots</th>
-                <th className="px-3 py-2 text-right font-medium">Bonus</th>
-                {raffle && <th className="px-3 py-2 text-right font-medium">Tickets</th>}
-                {raffle && <th className="px-3 py-2 text-right font-medium">Ticket range</th>}
-                <th className="px-3 py-2 text-right font-medium">Payout</th>
+                <SortableTh col="watcher" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Watcher" className="px-3 py-2 text-left font-medium">Watcher</SortableTh>
+                <SortableTh col="slots"   sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Slots" className="px-3 py-2 text-right font-medium">Slots</SortableTh>
+                <SortableTh col="bonus"   sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Bonus" className="px-3 py-2 text-right font-medium">Bonus</SortableTh>
+                {raffle && <SortableTh col="tickets" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Tickets" className="px-3 py-2 text-right font-medium">Tickets</SortableTh>}
+                {/* ⚠️ Ticket range is a RENDERED SPAN (first–last), so it sorts
+                    on `first` — the number that orders the ranges. */}
+                {raffle && <SortableTh col="ticketRange" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Ticket range" className="px-3 py-2 text-right font-medium">Ticket range</SortableTh>}
+                <SortableTh col="payout"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Payout" className="px-3 py-2 text-right font-medium">Payout</SortableTh>
+                {/* ⚠️ The unpaid marker column. Not sortable — it is an icon. */}
                 <th className="px-3 py-2" />
               </tr>
             </thead>

@@ -4,7 +4,7 @@
 // across 26 members at 1.5m each — 568,500,000 — and handed out 438 raffle
 // tickets. If this file agrees with that, it is doing the spreadsheet's job.
 import { describe, it, expect } from 'vitest'
-import { payoutRows, payLink, isPaid, raffleRuns, unpayableNote } from '../chainPayout'
+import { payoutRows, payLink, isPaid, raffleRuns, unpayableNote, batchPayLink } from '../chainPayout'
 
 const EVENT = {
   id: 1,
@@ -173,5 +173,48 @@ describe('the payment link', () => {
     expect(rows[0].payout).toBe(34_500_000)
     expect(payLink(rows[0].member_id, rows[0].payout)).toContain('money=34500000')
     expect(payLink(rows[0].member_id, rows[0].payout)).toContain('addMoneyTo=3015831')
+  })
+})
+
+describe('batchPayLink', () => {
+  const row = (id, payout) => ({ member_id: id, payout })
+
+  it('pays everybody who is owed something, in one link', () => {
+    const url = batchPayLink([row('1', 1_500_000), row('2', 3_000_000)])
+    expect(url).toContain('batbal_uids=1,2')
+    expect(url).toContain('batbal_amounts=1500000,3000000')
+  })
+
+  it('⚠️ keeps the two lists the same length', () => {
+    // A mismatch silently pays the wrong people the wrong amounts.
+    const url = batchPayLink([row('1', 100), row('2', 0), row('3', 300)])
+    const uids = new URL(url.replace('#', '?')).searchParams.get('batbal_uids')
+      ?? url.match(/batbal_uids=([^&]*)/)[1]
+    const amounts = url.match(/batbal_amounts=([^&]*)/)[1]
+    expect(uids.split(',').length).toBe(amounts.split(',').length)
+  })
+
+  it('drops rows owed nothing rather than sending a zero', () => {
+    // ⚠️ Torn accepts a zero and does nothing, but it pads the link with people
+    // who were never owed anything — indistinguishable, to a leader scanning
+    // the result, from somebody they expected to pay.
+    const url = batchPayLink([row('1', 100), row('2', 0)])
+    expect(url).toContain('batbal_uids=1')
+    expect(url).not.toContain(',2')
+  })
+
+  it('returns empty when nobody is owed, so the button can hide', () => {
+    expect(batchPayLink([row('1', 0)])).toBe('')
+    expect(batchPayLink([])).toBe('')
+    expect(batchPayLink(undefined)).toBe('')
+  })
+
+  it('floors fractional payouts, as the single-pay link does', () => {
+    expect(batchPayLink([row('1', 1500.9)])).toContain('batbal_amounts=1500')
+  })
+
+  it('uses the same batbal shape as the war payout sheet', () => {
+    // ⚠️ A leader who knows one sheet should know the other.
+    expect(batchPayLink([row('1', 1)])).toContain('factions.php?step=your#/tab=controls')
   })
 })

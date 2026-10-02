@@ -7,6 +7,72 @@ import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
 import { config } from '../config'
 import InfoTooltip from '../components/InfoTooltip'
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+import { sortRows } from '../utils/tableSort.js'
+
+/**
+ * Column configs for the four tables in this file (#837, epic #803).
+ *
+ * ⚠️ Three of them had NO sorting at all — the per-member crime history, the
+ * weekly payout history and the loaned-items list. They are the tables somebody
+ * opens to answer "when did this happen" and "how much", and neither question
+ * could be reordered.
+ */
+/**
+ * The roster itself. Three columns, two of which sort — Actions deliberately
+ * does not.
+ *
+ * ⚠️ `id` was coerced with `parseInt(aVal) || 0`, which collapses a real zero
+ * and a missing id into the same value. It is a plain number column now.
+ */
+export const ROSTER_COLUMNS = [
+  { key: 'name',   kind: 'text',   accessor: (m) => m.name },
+  { key: 'id',     kind: 'number', accessor: (m) => m.id },
+  { key: 'tier',   kind: 'number', accessor: (m) => m.tier },
+  { key: 'avgCpr', kind: 'number', accessor: (m) => m.avgCpr },
+]
+
+export const MEMBER_CRIME_COLUMNS = [
+  { key: 'crime',    label: 'Crime',    kind: 'text',   accessor: (c) => c.name },
+  { key: 'level',    label: 'Level',    kind: 'number', accessor: (c) => c.difficulty },
+  { key: 'status',   label: 'Status',   kind: 'text',   accessor: (c) => c.status },
+  { key: 'position', label: 'Position', kind: 'text',   accessor: (c) => c.position },
+  { key: 'cpr',      label: 'CPR',      kind: 'number', accessor: (c) => c.cpr },
+  // ⚠️ Sorts on what the cell SHOWS: a failed crime renders "-" but may still
+  // carry rewards_money, and would otherwise outrank a successful one.
+  { key: 'reward',   label: 'Reward',   kind: 'number', accessor: (c) => (c.status === 'Successful' ? c.rewards_money : 0) },
+  // ⚠️ NUMBER, not date — this renders `new Date(executed_at * 1000)`, so the
+  // value is epoch seconds and parseDbTime would reject it.
+  { key: 'executed', label: 'Executed', kind: 'number', accessor: (c) => c.executed_at },
+]
+
+export const MEMBER_PAYOUT_COLUMNS = [
+  // ⚠️ The Week cell renders a date RANGE; sorting it as text would order by
+  // the rendered string. `week_start` is the value that means "which week".
+  { key: 'week',        label: 'Week',        kind: 'number', accessor: (p) => p.week_start },
+  { key: 'tier',        label: 'Tier',        kind: 'number', accessor: (p) => p.tier },
+  { key: 'crimes',      label: 'Crimes',      kind: 'number', accessor: (p) => p.crimes_count },
+  { key: 'time',        label: 'Time',        kind: 'number', accessor: (p) => p.time_spent },
+  { key: 'payout',      label: 'Payout',      kind: 'number', accessor: (p) => p.payout },
+  { key: 'theoretical', label: 'Theoretical', kind: 'number', accessor: (p) => p.theoretical_payout },
+  // ⚠️ Can be negative. No `|| 0` coercion anywhere near this one — that is
+  // what collapses a real negative into zero.
+  { key: 'diff',        label: 'Diff',        kind: 'number', accessor: (p) => (p.payout ?? 0) - (p.theoretical_payout ?? 0) },
+]
+
+/** The order the loaned-items list opened in before it was sortable. */
+const CATEGORY_ORDER = { armor: 0, weapons: 1, temporary: 2, utilities: 3, medical: 4, drugs: 5, caches: 6, cesium: 7 }
+
+export const LOANED_ITEM_COLUMNS = [
+  { key: 'item',   label: 'Item',         kind: 'text',   accessor: (i) => i.item_name || i.name },
+  // ⚠️ Sorts by the CATEGORY ORDER, not alphabetically. Armour before weapons
+  // before temporaries is how the list has always read; alphabetical would put
+  // caches first and scatter the gear somebody is looking for.
+  { key: 'type',   label: 'Type',         kind: 'number', accessor: (i) => CATEGORY_ORDER[i.category] ?? 99 },
+  { key: 'qty',    label: 'Qty Loaned',   kind: 'number', accessor: (i) => i.loaned_to_member || 1 },
+  { key: 'value',  label: 'Market Value', kind: 'number', accessor: (i) => i.market_value },
+  { key: 'total',  label: 'Total Value',  kind: 'number', accessor: (i) => (i.market_value || 0) * (i.loaned_to_member || 1) },
+]
 export default function MembersView({ isLeadership }) {
   const [persistedState, setPersistedState] = useViewState('members')
   // Tiered factions get the tier badge/filter/distribution; non-tiered
@@ -118,27 +184,11 @@ export default function MembersView({ isLeadership }) {
 
     // In non-tiered mode the tier column becomes CPR, so a 'tier' sort is
     // meaningless — sort by average CPR instead.
+    // ⚠️ In non-tiered mode the tier column becomes CPR, so a 'tier' sort is
+    // meaningless — sort by average CPR instead. This remap is not incidental.
     const sortKey = (!usesTiers && sortConfig.key === 'tier') ? 'avgCpr' : sortConfig.key
-
-    return filtered.sort((a, b) => {
-      let aVal = a[sortKey]
-      let bVal = b[sortKey]
-
-      if (sortKey === 'name') {
-        aVal = (aVal || '').toLowerCase()
-        bVal = (bVal || '').toLowerCase()
-      } else if (sortKey === 'id') {
-        aVal = parseInt(aVal) || 0
-        bVal = parseInt(bVal) || 0
-      } else if (sortKey === 'avgCpr') {
-        aVal = Number(aVal) || 0
-        bVal = Number(bVal) || 0
-      }
-
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
-      return 0
-    })
+    return sortRows(filtered, ROSTER_COLUMNS, sortKey, sortConfig.direction,
+                    { tieBreak: 'name' })
   }, [members, searchTerm, tierFilter, sortConfig, usesTiers])
 
   const handleSort = (key) => {
@@ -509,6 +559,12 @@ function TierBadge({ tier, override }) {
 }
 
 function CrimesModal({ member, crimes, loading, onClose }) {
+  // ⚠️ Newest first: this table answers "what did they just do".
+  const { sorted: sortedCrimes, sortCol, sortDir, onSort } =
+    useTableSort(crimes ?? [], MEMBER_CRIME_COLUMNS, {
+      initialCol: 'executed', initialDir: 'desc', tieBreak: 'crime',
+    })
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -541,17 +597,15 @@ function CrimesModal({ member, crimes, loading, onClose }) {
             <table className="w-full text-sm">
               <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
                 <tr className="text-left">
-                  <th className="py-2 px-2 text-xs font-semibold">Crime</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Level</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Status</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Position</th>
-                  <th className="py-2 px-2 text-xs font-semibold">CPR</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Reward</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Executed</th>
+                  {MEMBER_CRIME_COLUMNS.map(c => (
+                    <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir}
+                                onSort={onSort} label={c.label}
+                                className="py-2 px-2 text-xs font-semibold">{c.label}</SortableTh>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {crimes.map((crime) => (
+                {sortedCrimes.map((crime) => (
                   <tr key={crime.crime_id} className="border-b border-gray-100 dark:border-slate-800">
                     <td className="py-2 px-2 text-xs font-medium">{crime.name}</td>
                     <td className="py-2 px-2 text-xs">{crime.difficulty}</td>
@@ -578,6 +632,12 @@ function CrimesModal({ member, crimes, loading, onClose }) {
 }
 
 function PayoutsModal({ member, payouts, loading, onClose, isLeadership }) {
+  // ⚠️ Most recent week first, which is how this list already read.
+  const { sorted: sortedPayouts, sortCol, sortDir, onSort } =
+    useTableSort(payouts ?? [], MEMBER_PAYOUT_COLUMNS, {
+      initialCol: 'week', initialDir: 'desc', tieBreak: 'week',
+    })
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -613,17 +673,20 @@ function PayoutsModal({ member, payouts, loading, onClose, isLeadership }) {
             <table className="w-full text-sm">
               <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
                 <tr className="text-left">
-                  <th className="py-2 px-2 text-xs font-semibold">Week</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Tier</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Crimes</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Time</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Payout</th>
-                  {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Theoretical</th>}
-                  {isLeadership && <th className="py-2 px-2 text-xs font-semibold">Diff</th>}
+                  {MEMBER_PAYOUT_COLUMNS
+                    // ⚠️ Theoretical and Diff are leadership-only; the header
+                    // set has to follow the same rule as the cells or the
+                    // columns shift under a non-leader.
+                    .filter(c => isLeadership || (c.key !== 'theoretical' && c.key !== 'diff'))
+                    .map(c => (
+                      <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir}
+                                  onSort={onSort} label={c.label}
+                                  className="py-2 px-2 text-xs font-semibold">{c.label}</SortableTh>
+                    ))}
                 </tr>
               </thead>
               <tbody>
-                {payouts.map((payout) => {
+                {sortedPayouts.map((payout) => {
                   const diff = (payout.payout || 0) - (payout.theoretical_payout || 0)
                   return (
                     <tr key={payout.week_id} className="border-b border-gray-100 dark:border-slate-800">
@@ -691,13 +754,11 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
     )
   }
 
-  const categoryOrder = { armor: 0, weapons: 1, temporary: 2, utilities: 3, medical: 4, drugs: 5, caches: 6, cesium: 7 }
-
-  const sorted = [...items].sort((a, b) => {
-    const catA = categoryOrder[a.category] ?? 99
-    const catB = categoryOrder[b.category] ?? 99
-    if (catA !== catB) return catA - catB
-    return (a.item_name || a.name || '').localeCompare(b.item_name || b.name || '')
+  // ⚠️ Opens in category order then name — exactly as it did before it was
+  // sortable. `type` carries the category order as its sort value, so that
+  // default is reachable again after sorting by something else.
+  const { sorted, sortCol, sortDir, onSort } = useTableSort(items ?? [], LOANED_ITEM_COLUMNS, {
+    initialCol: 'type', initialDir: 'asc', tieBreak: 'item',
   })
 
   const totalValue = sorted.reduce((sum, item) => sum + ((item.market_value || 0) * (item.loaned_to_member || 1)), 0)
@@ -725,11 +786,11 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
             <table className="w-full text-sm">
               <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
                 <tr className="text-left">
-                  <th className="py-2 px-2 text-xs font-semibold">Item</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Type</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Qty Loaned</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Market Value</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Total Value</th>
+                  {LOANED_ITEM_COLUMNS.map(c => (
+                    <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir}
+                                onSort={onSort} label={c.label}
+                                className="py-2 px-2 text-xs font-semibold">{c.label}</SortableTh>
+                  ))}
                 </tr>
               </thead>
               <tbody>

@@ -10,6 +10,41 @@ import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import ApiKeyDisclosure from '../components/ApiKeyDisclosure'
 import { STAT_PATHS, DASHBOARD_STAT_KEYS, getByPath } from '../utils/statPaths'
 import { Check, X } from 'lucide-react'
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+
+/**
+ * The dashboard's two summary strips.
+ *
+ * ⚠️ These are the SMALL lists on the landing page, not full tables — a handful
+ * of rows each. Sorting earns its place because they are the first thing
+ * somebody looks at, not because the lists are long.
+ */
+export const DASH_CRIME_COLUMNS = [
+  { key: 'crime',  kind: 'text',   accessor: (c) => c.name },
+  { key: 'role',   kind: 'text',   accessor: (c) => c.member_position },
+  { key: 'cpr',    kind: 'number', accessor: (c) => c.member_cpr },
+  { key: 'status', kind: 'text',   accessor: (c) => c.status },
+  // ⚠️ Epoch SECONDS — the cell renders `new Date(executed_at * 1000)`, so this
+  // is a number. Declaring it a `date` would hand `parseDbTime` a number, which
+  // it rejects, and the column would silently sort nothing.
+  { key: 'executed', kind: 'number', accessor: (c) => c.executed_at },
+]
+
+/**
+ * ⚠️ `score` sorts on `myScore`, the member's OWN contribution — the cell
+ * renders that, not the faction scoreline. Sorting the displayed string of a
+ * composite like "42015 - 54904" would be a lexical sort on two numbers glued
+ * together, which is the trap the shared comparator exists to prevent.
+ */
+export const DASH_WAR_COLUMNS = [
+  { key: 'opponent', kind: 'text',   accessor: (w) => w.opponent_name ?? String(w.opponent_id) },
+  { key: 'hits',     kind: 'number', accessor: (w) => w.myAttacks },
+  { key: 'score',    kind: 'number', accessor: (w) => Number(w.myScore ?? 0) },
+  // ⚠️ Sorts on `start_at`, not the rendered range. The cell shows
+  // "start — end" (or "— Ongoing"), and sorting that string would order by
+  // text. Start is the number that orders wars; an ongoing war has no end.
+  { key: 'dates',    kind: 'number', accessor: (w) => w.start_at },
+]
 
 export default function DashboardView() {
   const { user } = useAuth()
@@ -178,6 +213,11 @@ export default function DashboardView() {
 // ─── OC Summary Card ──────────────────────────────────────────────
 
 function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory, crimeHistory }) {
+  // ⚠️ Newest first by default, which is how this strip already read — it is a
+  // "what did I just do" list, not a ranking.
+  const { sorted: sortedCrimes, sortCol: ocSortCol, sortDir: ocSortDir, onSort: onOcSort } =
+    useTableSort(crimeHistory, DASH_CRIME_COLUMNS, { initialCol: 'crime', tieBreak: 'crime' })
+
   const tierColors = {
     0: 'bg-tier-review',
     1: 'bg-tier-1', 2: 'bg-tier-2', 3: 'bg-tier-3',
@@ -257,13 +297,14 @@ function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory,
                 <thead>
                   <tr className="text-left text-gray-400 dark:text-gray-500">
                     <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '55%' }}>Crime</th>
-                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '25%' }}>Role</th>
-                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10 text-right pr-2" style={{ width: '10%' }}>CPR</th>
-                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10 text-right" style={{ width: '10%' }}>Status</th>
+                    <SortableTh col="role" className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '25%' }} sortCol={ocSortCol} sortDir={ocSortDir} onSort={onOcSort} label="Role">Role</SortableTh>
+                    <SortableTh col="cpr" className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10 text-right pr-2" style={{ width: '10%' }} sortCol={ocSortCol} sortDir={ocSortDir} onSort={onOcSort} label="CPR">CPR</SortableTh>
+                    <SortableTh col="status" className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10 text-right" style={{ width: '10%' }} sortCol={ocSortCol} sortDir={ocSortDir} onSort={onOcSort} label="Status">Status</SortableTh>
+                    <SortableTh col="executed" sortCol={ocSortCol} sortDir={ocSortDir} onSort={onOcSort} label="Executed" className="pb-1 font-medium text-right">Executed</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {crimeHistory.map((crime, i) => {
+                  {sortedCrimes.map((crime, i) => {
                     const statusColor = crime.status === 'Successful' ? 'text-green-600' :
                       (crime.status === 'Failed' || crime.status === 'Failure') ? 'text-red-500' :
                       'text-yellow-600'
@@ -283,8 +324,15 @@ function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory,
                         <td className="py-0.5 pr-2 text-right tabular-nums text-gray-500 dark:text-gray-400">
                           {crime.member_cpr != null ? Math.round(crime.member_cpr) : '—'}
                         </td>
-                        <td className={`py-0.5 text-right font-medium ${statusColor}`}>
+                        <td className={`py-0.5 pr-2 text-right font-medium ${statusColor}`}>
                           {statusLabel}
+                        </td>
+                        {/* ⚠️ Epoch seconds, like everywhere else this field
+                            appears — `new Date(x * 1000)`, not parseDbTime. */}
+                        <td className="py-0.5 text-right text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                          {crime.executed_at
+                            ? new Date(crime.executed_at * 1000).toLocaleDateString()
+                            : '—'}
                         </td>
                       </tr>
                     )
@@ -302,6 +350,11 @@ function OCSummaryCard({ tier, tierInfo, hasCprKey, onOpenCprKey, payoutHistory,
 // ─── RW Summary Card ──────────────────────────────────────────────
 
 function RWSummaryCard({ wars, payouts }) {
+  // ⚠️ Keeps the incoming order by default — the caller supplies these newest
+  // first, and this strip is read as "the last few wars".
+  const { sorted: sortedWars, sortCol: warSortCol, sortDir: warSortDir, onSort: onWarSort } =
+    useTableSort(wars, DASH_WAR_COLUMNS, { initialCol: 'opponent', tieBreak: 'opponent' })
+
   const hasData = wars.length > 0 || payouts.length > 0
 
   if (!hasData) {
@@ -336,13 +389,14 @@ function RWSummaryCard({ wars, payouts }) {
                 <thead>
                   <tr className="text-left text-gray-400 dark:text-gray-500">
                     <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '8%' }}></th>
-                    <th className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '52%' }}>Opponent</th>
-                    <th className="pb-1 font-medium text-right pr-2 sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '20%' }}>Hits</th>
-                    <th className="pb-1 font-medium text-right sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '20%' }}>Score</th>
+                    <SortableTh col="opponent" className="pb-1 font-medium sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '52%' }} sortCol={warSortCol} sortDir={warSortDir} onSort={onWarSort} label="Opponent">Opponent</SortableTh>
+                    <SortableTh col="hits" className="pb-1 font-medium text-right pr-2 sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '20%' }} sortCol={warSortCol} sortDir={warSortDir} onSort={onWarSort} label="Hits">Hits</SortableTh>
+                    <SortableTh col="score" className="pb-1 font-medium text-right sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '20%' }} sortCol={warSortCol} sortDir={warSortDir} onSort={onWarSort} label="Score">Score</SortableTh>
+                    <SortableTh col="dates" sortCol={warSortCol} sortDir={warSortDir} onSort={onWarSort} label="Dates" className="pb-1 font-medium text-right sticky top-0 bg-white dark:bg-slate-800 z-10" style={{ width: '28%' }}>Dates</SortableTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {wars.map((war) => {
+                  {sortedWars.map((war) => {
                     const result = !war.end_at || war.end_at === 0 ? 'ongoing' :
                       war.we_won ? 'win' : 'loss'
                     const resultColor = result === 'win' ? 'text-green-600' :
@@ -363,6 +417,12 @@ function RWSummaryCard({ wars, payouts }) {
                         </td>
                         <td className="py-0.5 text-right font-mono font-medium text-gray-900 dark:text-white tabular-nums">
                           {Math.round(Number(war.myScore || 0)).toLocaleString()}
+                        </td>
+                        {/* ⚠️ The RANGE, not just the end: "how long did that
+                            war run" is as useful as when it finished, and an
+                            ongoing war has no end date to show. */}
+                        <td className="py-0.5 text-right text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                          {formatWarDateRange(war.start_at, war.end_at)}
                         </td>
                       </tr>
                     )

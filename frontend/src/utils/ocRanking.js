@@ -1,3 +1,4 @@
+import { sortRows } from './tableSort.js'
 /**
  * Ranking crimes by what they are actually worth per week (#444, #448).
  *
@@ -239,19 +240,53 @@ export function rankCrimes(scenarios, successByName, opts = {}) {
  * The #351 rule. A crime with no data must never top the table by being treated
  * as zero, nor top a descending sort by being treated as infinite.
  */
+/**
+ * Sort a ranking by one column.
+ *
+ * ⚠️ **Delegates to the shared comparator (#837).** Kept as a named export
+ * with its own tests unchanged, because those tests are the proof that
+ * `sortRows` reproduces this table's behaviour — nulls last in both directions
+ * and crime name breaking every tie.
+ *
+ * ⚠️ Kinds are DECLARED rather than sniffed. The old body asked
+ * `typeof av === 'string'` per comparison, which switches comparison the moment
+ * one row's value is a different type — so a numeric column with one stray
+ * string would start comparing everything as text.
+ */
+/** The ranking table's columns — two text, the rest numeric. */
+export const RANKING_COLUMNS = [
+  { key: 'name',           kind: 'text' },
+  { key: 'categoryLabel',  kind: 'text' },
+  { key: 'successChance',  kind: 'number' },
+  { key: 'scopeCost',      kind: 'number' },
+  { key: 'totalPerRun',    kind: 'number' },
+  { key: 'moneyPerScope',  kind: 'number' },
+  { key: 'spawnsPerWeek',  kind: 'number' },
+  { key: 'incomePerWeek',  kind: 'number' },
+]
+
 export function sortRanking(rows, key, direction = 'desc') {
-  const dir = direction === 'asc' ? 1 : -1
-  return [...(rows ?? [])].sort((a, b) => {
-    const av = a?.[key]
-    const bv = b?.[key]
-    const aNull = av === null || av === undefined
-    const bNull = bv === null || bv === undefined
-    if (aNull && bNull) return String(a?.name ?? '').localeCompare(String(b?.name ?? ''))
-    if (aNull) return 1
-    if (bNull) return -1
-    if (typeof av === 'string' || typeof bv === 'string') {
-      return dir * String(av).localeCompare(String(bv))
-    }
-    return dir * (av - bv)
-  })
+  // ⚠️ This function is key-AGNOSTIC and must stay so. `sortRows` returns rows
+  // unchanged for a column it does not know, so narrowing this to the declared
+  // set would mean any caller passing another field silently gets no sort. A
+  // test caught exactly that, sorting by a key the table does not render.
+  const columns = RANKING_COLUMNS.some((c) => c.key === key)
+    ? RANKING_COLUMNS
+    : [...RANKING_COLUMNS, { key, compare: looseCompare }]
+  return sortRows(rows, columns, key, direction, { tieBreak: 'name' })
+}
+
+/**
+ * The old sniffing comparator, kept ONLY for keys outside the declared set.
+ *
+ * ⚠️ Deliberately not the default. Sniffing switches comparison the moment one
+ * row's value is a different type, which is the inconsistency the shared
+ * comparator exists to remove — but a declared kind cannot be invented for a
+ * column nobody declared.
+ */
+function looseCompare(av, bv) {
+  if (typeof av === 'string' || typeof bv === 'string') {
+    return String(av).localeCompare(String(bv))
+  }
+  return av - bv
 }

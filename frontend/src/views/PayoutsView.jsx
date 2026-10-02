@@ -8,6 +8,74 @@ import { formatCurrency, formatCurrencyShort, formatTimeHours, getCrimeStats, we
 import { X, Info, BarChart3 } from 'lucide-react'
 import StatCards from '../components/StatCards'
 import CrimeStatsView from '../components/CrimeStatsView'
+import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
+
+/**
+ * The weekly payout table's columns.
+ *
+ * ⚠️ `Actions` is deliberately absent — a header that looks clickable and
+ * reorders nothing is worse than one that plainly does not.
+ */
+export const WEEK_MEMBER_COLUMNS = [
+  { key: 'name',        kind: 'text',   accessor: (m) => m.member_name },
+  { key: 'tier',        kind: 'number', accessor: (m) => m.tier },
+  { key: 'time',        kind: 'number', accessor: (m) => m.time_spent },
+  { key: 'tickets',     kind: 'number', accessor: (m) => m.base_tickets },
+  { key: 'penalty',     kind: 'number', accessor: (m) => m.sit_out_penalty },
+  { key: 'share',       kind: 'number', accessor: (m) => m.share_percent },
+  { key: 'payout',      kind: 'number', accessor: (m) => m.payout },
+  { key: 'theoretical', kind: 'number', accessor: (m) => m.theoretical_payout },
+]
+
+/**
+ * The per-member crime detail table, which had no sorting at all.
+ *
+ * ⚠️ `executed` is a NUMBER, not a date. This table renders
+ * `new Date(crime.executed_at * 1000)` — the value is epoch SECONDS, not the
+ * Postgres timestamp string the rest of the app deals in. Declaring it `date`
+ * would hand `parseDbTime` a number, which it rejects, and the column would
+ * silently sort nothing.
+ */
+/**
+ * The week-over-week comparison table.
+ *
+ * ⚠️ A member present in only ONE week has `a` or `b` as null, and that is
+ * meaningful — they joined or left. Those sort to the end rather than counting
+ * as zero, because "earned nothing" and "was not here" are different answers.
+ *
+ * ⚠️ `change` is only defined when BOTH weeks exist; the cell renders "-"
+ * otherwise, and the accessor returns null so the sort agrees with the display.
+ *
+ * ⚠️ The A/B pair columns sort on the B side — the later week — because that is
+ * the one somebody is asking about when they open a comparison.
+ */
+export const COMPARE_COLUMNS = [
+  { key: 'name',    kind: 'text',   accessor: (r) => r.name },
+  { key: 'payoutA', kind: 'number', accessor: (r) => r.a?.payout ?? null },
+  { key: 'payoutB', kind: 'number', accessor: (r) => r.b?.payout ?? null },
+  { key: 'change',  kind: 'number', accessor: (r) => (r.a && r.b ? (r.b.payout || 0) - (r.a.payout || 0) : null) },
+  { key: 'tierB',   kind: 'number', accessor: (r) => r.b?.tier ?? r.a?.tier ?? null },
+  { key: 'timeB',   kind: 'number', accessor: (r) => r.b?.time_spent ?? r.a?.time_spent ?? null },
+  { key: 'peak',    kind: 'number', accessor: (r) => Math.max(r.a?.payout || 0, r.b?.payout || 0) },
+]
+
+export const CRIME_LABELS = {
+  crime: 'Crime', level: 'Level', status: 'Status', position: 'Position',
+  cpr: 'CPR', reward: 'Reward', executed: 'Executed',
+}
+
+export const CRIME_DETAIL_COLUMNS = [
+  { key: 'crime',    kind: 'text',   accessor: (c) => c.name },
+  { key: 'level',    kind: 'number', accessor: (c) => c.difficulty },
+  { key: 'status',   kind: 'text',   accessor: (c) => c.status },
+  { key: 'position', kind: 'text',   accessor: (c) => c.member_position },
+  { key: 'cpr',      kind: 'number', accessor: (c) => c.member_cpr },
+  // ⚠️ A failed crime pays nothing and renders "-", but `rewards_money` may
+  // still hold a figure. Sort on what the column SHOWS, which is zero unless
+  // it succeeded — otherwise a failed crime outranks a successful one.
+  { key: 'reward',   kind: 'number', accessor: (c) => (c.status === 'Successful' ? c.rewards_money : 0) },
+  { key: 'executed', kind: 'number', accessor: (c) => c.executed_at },
+]
 
 export default function PayoutsView({ isLeadership }) {
   const { user } = useAuth()
@@ -450,34 +518,13 @@ function TierBadge({ tier }) {
 function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMemberClick, onShowCrimeStats, isLeadership }) {
   // Non-tiered factions hide the Tier column here too (#136).
   const { usesTiers } = useFactionConfig()
-  const [sortCol, setSortCol] = useState('payout')
-  const [sortDir, setSortDir] = useState('desc')
-
-  function handleSort(col) {
-    if (sortCol === col) {
-      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortCol(col)
-      setSortDir('desc')
-    }
-  }
-
-  const sortedMembers = useMemo(() => {
-    const d = sortDir === 'asc' ? 1 : -1
-    return members.slice().sort((a, b) => {
-      switch (sortCol) {
-        case 'name':       return d * (a.member_name || '').localeCompare(b.member_name || '')
-        case 'tier':       return d * ((a.tier || 0) - (b.tier || 0))
-        case 'time':       return d * ((a.time_spent || 0) - (b.time_spent || 0))
-        case 'tickets':    return d * ((a.base_tickets || 0) - (b.base_tickets || 0))
-        case 'penalty':    return d * ((a.sit_out_penalty || 0) - (b.sit_out_penalty || 0))
-        case 'share':      return d * ((a.share_percent || 0) - (b.share_percent || 0))
-        case 'payout':     return d * ((a.payout || 0) - (b.payout || 0))
-        case 'theoretical': return d * ((a.theoretical_payout || 0) - (b.theoretical_payout || 0))
-        default:           return d * ((a.payout || 0) - (b.payout || 0))
-      }
+  // ⚠️ Declared kinds replace a switch that listed eight cases and fell through
+  // to `payout` for anything else — so a column added later sorted by payout
+  // and looked like it worked.
+  const { sorted: sortedMembers, sortCol, sortDir, onSort: handleSort } =
+    useTableSort(members, WEEK_MEMBER_COLUMNS, {
+      initialCol: 'payout', initialDir: 'desc', tieBreak: 'name',
     })
-  }, [members, sortCol, sortDir])
 
   if (loading) {
     return (
@@ -502,20 +549,14 @@ function WeekDetailsModal({ weekId, weekData, members, loading, onClose, onMembe
   const memberCount = weekData?.member_count || members.length
   const crimeCount = weekData?.crimes_processed || 0
 
-  function SortHeader({ col, label, className = '', sticky: isSticky }) {
-    const active = sortCol === col
-    return (
-      <th
-        className={`py-2 px-2 text-xs font-semibold cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${isSticky ? 'sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700' : ''} ${className}`}
-        onClick={() => handleSort(col)}
-      >
-        {label}
-        <span className="ml-1 text-gray-400">
-          {active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
-        </span>
-      </th>
-    )
-  }
+  const SortHeader = ({ col, label, className = '', sticky: isSticky }) => (
+    <SortableTh
+      col={col} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} label={label}
+      className={`py-2 px-2 text-xs font-semibold transition-colors ${isSticky ? 'sticky top-0 z-20 bg-white dark:bg-slate-800 border-b-2 border-gray-200 dark:border-slate-700' : ''} ${className}`}
+    >
+      {label}
+    </SortableTh>
+  )
 
   return (
     <div className="modal-overlay">
@@ -660,6 +701,12 @@ function SummaryStatCard({ label, value, color = '' }) {
 }
 
 function MemberCrimesModal({ memberId, crimes, loading, onClose }) {
+  // ⚠️ Newest first by default: this table answers "what did they just do".
+  const { sorted: sortedCrimes, sortCol: crimeSortCol, sortDir: crimeSortDir, onSort: onCrimeSort } =
+    useTableSort(crimes ?? [], CRIME_DETAIL_COLUMNS, {
+      initialCol: 'executed', initialDir: 'desc', tieBreak: 'crime',
+    })
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -692,17 +739,17 @@ function MemberCrimesModal({ memberId, crimes, loading, onClose }) {
             <table className="w-full text-sm">
               <thead className="border-b-2 border-gray-200 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
                 <tr className="text-left">
-                  <th className="py-2 px-2 text-xs font-semibold">Crime</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Level</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Status</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Position</th>
-                  <th className="py-2 px-2 text-xs font-semibold">CPR</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Reward</th>
-                  <th className="py-2 px-2 text-xs font-semibold">Executed</th>
+                  {CRIME_DETAIL_COLUMNS.map(c => (
+                    <SortableTh
+                      key={c.key} col={c} sortCol={crimeSortCol} sortDir={crimeSortDir}
+                      onSort={onCrimeSort} label={CRIME_LABELS[c.key]}
+                      className="py-2 px-2 text-xs font-semibold"
+                    >{CRIME_LABELS[c.key]}</SortableTh>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {crimes.map((crime) => (
+                {sortedCrimes.map((crime) => (
                   <tr key={crime.crime_id} className="border-b border-gray-100 dark:border-slate-800">
                     <td className="py-2 px-2 text-xs font-medium">{crime.name}</td>
                     <td className="py-2 px-2 text-xs">{crime.difficulty}</td>
@@ -759,11 +806,13 @@ function CompareTable({ weekA, weekB, labelA, labelB }) {
     }
   }
 
-  const rows = Array.from(allMembers.values()).sort((a, b) => {
-    const aMax = Math.max(a.a?.payout || 0, a.b?.payout || 0)
-    const bMax = Math.max(b.a?.payout || 0, b.b?.payout || 0)
-    return bMax - aMax
-  })
+  // ⚠️ The default is unchanged — biggest of the two weeks first, which is what
+  // this table opened with before it was sortable. `peak` is kept as a real
+  // column so that default is reachable again after sorting by something else.
+  const { sorted: rows, sortCol, sortDir, onSort } =
+    useTableSort(Array.from(allMembers.values()), COMPARE_COLUMNS, {
+      initialCol: 'peak', initialDir: 'desc', tieBreak: 'name',
+    })
 
   function diffCell(valA, valB, formatter = v => v) {
     const diff = (valB || 0) - (valA || 0)
@@ -780,12 +829,12 @@ function CompareTable({ weekA, weekB, labelA, labelB }) {
       <table className="w-full text-sm">
         <thead className="border-b-2 border-gray-200 dark:border-gray-700">
           <tr className="text-left text-xs text-gray-500 dark:text-gray-400">
-            <th className="py-2 pr-3">Member</th>
-            <th className="py-2 pr-3 text-right">{labelA}</th>
-            <th className="py-2 pr-3 text-right">{labelB}</th>
-            <th className="py-2 pr-3 text-right">Change</th>
-            <th className="py-2 pr-3 text-center">Tier A/B</th>
-            <th className="py-2 text-right">Time A/B (h)</th>
+            <SortableTh col="name"   sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Member" className="py-2 pr-3">Member</SortableTh>
+            <SortableTh col="payoutA" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label={labelA} className="py-2 pr-3 text-right">{labelA}</SortableTh>
+            <SortableTh col="payoutB" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label={labelB} className="py-2 pr-3 text-right">{labelB}</SortableTh>
+            <SortableTh col="change" sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Change" className="py-2 pr-3 text-right">Change</SortableTh>
+            <SortableTh col="tierB"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Tier A/B" className="py-2 pr-3 text-center">Tier A/B</SortableTh>
+            <SortableTh col="timeB"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} label="Time A/B" className="py-2 text-right">Time A/B (h)</SortableTh>
           </tr>
         </thead>
         <tbody>
