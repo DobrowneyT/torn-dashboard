@@ -18,6 +18,67 @@ surface it automatically.
 
 ---
 
+## [3.171.0] - 2026-10-01
+
+### Added
+- **Manual pay eligibility on the OC weekly payout sheet** — an Eligible column
+  per member, saved with the week. Migration `0065`.
+
+### Notes
+- ⚠️ **The ticket penalty was not a substitute.** Sitting out costs tickets,
+  which is proportionate on a ticket-weighted week — but on **equal** and
+  **flat-weighted** tickets do not enter the arithmetic at all, so there was no
+  way to withhold pay short of deleting the row, which also deletes the record
+  that the member was there.
+- ⚠️ **An excluded member leaves the DENOMINATOR**, so their share goes to
+  everybody else. The pot is fixed: zeroing somebody without removing them means
+  the sheet pays out less than the pot and nobody can see where it went. This
+  matches `war_payout_members.is_eligible` — two payout sheets that answer "is
+  this member paid" differently is how a leader learns one screen and is wrong
+  on the other.
+- ⚠️ Applied **before** the ticket total is summed, not after. Zeroing tickets
+  once the denominator exists strands the share.
+- ⚠️ Restoring a saved week rehydrates the eligibility **set**, not just the
+  flag on each row. The flag is what the table renders; the set is what the
+  recalculation reads, and restoring one without the other looks right until
+  something triggers a recompute.
+- ⚠️ The column defaults TRUE and is read as `!== false`, so weeks saved before
+  this migration are unchanged — they were paid on the old rules.
+
+## [3.170.0] - 2026-10-01
+
+### Changed
+- **A finished, empty slot reads "Not filled"** instead of offering a Sign-up
+  button — to leadership as well. ⚠️ A leader filling a slot after the fact is
+  *assigning somebody*, which the person button beside it does; "Sign up" would
+  claim it for the leader themselves.
+- **The flag queue and the removed-slots log are leadership only.** ⚠️ The queue
+  names members beside a flag, and "absent while the chain was at risk" is an
+  accusation until somebody has ruled on it; the removed log is a moderation
+  record. Showing a member the rows without the buttons was still showing them
+  the charge sheet.
+
+### Added
+- **A blanket eligibility switch** on the Chain Watch payout sheet — withhold or
+  restore a member's pay for a whole event in one click.
+
+### Fixed
+- ⚠️ **The ×2 bonus tooltip looked half-transparent.** Past rows were dimmed
+  with `opacity-60`, which applies to the whole subtree and cannot be undone by
+  a child — and `InfoTooltip` renders inline rather than in a portal, so the
+  panel inherited it. Past rows are dimmed with colour now; the tooltip sets its
+  own, so it is unaffected.
+
+### Notes
+- ⚠️ The eligibility switch is a **blanket** over the per-slot decisions, not a
+  second mechanism beside them. Two answers to "is this slot money" is the drift
+  that made the old spreadsheet pay 59 slots where 31 were marked.
+- ⚠️ Restoring sets `pay_decision` back to **null**, not `'paid'`. Null is
+  undecided-and-payable, the default; `'paid'` would override a genuine flag and
+  quietly pay an hour somebody was abroad for.
+- ⚠️ It leaves **removed** slots alone and 404s when a member holds nothing — a
+  silent 200 on zero rows reads as "withheld" when nothing happened.
+
 ## [3.169.0] - 2026-10-01
 
 ### Fixed

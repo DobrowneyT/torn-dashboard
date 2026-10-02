@@ -37,10 +37,18 @@ describe('a finished hour is read-only for members', () => {
     expect(screen.getByTestId(`closed-${HOUR_ISO}-0`)).toBeTruthy()
   })
 
-  it('⚠️ keeps it open for leadership, who correct slots after the fact', () => {
-    // Somebody watched but could not claim, or a no-show needs removing.
+  it('⚠️ gives leadership the ASSIGN button, not a Sign-up button', () => {
+    // A leader filling a slot after the fact is assigning somebody; "Sign up"
+    // would claim it for the leader themselves, which is never what they meant.
     draw({ canEdit: true })
-    expect(screen.getByTestId(`claim-${HOUR_ISO}-0`)).toBeTruthy()
+    expect(screen.queryByTestId(`claim-${HOUR_ISO}-0`)).toBeNull()
+    expect(screen.getByTestId(`closed-${HOUR_ISO}-0`)).toBeTruthy()
+    expect(screen.getByLabelText(/Assign someone to/)).toBeTruthy()
+  })
+
+  it('gives a member no assign button either', () => {
+    draw()
+    expect(screen.queryByLabelText(/Assign someone to/)).toBeNull()
   })
 
   it('still lets a member claim the hour they are IN', () => {
@@ -54,13 +62,14 @@ describe('a finished hour is read-only for members', () => {
     expect(screen.getByTestId(`claim-${HOUR_ISO}-0`)).toBeTruthy()
   })
 
-  it('⚠️ shows a dash rather than a disabled button', () => {
-    // A greyed-out control invites a click and then refuses it; an empty cell
-    // says "this hour is done" without pretending there is something to do.
+  it('⚠️ says "Not filled" rather than offering a disabled button', () => {
+    // A greyed-out control invites a click and then refuses it. This says what
+    // the slot IS — an hour that ran with nobody on it, which is the thing a
+    // post-mortem wants to see.
     draw()
     const cell = screen.getByTestId(`closed-${HOUR_ISO}-0`)
     expect(cell.tagName).toBe('SPAN')
-    expect(cell.textContent).toBe('—')
+    expect(cell.textContent).toBe('Not filled')
   })
 })
 

@@ -186,6 +186,17 @@ export default function PayoutManagement() {
   const [showBatchURL, setShowBatchURL] = useState(false)
   const [showCrimeStats, setShowCrimeStats] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: 'payout', direction: 'desc' })
+  // ⚠️ Manual pay eligibility (MonChoon, 2026-10-01). The ticket penalty does
+  // not reach the EQUAL and FLAT models, so without this there is no way to
+  // withhold somebody's pay short of deleting their row — which also deletes
+  // the record that they were there.
+  const [ineligibleMembers, setIneligibleMembers] = useState(() => new Set())
+  const toggleEligible = (userId) => setIneligibleMembers((prev) => {
+    const next = new Set(prev)
+    const key = String(userId)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    return next
+  })
 
   // Historical payouts
   const [historicalPayouts, setHistoricalPayouts] = useState([])
@@ -465,7 +476,8 @@ export default function PayoutManagement() {
         fromTimestamp,
         toTimestamp,
         factionCutPercent / 100,
-        payoutMode
+        payoutMode,
+        ineligibleMembers
       )
 
       // Penalty overrides adjust ticket-weighted shares, so they apply only to
@@ -600,7 +612,11 @@ export default function PayoutManagement() {
         setHasCalculated(true)
       })
     }
-  }, [crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent, penaltyOverrides, payoutMode, user.apiKey])
+  // ⚠️ `ineligibleMembers` is a dependency: excluding somebody changes the
+  // DENOMINATOR, so every other member's share moves. Leaving it out would show
+  // a sheet where one row reads zero and nobody else's number has changed —
+  // which does not add up to the pot.
+  }, [crimesData, membersData, fromTimestamp, toTimestamp, factionCutPercent, penaltyOverrides, payoutMode, ineligibleMembers, user.apiKey])
 
   async function handleSaveWeek() {
     if (!payoutResults || payoutResults.members.length === 0) {
@@ -662,7 +678,11 @@ export default function PayoutManagement() {
         payout: m.payout,
         theoretical_payout: m.theoreticalPayout,
         crimes_count: m.crimesCount,
-        crimes_participated: m.crimeIds
+        crimes_participated: m.crimeIds,
+        // ⚠️ Saved with the week. Without it, a leader who withheld somebody's
+        // pay, saved, and came back would find them paid again — and the
+        // sheet's totals would differ from what was actually handed out.
+        is_eligible: m.isEligible !== false
       }))
 
       await savePayoutWeek(weekData, memberData, payoutResults.crimeIds, user.name, user.apiKey)
@@ -694,7 +714,11 @@ export default function PayoutManagement() {
   function handleCopyBatchURL() {
     if (!payoutResults) return
 
-    const batchURL = generateBatchPayoutURL(sortedMembers)
+    // ⚠️ Excluded members are dropped from the batch link. `generateBatchPayoutURL`
+    // already filters on payout > 0, and an ineligible member's payout IS zero —
+    // but filtering explicitly means the link cannot pay somebody a leader has
+    // withheld, even if the arithmetic ever changes underneath it.
+    const batchURL = generateBatchPayoutURL(sortedMembers.filter((m) => m.isEligible !== false))
 
     if (!batchURL) {
       alert('No valid payouts to generate URL')
@@ -796,8 +820,19 @@ export default function PayoutManagement() {
         payout: m.payout || 0,
         theoreticalPayout: m.theoretical_payout || 0,
         crimesCount: m.crimes_count || 0,
-        crimeIds: m.crimes_participated || []
+        crimeIds: m.crimes_participated || [],
+        // ⚠️ `!== false`, not `|| true`: a row saved before 0065 has no column
+        // at all, and those weeks were paid on the old rules.
+        isEligible: m.is_eligible !== false
       }))
+
+      // ⚠️ Rehydrate the eligibility SET too, not just the flag on each row.
+      // The flag is what the table renders; the set is what the recalculation
+      // reads. Restoring one without the other means the sheet looks right
+      // until anything triggers a recompute, and then quietly pays somebody a
+      // leader had withheld.
+      setIneligibleMembers(new Set(
+        transformedMembers.filter((m) => m.isEligible === false).map((m) => String(m.userId))))
 
       // Set the payout results
       const results = {
@@ -1367,12 +1402,17 @@ export default function PayoutManagement() {
                     <th className="py-2 px-2 font-semibold text-xs cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600" onClick={() => handleSort('theoreticalPayout')}>
                       Theoretical <SortIcon columnKey="theoreticalPayout" />
                     </th>
+                    {/* ⚠️ Not sortable — it is a control, and `payout` already
+                        orders by the same fact. */}
+                    <th className="py-2 px-2 font-semibold text-xs sticky top-0 z-20 bg-gray-50 dark:bg-slate-700 border-b-2 border-gray-200 dark:border-slate-600 text-right">
+                      Eligible
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {sortedMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={(usesTiers ? 10 : 9) + (showObserved ? 1 : 0)} className="py-8 text-center text-gray-500">
+                      <td colSpan={(usesTiers ? 11 : 10) + (showObserved ? 1 : 0)} className="py-8 text-center text-gray-500">
                         No payouts calculated. Click "Run Payout" to calculate.
                       </td>
                     </tr>
@@ -1450,6 +1490,27 @@ export default function PayoutManagement() {
                           {member.payout < member.theoreticalPayout && (
                             <span className="ml-1 text-red-600">-</span>
                           )}
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          {/* ⚠️ Excluding somebody REDISTRIBUTES their share —
+                              the pot is fixed, so everybody else's number moves
+                              with this click. The label says which way it will
+                              go rather than showing a state to interpret. */}
+                          <button
+                            type="button"
+                            onClick={() => toggleEligible(member.userId)}
+                            data-testid={`oc-eligible-${member.userId}`}
+                            className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+                              member.isEligible === false
+                                ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-300'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-slate-700 dark:text-gray-400'
+                            }`}
+                            title={member.isEligible === false
+                              ? 'Not being paid — click to include them, which lowers everybody else'
+                              : 'Being paid — click to withhold, which raises everybody else'}
+                          >
+                            {member.isEligible === false ? 'Not paid' : 'Eligible'}
+                          </button>
                         </td>
                       </tr>
                     ))
