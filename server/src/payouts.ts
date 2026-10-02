@@ -19,6 +19,9 @@ const WEEK_COLUMNS = new Set([
 const MEMBER_COLUMNS = new Set([
   'member_id', 'member_name', 'tier', 'base_tickets', 'sit_out_penalty',
   'adjusted_tickets', 'time_spent', 'time_spent_percent', 'share_percent',
+  // ⚠️ Ticket-qualifying time (0066) — see the migration. Without it a
+  // reopened EQUAL week cannot work out who its participants were.
+  'ticket_time_spent',
   'payout', 'theoretical_payout', 'crimes_count', 'crimes_participated',
   // ⚠️ Manual pay eligibility (0065). Persisted with the week so reopening a
   // saved payout shows the same decisions — otherwise a leader who withheld

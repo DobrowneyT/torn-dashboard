@@ -18,6 +18,37 @@ surface it automatically.
 
 ---
 
+## [3.172.0] - 2026-10-02
+
+### Fixed
+- **OC payouts: equal mode now redistributes when a member is marked ineligible.**
+  Withholding somebody's pay on an equal week left every other figure untouched
+  and the excluded member's share simply vanished from the sheet — the pot no
+  longer added up. The tiered and flat-weighted modes were correct, which is
+  why this went unnoticed.
+- The split had drifted into **five copies** across the payout screen, which
+  disagreed three ways. Two more faults fell out of consolidating them:
+  - editing a single item price on an equal week silently **re-split it by
+    tickets**, abandoning the even split the faction had chosen;
+  - a member who was both ineligible *and* carrying a sit-out penalty was
+    **paid anyway**, because the penalty pass recomputed their tickets from
+    scratch and undid the exclusion.
+
+### Added
+- `payoutShare()` in `payoutCalculations.js` is now the only place the OC split
+  is computed, with a guard test (`payoutSplitSingleSource.test.js`) that fails
+  if anything derives `sharePercent` anywhere else.
+- Migration **0066** persists `ticket_time_spent` per saved payout row. It
+  decides who draws an equal share (#389) and was previously computed in the
+  browser and discarded, so a reopened equal week could not recalculate itself.
+  Nullable by design — pre-0066 rows fall back to `time_spent`, which is what
+  those weeks were actually paid on.
+
+### Note
+- Chain Watch pay is unchanged and still **does not** redistribute: it is a flat
+  rate per slot, not a pot. The two policies are now pinned by tests on both
+  sides so they cannot be conflated.
+
 ## [3.171.1] - 2026-10-01
 
 ### Added

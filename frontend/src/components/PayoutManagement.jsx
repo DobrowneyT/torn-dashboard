@@ -25,7 +25,9 @@ import {
   getCrimeStats,
   buildHistoricalWeekCrimesData,
   PAYOUT_MODES,
-  DEFAULT_PAYOUT_MODE
+  DEFAULT_PAYOUT_MODE,
+  payoutShare,
+  countEqualParticipants
 } from '../utils/payoutCalculations'
 import { useFactionIdentity } from '../utils/factionIdentity'
 import { enrichItemBreakdown } from '../utils/lookupHelpers'
@@ -70,7 +72,7 @@ export const OC_PAYOUT_COLUMNS = [
  * unit price so the totals, faction cut, member pool, and payouts all stay
  * in sync.
  */
-function recalculateWithItemPrices(results, factionCutPercent) {
+function recalculateWithItemPrices(results, factionCutPercent, mode) {
   if (!results || !results.itemBreakdown) return results
 
   // Refresh totalValue for every item from its current unitValue.
@@ -115,15 +117,18 @@ function recalculateWithItemPrices(results, factionCutPercent) {
   const totalAdjustedTickets = results.totalAdjustedTickets
     ?? (results.members || []).reduce((s, m) => s + (m.adjustedTickets || 0), 0)
 
-  const recalculatedMembers = (results.members || []).map(m => {
-    const updated = { ...m }
-    if (totalAdjustedTickets > 0) {
-      updated.sharePercent = (m.adjustedTickets || 0) / totalAdjustedTickets
-      updated.payout = Math.floor(updated.sharePercent * newMemberPayoutTotal)
-    }
-    updated.theoreticalPayout = theoreticalByMember[m.userId.toString()] || 0
-    return updated
-  })
+  // ⚠️ `mode` reaches here now. This path had NO equal branch: because
+  // `totalAdjustedTickets` is non-zero on an equal week too, editing a single
+  // item price re-split that week by tickets and quietly abandoned the even
+  // split the faction had chosen.
+  const equalParticipants = countEqualParticipants(results.members)
+  const recalculatedMembers = (results.members || []).map(m => ({
+    ...m,
+    ...payoutShare(m, {
+      mode, pot: newMemberPayoutTotal, totalAdjustedTickets, equalParticipants,
+    }),
+    theoreticalPayout: theoreticalByMember[m.userId.toString()] || 0,
+  }))
 
   return {
     ...results,
@@ -390,7 +395,7 @@ export default function PayoutManagement() {
           },
         },
       }
-      return recalculateWithItemPrices(next, factionCutPercent)
+      return recalculateWithItemPrices(next, factionCutPercent, payoutMode)
     })
     setEditingRewardPrice(null)
   }
@@ -419,7 +424,7 @@ export default function PayoutManagement() {
           },
         },
       }
-      return recalculateWithItemPrices(next, factionCutPercent)
+      return recalculateWithItemPrices(next, factionCutPercent, payoutMode)
     })
   }
 
@@ -488,29 +493,37 @@ export default function PayoutManagement() {
         // Apply penalty overrides
         results.members = results.members.map(member => {
           const override = penaltyOverrides[member.userId]
-          if (override !== undefined) {
-            const newAdjustedTickets = member.baseTickets + override
-            return {
-              ...member,
-              sitOutPenalty: override,
-              adjustedTickets: Math.max(0, newAdjustedTickets),
-              penaltyOverridden: true
-            }
+          if (override === undefined) return member
+          // ⚠️ `member.isEligible === false` wins over the override. This
+          // recomputes `adjustedTickets` from `baseTickets`, which would
+          // RESURRECT the tickets calculatePayouts zeroed — a member who is
+          // both excluded from pay and carrying a sit-out penalty would get
+          // paid, because the penalty pass overwrote the exclusion.
+          const newAdjustedTickets = member.isEligible === false
+            ? 0
+            : Math.max(0, member.baseTickets + override)
+          return {
+            ...member,
+            sitOutPenalty: override,
+            adjustedTickets: newAdjustedTickets,
+            penaltyOverridden: true
           }
-          return member
         })
 
         // Recalculate shares after penalty overrides
         totalAdjustedTickets = results.members.reduce((sum, m) => sum + m.adjustedTickets, 0)
         const memberPayoutTotal = results.memberPayoutTotal
+        const overrideParticipants = countEqualParticipants(results.members)
 
-        results.members = results.members.map(member => {
-          if (totalAdjustedTickets > 0) {
-            member.sharePercent = member.adjustedTickets / totalAdjustedTickets
-            member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
-          }
-          return member
-        })
+        results.members = results.members.map(member => ({
+          ...member,
+          ...payoutShare(member, {
+            mode: payoutMode,
+            pot: memberPayoutTotal,
+            totalAdjustedTickets,
+            equalParticipants: overrideParticipants,
+          }),
+        }))
       }
 
       // Enrich item breakdown and recalculate totals
@@ -573,26 +586,24 @@ export default function PayoutManagement() {
         // Recalculate theoretical payouts with enriched per-crime values
         const theoreticalByMember = calculateTheoreticalPayouts(enrichedCrimeValues, factionCutPercent / 100)
 
-        // Recalculate member payouts against the item-enriched pool. Equal
-        // mode re-splits evenly among participants (≥1 OC); the ticket modes
-        // re-derive from adjusted tickets.
-        const equalParticipants = payoutMode === 'equal'
-          ? results.members.filter(m => m.timeSpent > 0).length
-          : 0
-        const recalculatedMembers = results.members.map(member => {
-          const updated = { ...member }
-          if (payoutMode === 'equal') {
-            const isParticipant = member.timeSpent > 0
-            updated.sharePercent = isParticipant && equalParticipants > 0 ? 1 / equalParticipants : 0
-            updated.payout = isParticipant && equalParticipants > 0
-              ? Math.floor(newMemberPayoutTotal / equalParticipants) : 0
-          } else if (totalAdjustedTickets > 0) {
-            updated.sharePercent = member.adjustedTickets / totalAdjustedTickets
-            updated.payout = Math.floor(updated.sharePercent * newMemberPayoutTotal)
-          }
-          updated.theoreticalPayout = theoreticalByMember[member.userId.toString()] || 0
-          return updated
-        })
+        // Recalculate member payouts against the item-enriched pool, through
+        // the same `payoutShare` the first pass used.
+        // ⚠️ This is the pass that produces what the screen SHOWS — it runs
+        // last and overwrites calculatePayouts' numbers. It used to read
+        // `m.timeSpent > 0` with no eligibility check, so marking somebody
+        // ineligible on an equal week changed nobody's figure: the excluded
+        // member kept their share and the pot never redistributed, which is
+        // exactly what MonChoon saw (2026-10-02). The ticket modes looked
+        // right only because their branch reads `adjustedTickets`, which was
+        // already zeroed upstream.
+        const equalParticipants = countEqualParticipants(results.members)
+        const recalculatedMembers = results.members.map(member => ({
+          ...member,
+          ...payoutShare(member, {
+            mode: payoutMode, pot: newMemberPayoutTotal, totalAdjustedTickets, equalParticipants,
+          }),
+          theoreticalPayout: theoreticalByMember[member.userId.toString()] || 0,
+        }))
 
         // Update results with enriched data and recalculated totals
         const updatedResults = {
@@ -673,6 +684,7 @@ export default function PayoutManagement() {
         sit_out_penalty: m.sitOutPenalty,
         adjusted_tickets: m.adjustedTickets,
         time_spent: m.timeSpent,
+        ticket_time_spent: m.ticketTimeSpent ?? null,
         time_spent_percent: m.timePercent,
         share_percent: m.sharePercent * 100,
         payout: m.payout,
@@ -815,6 +827,10 @@ export default function PayoutManagement() {
         sitOutPenalty: m.sit_out_penalty || 0,
         adjustedTickets: m.adjusted_tickets || 0,
         timeSpent: m.time_spent || 0,
+        // ⚠️ Falls back to time_spent for pre-0066 rows, which is what those
+        // weeks were actually paid on — so reopening an old week recalculates
+        // the way it originally calculated, rather than zeroing everyone.
+        ticketTimeSpent: m.ticket_time_spent ?? m.time_spent ?? 0,
         timePercent: m.time_spent_percent || 0,
         sharePercent: (m.share_percent || 0) / 100,
         payout: m.payout || 0,

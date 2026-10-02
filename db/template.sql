@@ -413,6 +413,10 @@ CREATE TABLE public.oc_payout_members (
   adjusted_tickets numeric(10,4) DEFAULT 0,
   time_spent bigint DEFAULT 0,
   time_spent_percent numeric(10,4) DEFAULT 0,
+  -- ⚠️ Ticket-QUALIFYING time (0066), which is not the same as time_spent and
+  -- is what decides who draws an equal share (#389). Nullable: pre-0066 rows
+  -- have no value and the reader falls back to time_spent for them.
+  ticket_time_spent bigint,
   share_percent numeric(10,6) DEFAULT 0,
   payout bigint DEFAULT 0,
   crimes_count integer DEFAULT 0,

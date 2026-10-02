@@ -29,6 +29,58 @@ const TIER_TICKETS = {
 // the only mode that is correct with nothing configured. The server resolves
 // the absent case in `GET /api/oc-config` (`server/src/payoutModes.ts`); this
 // constant is the pre-fetch seed and must agree with it.
+/**
+ * Who takes a share under the EQUAL model.
+ *
+ * ⚠️ **Exported because two places need it and they had drifted.** This module
+ * split the pot among members with ticket time; the payout screen re-split it
+ * after item enrichment among members with ANY time, and ignored eligibility
+ * entirely — so marking somebody ineligible on an equal week changed nobody's
+ * number and still paid them. Two definitions of "participant" is how that
+ * happened; now there is one.
+ *
+ * ⚠️ `ticketTimeSpent`, not `timeSpent` (#389). A member whose only activity
+ * was a left-early stint has no ticket time, and must not draw an equal share
+ * while that banked time is excluded from the money.
+ */
+export const isEqualParticipant = (m) => (m?.ticketTimeSpent || 0) > 0 && m?.isEligible !== false
+
+/** How many members draw an equal share. The denominator, so it is one function. */
+export const countEqualParticipants = (members) =>
+  (members || []).filter(isEqualParticipant).length
+
+/**
+ * One member's slice of the pot. **Pure, and the only place the split lives.**
+ *
+ * ⚠️ There were FOUR copies of this arithmetic — calculatePayouts, the
+ * penalty-override pass, the item-enrichment pass and the manual-price-edit
+ * path — and they disagreed three ways:
+ *   1. two used `timeSpent`, two used `ticketTimeSpent` (#389);
+ *   2. two checked eligibility, two did not, so an ineligible member kept a
+ *      full equal share and the pot never redistributed;
+ *   3. the manual-price path had no equal branch at all, so editing one item
+ *      price on an equal week silently re-split it BY TICKETS.
+ * Every one of those is invisible on the screen: the numbers still add up to
+ * something, just not to the policy. Hence one function, four callers.
+ *
+ * `pot` is the member payout total (after the faction cut).
+ */
+export function payoutShare(member, { mode, pot, totalAdjustedTickets, equalParticipants }) {
+  if (mode === 'equal') {
+    if (!isEqualParticipant(member) || !(equalParticipants > 0)) return { sharePercent: 0, payout: 0 }
+    return {
+      sharePercent: 1 / equalParticipants,
+      payout: Math.floor(pot / equalParticipants),
+    }
+  }
+  // tiered + flat-weighted: proportional to adjusted (time-weighted) tickets.
+  // Ineligibility already zeroed `adjustedTickets` before the denominator was
+  // summed, so an excluded member falls out here without a second check.
+  if (!(totalAdjustedTickets > 0)) return { sharePercent: 0, payout: 0 }
+  const sharePercent = (member.adjustedTickets || 0) / totalAdjustedTickets
+  return { sharePercent, payout: Math.floor(sharePercent * pot) }
+}
+
 export const PAYOUT_MODES = ['tiered', 'flat-weighted', 'equal']
 export const DEFAULT_PAYOUT_MODE = 'equal'
 
@@ -776,31 +828,14 @@ export function calculatePayouts(crimesData, membersData, fromTimestamp, toTimes
 
   // Calculate share and payout for each member.
 
-  if (mode === 'equal') {
-    // Even split among members who did at least one OC (participated in the
-    // window) — no ticket weighting, no sit-out floor.
-    // ticketTimeSpent, not timeSpent: a member whose only activity was a
-    // left-early stint has no ticket time, so they do not take an equal share
-    // while banked time is excluded from the money (#389).
-    const participants = memberArray.filter(m => m.ticketTimeSpent > 0 && m.isEligible)
-    const share = participants.length > 0 ? 1 / participants.length : 0
-    const each = participants.length > 0 ? Math.floor(memberPayoutTotal / participants.length) : 0
-    for (const member of memberArray) {
-      const isParticipant = member.ticketTimeSpent > 0 && member.isEligible
-      member.sharePercent = isParticipant ? share : 0
-      member.payout = isParticipant ? each : 0
-    }
-  } else {
-    // tiered + flat-weighted: proportional to adjusted (time-weighted) tickets.
-    for (const member of memberArray) {
-      if (totalAdjustedTickets > 0) {
-        member.sharePercent = member.adjustedTickets / totalAdjustedTickets
-        member.payout = Math.floor(member.sharePercent * memberPayoutTotal)
-      } else {
-        member.sharePercent = 0
-        member.payout = 0
-      }
-    }
+  // Equal mode: an even split among members who did at least one OC in the
+  // window — no ticket weighting, no sit-out floor. Ticket modes: proportional
+  // to adjusted (time-weighted) tickets. Both live in `payoutShare`.
+  const equalParticipants = countEqualParticipants(memberArray)
+  for (const member of memberArray) {
+    Object.assign(member, payoutShare(member, {
+      mode, pot: memberPayoutTotal, totalAdjustedTickets, equalParticipants,
+    }))
   }
 
   // Time percentage (mode-independent)
