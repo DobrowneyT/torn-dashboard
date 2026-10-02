@@ -996,8 +996,13 @@ function FairFightCell({ mine, target }) {
  * to a keyboard and announces nothing. That is fixed here rather than by
  * replacing the component.
  */
-function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title }) {
+function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title, frozen = false }) {
   const active = sortCol === col
+  // ⚠️ The frozen corner cell emits ONE z-index class, not `z-20 z-30` and a
+  // bet on which order Tailwind happens to write them out in. `frozen-col-head`
+  // carries sticky/left/top/z-30 together (#841); the header's background is
+  // already opaque, so it needs no compositing — unlike the body cells.
+  const stick = frozen ? 'frozen-col-head' : 'sticky top-0 z-20'
   return (
     <th
       onClick={() => onSort(col)}
@@ -1009,7 +1014,7 @@ function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title
       tabIndex={0}
       role="columnheader"
       aria-sort={active ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={`py-2.5 px-3 sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors whitespace-nowrap ${className}`}
+      className={`py-2.5 px-3 ${stick} bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors whitespace-nowrap ${className}`}
     >
       <span className="flex items-center gap-1">
         {children}
@@ -3224,7 +3229,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-2">Name</SortTh>
+                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-2" frozen>Name</SortTh>
                     {columns.rollCall && (
                       <SortTh col="roll_call" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
                         title={
@@ -3338,6 +3343,12 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     // if any — folded into the Dibs badge, not a second cell.
                     const activeAssist = assist[m.member_id]
                     const rowBg = idx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-gray-50/50 dark:bg-slate-800/40'
+                    // ⚠️ The frozen Name cell paints in its own layer, so the
+                    // row's stripe does not reach it — it has to restate it.
+                    // `.frozen-col` supplies the opaque base that matches an
+                    // EVEN row; odd rows add the translucent tint on top. See
+                    // the compositing note in index.css (#841).
+                    const frozenTint = idx % 2 === 0 ? '' : 'frozen-col-striped'
 
                     // Abroad section divider (#561): only inserted once, right
                     // before the first row of the trailing Abroad group that
@@ -3348,12 +3359,15 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     const showAbroadDivider = farmAbroadStart != null && idx === farmAbroadStart
 
                     const row = (
-                      <tr key={m.member_id} className={`${rowBg} hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors`}>
+                      // ⚠️ `group` is load-bearing, not styling sugar: it is
+                      // what lets the frozen cell light up with its row, since
+                      // it cannot inherit the row's hover background.
+                      <tr key={m.member_id} className={`group ${rowBg} hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors`}>
                         {/* Name — narrower than the rest (#422): it was the
                             widest column by a distance and the FF column has to
                             come from somewhere. Truncates rather than wrapping,
                             so row height stays uniform down a 100-row board. */}
-                        <td className="py-2.5 px-2 whitespace-nowrap max-w-[13rem]">
+                        <td className={`py-2.5 px-2 whitespace-nowrap max-w-[13rem] frozen-col ${frozenTint}`}>
                           <div className="flex items-center gap-1.5 min-w-0">
                             <a href={`https://www.torn.com/profiles.php?XID=${m.member_id}`}
                               target="_blank" rel="noopener noreferrer"
