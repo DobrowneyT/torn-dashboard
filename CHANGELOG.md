@@ -18,6 +18,26 @@ surface it automatically.
 
 ---
 
+## [3.171.1] - 2026-10-01
+
+### Added
+- **Tests pinning Chain Watch pay as a flat rate per slot**, not a pool.
+
+### Notes
+- ⚠️ **The two payout sheets are deliberately different, and nothing said so.**
+  OC splits a fixed pot, so withholding somebody **raises** everybody else.
+  Chain Watch pays per slot served, so withholding somebody lowers the **total**
+  and touches nobody else's number. Anyone "aligning" the two would be
+  introducing a bug; these tests are what tells them.
+- ⚠️ No behaviour changed. Chain Watch has always been flat-rate —
+  `payout = (slots + bonus) * payout_per_slot`, computed per member with no
+  denominator. The 3.171.0 release note said withholding redistributes "on both
+  sheets", which was wrong for Chain Watch.
+- ⚠️ **A hazard the tests surfaced:** withholding a member does not change
+  anybody's raffle ticket COUNT, but ticket ranges are contiguous over the
+  sorted rows, so every range after them renumbers. Changing eligibility after a
+  raffle has been drawn against published numbers invalidates the draw.
+
 ## [3.171.0] - 2026-10-01
 
 ### Added
