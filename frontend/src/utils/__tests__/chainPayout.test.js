@@ -218,3 +218,86 @@ describe('batchPayLink', () => {
     expect(batchPayLink([row('1', 1)])).toContain('factions.php?step=your#/tab=controls')
   })
 })
+
+describe('⚠️ a flat rate per slot, NOT a pool', () => {
+  // MonChoon, 2026-10-01: "for chain watchers let's not do the redistribution
+  // of funds. it's less of a pool and more of a flat rate per spot. However,
+  // for the OC payouts it should definitely be redistributed because that's a
+  // pot."
+  //
+  // ⚠️ These two sheets are deliberately DIFFERENT, and nothing said so until
+  // now. OC splits a fixed pot, so withholding somebody raises everybody else.
+  // Chain watch pays per slot served, so withholding somebody lowers the total
+  // and touches nobody else's number. Anyone "aligning" the two would be
+  // introducing a bug, and these tests are what tells them.
+  const EVENT = {
+    id: 1, payout_per_slot: 1_500_000,
+    bonus_hours: [], bonus_multiplier: 2, bonus_applies_to: 'tickets',
+  }
+  const H = Date.parse('2027-11-03T04:00:00Z')
+  const slot = (id, name, over = {}) => ({
+    member_id: id, member_name: name, hour_start: new Date(H).toISOString(),
+    hour_ms: String(H), slot_index: 0, is_bonus: false, is_payable: true,
+    flag: null, flag_reason: null, pay_decision: null, ...over,
+  })
+
+  const signups = [
+    slot('1', 'Alice'), slot('1', 'Alice'),
+    slot('2', 'Bob'),
+  ]
+
+  it('pays each member for their OWN slots, independent of anybody else', () => {
+    const { rows } = payoutRows(EVENT, signups)
+    const alice = rows.find((r) => r.member_id === '1')
+    const bob = rows.find((r) => r.member_id === '2')
+    expect(alice.payout).toBe(2 * 1_500_000)
+    expect(bob.payout).toBe(1 * 1_500_000)
+  })
+
+  it('⚠️ withholding one member does NOT raise anybody else', () => {
+    const withheld = signups.map((s) =>
+      s.member_id === '1' ? { ...s, pay_decision: 'unpaid' } : s)
+    const before = payoutRows(EVENT, signups)
+    const after = payoutRows(EVENT, withheld)
+    const bobBefore = before.rows.find((r) => r.member_id === '2').payout
+    const bobAfter = after.rows.find((r) => r.member_id === '2').payout
+    expect(bobAfter).toBe(bobBefore)
+  })
+
+  it('⚠️ and the TOTAL falls by exactly what was withheld', () => {
+    // On a pot, the total would be unchanged and the share would move. Here the
+    // money simply is not paid — which is what "flat rate per spot" means.
+    const withheld = signups.map((s) =>
+      s.member_id === '1' ? { ...s, pay_decision: 'unpaid' } : s)
+    const before = payoutRows(EVENT, signups).totals.payout
+    const after = payoutRows(EVENT, withheld).totals.payout
+    expect(before - after).toBe(2 * 1_500_000)
+  })
+
+  it('scales with slots served, with no denominator anywhere', () => {
+    // Doubling one member's slots doubles only their pay.
+    const more = [...signups, slot('2', 'Bob')]
+    const base = payoutRows(EVENT, signups)
+    const grown = payoutRows(EVENT, more)
+    expect(grown.rows.find((r) => r.member_id === '2').payout)
+      .toBe(2 * base.rows.find((r) => r.member_id === '2').payout)
+    expect(grown.rows.find((r) => r.member_id === '1').payout)
+      .toBe(base.rows.find((r) => r.member_id === '1').payout)
+  })
+
+  it('⚠️ but raffle ticket NUMBERS do renumber when somebody is withheld', () => {
+    // Not a pay change — ticket COUNTS are untouched — but the ranges are
+    // contiguous over the sorted rows, so removing somebody shifts every range
+    // after them. If a raffle has already been drawn against published
+    // numbers, changing eligibility afterwards invalidates the draw.
+    const raffleEvent = { ...EVENT, bonus_applies_to: 'tickets' }
+    const before = payoutRows(raffleEvent, signups)
+    const withheld = signups.map((s) =>
+      s.member_id === '1' ? { ...s, pay_decision: 'unpaid' } : s)
+    const after = payoutRows(raffleEvent, withheld)
+    const bobBefore = before.rows.find((r) => r.member_id === '2')
+    const bobAfter = after.rows.find((r) => r.member_id === '2')
+    expect(bobAfter.tickets).toBe(bobBefore.tickets)
+    expect(bobAfter.firstTicket).not.toBe(bobBefore.firstTicket)
+  })
+})
