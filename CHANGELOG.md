@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.171.0] - 2026-10-01
+
+### Added
+- **Manual pay eligibility on the OC weekly payout sheet** — an Eligible column
+  per member, saved with the week. Migration `0065`.
+
+### Notes
+- ⚠️ **The ticket penalty was not a substitute.** Sitting out costs tickets,
+  which is proportionate on a ticket-weighted week — but on **equal** and
+  **flat-weighted** tickets do not enter the arithmetic at all, so there was no
+  way to withhold pay short of deleting the row, which also deletes the record
+  that the member was there.
+- ⚠️ **An excluded member leaves the DENOMINATOR**, so their share goes to
+  everybody else. The pot is fixed: zeroing somebody without removing them means
+  the sheet pays out less than the pot and nobody can see where it went. This
+  matches `war_payout_members.is_eligible` — two payout sheets that answer "is
+  this member paid" differently is how a leader learns one screen and is wrong
+  on the other.
+- ⚠️ Applied **before** the ticket total is summed, not after. Zeroing tickets
+  once the denominator exists strands the share.
+- ⚠️ Restoring a saved week rehydrates the eligibility **set**, not just the
+  flag on each row. The flag is what the table renders; the set is what the
+  recalculation reads, and restoring one without the other looks right until
+  something triggers a recompute.
+- ⚠️ The column defaults TRUE and is read as `!== false`, so weeks saved before
+  this migration are unchanged — they were paid on the old rules.
+
 ## [3.170.0] - 2026-10-01
 
 ### Changed

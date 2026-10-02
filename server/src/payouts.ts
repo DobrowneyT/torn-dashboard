@@ -20,6 +20,11 @@ const MEMBER_COLUMNS = new Set([
   'member_id', 'member_name', 'tier', 'base_tickets', 'sit_out_penalty',
   'adjusted_tickets', 'time_spent', 'time_spent_percent', 'share_percent',
   'payout', 'theoretical_payout', 'crimes_count', 'crimes_participated',
+  // ⚠️ Manual pay eligibility (0065). Persisted with the week so reopening a
+  // saved payout shows the same decisions — otherwise a leader who withheld
+  // somebody's pay, saved, and came back would find them paid again, with the
+  // sheet's totals silently different from what was handed out.
+  'is_eligible',
 ])
 
 function pick(obj: Record<string, unknown>, allowed: Set<string>) {

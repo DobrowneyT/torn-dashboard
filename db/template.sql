@@ -418,7 +418,11 @@ CREATE TABLE public.oc_payout_members (
   crimes_count integer DEFAULT 0,
   crimes_participated text[],
   updated_at timestamp without time zone DEFAULT now(),
-  theoretical_payout bigint DEFAULT 0
+  theoretical_payout bigint DEFAULT 0,
+  -- ⚠️ Manual pay eligibility (0065). The ticket penalty does not reach the
+  -- EQUAL and FLAT models, so without this there was no way to withhold pay
+  -- short of deleting the row — which also deletes the record of attendance.
+  is_eligible boolean DEFAULT true NOT NULL
 );
 
 CREATE TABLE public.oc_payout_weeks (

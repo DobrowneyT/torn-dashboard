@@ -1274,3 +1274,67 @@ describe('occupancy drives tickets/payout for a fully-watched window (#389 part 
     expect(result.timeSource).toBe('occupancy')
   })
 })
+
+// ─── manual pay eligibility (MonChoon, 2026-10-01) ──────────────────────────
+//
+// ⚠️ The ticket penalty is NOT a substitute. Sitting out costs tickets, which
+// is proportionate on a ticket-weighted week — but on `equal` and
+// `flat-weighted` tickets do not enter the arithmetic at all, so there was no
+// way to withhold pay short of deleting the row, which also deletes the record
+// that the member was there.
+describe('calculatePayouts — manual eligibility', () => {
+  const FROM = 1000000
+  const TO = FROM + 7 * DAY
+  const executedAt = FROM + 3 * DAY
+  const joinedAt = FROM - DAY
+
+  const twoMembers = () => ({
+    crimes: makeCrimeFixture({
+      executedAt, rewardsMoney: 1_000_000,
+      slots: [makeSlot(1, joinedAt), makeSlot(2, joinedAt)],
+    }),
+    members: makeMembers([1, 2], 6),
+  })
+
+  it('pays nothing to an excluded member', () => {
+    const { crimes, members } = twoMembers()
+    const r = calculatePayouts(crimes, members, FROM, TO, 0.20, 'equal', new Set(['1']))
+    const one = r.members.find(m => String(m.userId) === '1')
+    expect(one.payout).toBe(0)
+    expect(one.isEligible).toBe(false)
+  })
+
+  it('⚠️ gives the excluded share to everybody else, rather than keeping it', () => {
+    // The pot is fixed. Zeroing somebody without removing them from the
+    // denominator means the sheet pays out LESS than the pot and nobody can see
+    // where the difference went.
+    const { crimes, members } = twoMembers()
+    const all = calculatePayouts(crimes, members, FROM, TO, 0.20, 'equal')
+    const one = calculatePayouts(crimes, members, FROM, TO, 0.20, 'equal', new Set(['1']))
+    const paidToTwo = (r) => r.members.find(m => String(m.userId) === '2').payout
+    expect(paidToTwo(one)).toBeGreaterThan(paidToTwo(all))
+    // ...and the whole member pot still goes out.
+    const handedOut = one.members.reduce((n, m) => n + m.payout, 0)
+    expect(one.memberPayoutTotal - handedOut).toBeLessThanOrEqual(1) // floor rounding only
+  })
+
+  it('works on the weighted models too, where tickets drive the split', () => {
+    const { crimes, members } = twoMembers()
+    const r = calculatePayouts(crimes, members, FROM, TO, 0.20, 'tiered', new Set(['1']))
+    expect(r.members.find(m => String(m.userId) === '1').payout).toBe(0)
+    expect(r.members.find(m => String(m.userId) === '2').payout).toBeGreaterThan(0)
+  })
+
+  it('marks everybody eligible when nothing is excluded', () => {
+    const { crimes, members } = twoMembers()
+    const r = calculatePayouts(crimes, members, FROM, TO, 0.20, 'equal')
+    expect(r.members.every(m => m.isEligible)).toBe(true)
+  })
+
+  it('⚠️ excluding everybody pays nothing rather than dividing by zero', () => {
+    const { crimes, members } = twoMembers()
+    const r = calculatePayouts(crimes, members, FROM, TO, 0.20, 'equal', new Set(['1', '2']))
+    expect(r.members.every(m => m.payout === 0)).toBe(true)
+    expect(r.members.every(m => Number.isFinite(m.sharePercent))).toBe(true)
+  })
+})
