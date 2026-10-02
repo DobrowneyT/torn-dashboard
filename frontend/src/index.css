@@ -41,6 +41,93 @@
     pointer-events: none;
   }
 
+  /* ── Frozen first column (#841) ──────────────────────────────────────────
+     MonChoon, 2026-10-01: *"I am looking at our faction and checking med cd
+     and booster cd but I've scrolled too far to the right and can't see the
+     name of those players."* The War Room board is wide enough that the
+     cooldown columns people check sit off-screen from the name identifying
+     whose cooldowns they are.
+
+     ⚠️ A frozen COLUMN, not a frozen row. Vertical stickiness is already
+     solved by `sticky top-0` on the header.
+
+     Three problems, and the third is the one that bites.
+
+     1. STACKING. A sticky cell is a POSITIONED element, so at `z-index: auto`
+        it paints in DOM order — and <tbody> comes after <thead>, which is
+        exactly bug #331. The header row is z-20, so frozen body cells sit at
+        z-10 (above the scrolling body, below the header) and the corner cell
+        at z-30 (above both). Popovers at z-40 still cover the lot, as they
+        must, since they open downward over the header deliberately.
+
+     2. OPACITY. A <tr> background does NOT paint behind a positioned <td>, so
+        a frozen cell has to carry its own or the scrolling rows show straight
+        through it.
+
+     3. COMPOSITING — the subtle one. The row stripes and hover here are
+        TRANSLUCENT (gray-50/50, slate-800/40, blue-50/30), so the tint cannot
+        just be copied onto the cell as a background-color: that paints the
+        tint at full strength and leaves a visible vertical seam down the
+        frozen boundary, badly in dark mode where slate-800/40 over slate-900
+        is nowhere near opaque slate-800. Instead the tint goes in
+        `background-image` OVER an opaque `background-color` — one element,
+        two layers, composited by the browser to exactly what the rest of the
+        row shows. Reusing the same tint values rather than hand-computed
+        opaque equivalents is what keeps it matching if a stripe ever changes.
+  */
+  .frozen-col {
+    @apply sticky left-0 z-10 bg-white dark:bg-slate-900;
+  }
+
+  /* ⚠️ Lifting the cell is what lets its popovers out, and the Name cell has
+     three of them: the OD tooltip, the loadout shield and the note button.
+
+     `z-index: 10` above makes the cell a STACKING CONTEXT, and nothing inside
+     a stacking context can paint outside its layer — not even `position:
+     fixed` with `z-index: 50`, which is what InfoTooltip uses. So the note
+     popover (z-40) and the tooltips (z-50) would all be clamped into the
+     cell's z-10 band, where DOM order decides among equals and every LATER
+     row's frozen cell paints over them: open a note on row 2 and rows 3+
+     cover it. That is bug #331 again, one layer down.
+
+     Raising the cell itself is the fix, because its children ride with it.
+     `:hover` covers the tooltips (the cell being hovered is the one whose
+     tooltip is open) and `:focus-within` covers the note popover, which
+     contains focusable inputs and must survive the pointer leaving the cell.
+
+     z-30, deliberately above the z-20 header: a lifted cell can only be one
+     the pointer is actually on, and the sticky header covers the rows passing
+     beneath it, so there is no reachable row that could paint over it. */
+  .frozen-col:hover,
+  .frozen-col:focus-within {
+    @apply z-30;
+  }
+
+  /* The corner: above the sticky header row AND the frozen body cells. */
+  .frozen-col-head {
+    @apply sticky left-0 top-0 z-30;
+  }
+
+  /* Odd-row stripe, composited over .frozen-col's opaque base. */
+  .frozen-col-striped {
+    background-image: linear-gradient(theme(colors.gray.50 / 50%), theme(colors.gray.50 / 50%));
+  }
+  .dark .frozen-col-striped {
+    background-image: linear-gradient(theme(colors.slate.800 / 40%), theme(colors.slate.800 / 40%));
+  }
+
+  /* ⚠️ Row hover has to cross the frozen boundary — a cell that stays unlit
+     while the rest of its row highlights reads as a rendering fault. Driven
+     off `.group` on the <tr> because the cell is its own paint layer and
+     cannot inherit the row's hover background. Specificity (0,2,0) beats the
+     stripe's (0,1,0), so hover wins on striped and unstriped rows alike. */
+  .group:hover .frozen-col {
+    background-image: linear-gradient(theme(colors.blue.50 / 30%), theme(colors.blue.50 / 30%));
+  }
+  .dark .group:hover .frozen-col {
+    background-image: linear-gradient(theme(colors.blue.900 / 10%), theme(colors.blue.900 / 10%));
+  }
+
   .card {
     @apply bg-white border border-gray-200 rounded-lg shadow-sm p-4 sm:p-6 transition-colors duration-200;
   }

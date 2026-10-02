@@ -18,6 +18,36 @@ surface it automatically.
 
 ---
 
+## [3.173.0] - 2026-10-02
+
+### Added
+- **The War Room's Name column stays put when you scroll right (#841).** Checking
+  med and booster cooldowns meant scrolling past the name of the person whose
+  cooldowns you were reading. The Name column, its header and the corner cell
+  now freeze to the left edge.
+
+### Notes
+- Three things had to line up, and only the first is obvious:
+  - **Stacking.** A sticky cell paints in the positioned layer, where `<tbody>`
+    comes after `<thead>` — bug #331. Frozen cells sit at z-10 (above the
+    scrolling body, below the z-20 header) and the corner at z-30, above both.
+  - **A `<tr>` background does not paint behind a positioned `<td>`,** so the
+    frozen cell carries its own, in both themes, and the row stripe and hover
+    are restated on it so highlighting still crosses the frozen boundary.
+  - **The stripes here are translucent.** Copying the tint onto the cell as a
+    background-color leaves a visible seam down the boundary — glaring in dark
+    mode. The tint goes in `background-image` over an opaque `background-color`
+    instead, so the browser composites it to exactly what the row shows.
+- A hovered or focused frozen cell lifts to z-30 so its popovers can escape:
+  the Name cell holds three (the OD tooltip, the loadout shield, the note
+  button) and a stacking context clamps all of them — `position: fixed` does
+  not get out either.
+- **Scope: the War Room only** for now. It is the widest table in the app and
+  the reported case. Every other table needs its own first-column audit — what
+  pops out of column one, and whether its stripes are translucent — so they are
+  not being changed blind.
+- Mobile is unchanged: `MobileWarRoomView` is a card list, not a wide table.
+
 ## [3.172.0] - 2026-10-02
 
 ### Fixed
