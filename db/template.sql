@@ -1301,6 +1301,26 @@ CREATE TABLE IF NOT EXISTS public.chain_samples (
 CREATE INDEX IF NOT EXISTS chain_samples_sampled_at
   ON public.chain_samples (sampled_at DESC);
 
+-- #872: per-member Hall of Fame standings, snapshotted daily.
+--
+-- ⚠️ ONE jsonb column rather than a pair per category: Torn adds HoF
+-- categories, and a column-per-category schema turns every addition into a
+-- migration. Faction-internal position is derived on read by sorting `value`,
+-- never stored — it changes whenever a DIFFERENT member's value changes.
+--
+-- ⚠️ `battle_stats` comes back null for anyone but the requester, so a
+-- roster-wide battle-stats board cannot be built. It is excluded on read.
+CREATE TABLE IF NOT EXISTS public.member_hof_snapshots (
+  member_id     text NOT NULL,
+  snapshot_date date NOT NULL,
+  hof           jsonb NOT NULL,
+  fetched_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (member_id, snapshot_date)
+);
+
+CREATE INDEX IF NOT EXISTS member_hof_snapshots_date
+  ON public.member_hof_snapshots (snapshot_date DESC);
+
 CREATE TABLE IF NOT EXISTS public.member_activity_samples (
   id                 bigserial PRIMARY KEY,
   sampled_at         timestamptz NOT NULL DEFAULT now(),

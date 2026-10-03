@@ -528,7 +528,18 @@ describe('war-room dibs under concurrency (#385)', () => {
       // one. These floors make silence fail.
       expect(tombstonesExplained, 'no dibs churned at all — the run proved nothing').toBeGreaterThan(5)
       expect(canaryWindows, 'the canary never completed a farm-mode cycle').toBeGreaterThan(5)
-      expect(windowExpiries + untilJumpDrops,
+      // ⚠️ `downedDrops` counts here too (2026-10-03). This is a LIVENESS
+      // check — "the sweep did something" — and it used to name only the two
+      // mechanisms that existed when it was written. Once a claim is released
+      // the moment its target leaves Okay, most claims never survive long
+      // enough to reach a window expiry at all, so the old pair can legitimately
+      // be 0 on a run where the sweep worked perfectly.
+      //
+      // ⚠️ It failed intermittently before this was widened, and only under the
+      // full parallel suite — in isolation the timing still left a window
+      // expiry or two. That made it look like contention. It was not: it was
+      // the new rule doing its job and the assertion counting the wrong thing.
+      expect(windowExpiries + untilJumpDrops + downedDrops,
         'the auto-expiry sweep never fired — it may have stalled silently').toBeGreaterThan(0)
       const finalState = await stack.db.query(
         `SELECT count(*)::int AS n FROM war_room_state_v2 WHERE member_id = ANY($1)`,

@@ -18,6 +18,40 @@ surface it automatically.
 
 ---
 
+## [3.182.0] - 2026-10-03
+
+### Added
+- **Faction Hall of Fame board (#872)** at Members → Hall of Fame, open to
+  everyone. Where each member sits inside the faction, with their position in
+  all of Torn beside it — *"3rd in forge, 48,000th in Torn"*.
+- Migration **0068** — `member_hof_snapshots`, one row per member per day.
+- Scraper job `member-hof`, daily at 01:35.
+
+### Notes
+- ⚠️ **Bragging rights, not analytics.** Singularity, asked whether this was
+  for screening applicants or spotting anomalies: *"no it was more so to
+  promote competition within the faction, bit of bragging rights."* So there
+  are no thresholds, no compliance colouring, and deliberately **no reuse of
+  the Member Overview's machinery** — importing it would drag the assessment
+  framing along with it.
+- ⚠️ **Battle stats are absent and must stay absent.** Torn returns that
+  category as `null` for anyone but the requester, so a roster-wide battle-stat
+  board cannot be built by anyone. It is excluded rather than rendered as an
+  empty column that would read as a scrape failure — and the tooltip says why,
+  because an unexplained gap gets reported as a bug.
+- `working_stats` leads the categories: it is the likeliest target of the
+  request, and unlike battle stats it *is* available for other players.
+- ⚠️ **One jsonb column, not fourteen typed pairs.** Torn adds HoF categories,
+  and a column-per-category schema turns every addition into a migration.
+- ⚠️ Faction position is computed **on read**, never stored — it changes
+  whenever a *different* member's value changes.
+- ⚠️ Tied members share a position (1, 2, 2, 4). Telling two people with
+  identical numbers that one is ahead is a lie the data does not support.
+- ⚠️ Members with no reading are **left out, not ranked last** — absent is not
+  "worst", the same rule the roster sort follows for unspied battle stats.
+- ~1 call per member, so daily is affordable and per-page-load is not; the
+  cadence is stated in the job rather than implied.
+
 ## [3.181.0] - 2026-10-03
 
 ### Changed

@@ -77,6 +77,10 @@ const NEW_TABLES = [
   'calendar_events', 'member_birthdays',
   // Daily faction-upgrade snapshots — Steadfast on the calendar (#395/#458)
   'faction_upgrade_snapshots',
+  // Per-member Hall of Fame standings (#872). One jsonb column rather than a
+  // pair per category: Torn adds categories, and a column-per-category schema
+  // turns every addition into a migration.
+  'member_hof_snapshots',
   // Per-member Torn event start windows, behind their own consent scope (#459)
   'member_event_settings',
   // Live "raise a hand" assist requests from the attack page (#523)
