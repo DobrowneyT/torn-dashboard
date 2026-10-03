@@ -151,3 +151,125 @@ describe('readBranchState', () => {
     expect(readBranchState(null)).toBeNull()
   })
 })
+
+// ── readUpgradesView (#458) ───────────────────────────────────────────────────
+//
+// ⚠️ The fixture below is the REAL shape, copied from a live `forge` snapshot
+// on 2026-10-03 — including the two things that would have been guessed wrong:
+// `core` is an object wrapping an array (not an array), and war/peace share
+// branch names. Earlier tests in this file are hand-built because no live
+// response was available then; these are not.
+import { readUpgradesView } from '../src/factionUpgrades.js'
+
+const live = () => ({
+  state: 'peace',
+  upgrades: {
+    core: {
+      upgrades: [
+        { id: 1, cost: 1000, name: 'Weapon armory', level: 1, ability: 'Unlocks weapon armory', unlocked_at: 1484661886 },
+      ],
+    },
+    peace: [
+      {
+        name: 'Steadfast', order: 4, multiplier: 8,
+        upgrades: [
+          { id: 36, cost: 4454, name: 'Strength training X', level: 10, ability: 'Increases strength gym gains by 10%', unlocked_at: 1790812814 },
+          { id: 38, cost: 11279, name: 'Defense training XVI', level: 16, ability: 'Increases defense gym gains by 16%', unlocked_at: 1790812804 },
+        ],
+      },
+      { name: 'Criminality', order: 1, multiplier: 2, upgrades: [] },
+      // Shares its name with the war branch below — see the warning.
+      { name: 'Voracity', order: 5, multiplier: 3, upgrades: [{ id: 90, name: 'Peace voracity', level: 1, ability: 'peace only', cost: 1, unlocked_at: 1 }] },
+    ],
+    war: [
+      { name: 'Suppression', order: 2, multiplier: 4, upgrades: [] },
+      { name: 'Voracity', order: 5, multiplier: 3, upgrades: [{ id: 91, name: 'War voracity', level: 1, ability: 'war only', cost: 1, unlocked_at: 1 }] },
+    ],
+  },
+})
+
+describe('readUpgradesView', () => {
+  it('puts the in-effect side in `active` and the other in `inactive`', () => {
+    const v = readUpgradesView(live())
+    expect(v.state).toBe('peace')
+    expect(v.inactiveState).toBe('war')
+    expect(v.active.map(b => b.name)).toEqual(['Criminality', 'Steadfast', 'Voracity'])
+    expect(v.inactive.map(b => b.name)).toEqual(['Suppression', 'Voracity'])
+  })
+
+  it('reads the war side as active when the faction is at war', () => {
+    const v = readUpgradesView({ ...live(), state: 'war' })
+    expect(v.active.map(b => b.name)).toEqual(['Suppression', 'Voracity'])
+    expect(v.inactiveState).toBe('peace')
+  })
+
+  it('⚠️ keeps both Voracity branches — they share a name but are not the same', () => {
+    // Merging or deduplicating by name would silently drop one side's perk.
+    const v = readUpgradesView(live())
+    const activeVoracity = v.active.find(b => b.name === 'Voracity')
+    const inactiveVoracity = v.inactive.find(b => b.name === 'Voracity')
+    expect(activeVoracity?.upgrades[0].name).toBe('Peace voracity')
+    expect(inactiveVoracity?.upgrades[0].name).toBe('War voracity')
+  })
+
+  it('reads core from an object wrapping an array, as Torn actually sends it', () => {
+    expect(readUpgradesView(live()).core.map(u => u.name)).toEqual(['Weapon armory'])
+  })
+
+  it('also tolerates core arriving as a bare array', () => {
+    const p: any = live()
+    p.upgrades.core = [{ id: 2, name: 'Medical armory', level: 1, ability: 'x', cost: 1, unlocked_at: 5 }]
+    expect(readUpgradesView(p).core.map(u => u.name)).toEqual(['Medical armory'])
+  })
+
+  it('⚠️ converts unlocked_at from epoch SECONDS to milliseconds', () => {
+    // It is Torn's JSON, not our timestamptz column: treating it as ms lands in
+    // 1970 and treating it as a DB string yields NaN.
+    const v = readUpgradesView(live())
+    const str = v.active.find(b => b.name === 'Steadfast')!.upgrades[0]
+    expect(str.unlockedMs).toBe(1790812814 * 1000)
+    expect(new Date(str.unlockedMs!).getUTCFullYear()).toBe(2026)
+  })
+
+  it('reports an unknown unlock date as null rather than 1970', () => {
+    const p: any = live()
+    p.upgrades.peace[0].upgrades[0].unlocked_at = 0
+    expect(readUpgradesView(p).active.find(b => b.name === 'Steadfast')!.upgrades[0].unlockedMs).toBeNull()
+  })
+
+  it('carries Torn\'s ability text verbatim and never invents one', () => {
+    const v = readUpgradesView(live())
+    const sf = v.active.find(b => b.name === 'Steadfast')!
+    expect(sf.upgrades[0].ability).toBe('Increases strength gym gains by 10%')
+    const p: any = live()
+    delete p.upgrades.peace[0].upgrades[0].ability
+    expect(readUpgradesView(p).active[1].upgrades[0].ability).toBe('')
+  })
+
+  it('orders branches by Torn\'s `order`, so the panel never reshuffles', () => {
+    const v = readUpgradesView(live())
+    expect(v.active.map(b => b.order)).toEqual([1, 4, 5])
+  })
+
+  it('⚠️ picks no side when `state` is missing, rather than guessing one', () => {
+    // Guessing would be the worst outcome: it renders an authoritative-looking
+    // "currently active" list that may be the wrong half of the tree.
+    const p: any = live()
+    delete p.state
+    const v = readUpgradesView(p)
+    expect(v.state).toBeNull()
+    expect(v.active).toEqual([])
+    expect(v.inactiveState).toBeNull()
+    // Nothing is hidden, though — both sides are still reachable.
+    expect(v.inactive.map(b => b.name)).toContain('Steadfast')
+    expect(v.inactive.map(b => b.name)).toContain('Suppression')
+  })
+
+  it('survives an empty or broken payload without throwing', () => {
+    for (const p of [null, undefined, {}, { upgrades: {} }, { upgrades: { peace: 'nope' } }]) {
+      const v = readUpgradesView(p as any)
+      expect(v.active).toEqual([])
+      expect(v.core).toEqual([])
+    }
+  })
+})
