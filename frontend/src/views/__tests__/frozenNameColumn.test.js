@@ -34,9 +34,9 @@ describe('the frozen column is actually frozen', () => {
     expect(block).toMatch(/\bleft-0\b/)
   })
 
-  it('the Name header and the Name cell both opt in', () => {
-    expect(VIEW).toMatch(/col="name"[^>]*frozen/)
-    expect(VIEW).toMatch(/frozen-col \$\{frozenTint\}/)
+  it('the Name header and the Name cell both read the same toggle', () => {
+    expect(VIEW).toMatch(/col="name"[^>]*frozen=\{nameFrozen\}/)
+    expect(VIEW).toMatch(/max-w-\[13rem\] \$\{frozenCell\}/)
   })
 
   it('the row is a hover group so the frozen cell lights up with it', () => {
@@ -119,5 +119,63 @@ describe('scope', () => {
     // problem and a frozen column there would be meaningless.
     const mobile = readFileSync(new URL('../MobileWarRoomView.jsx', import.meta.url), 'utf8')
     expect(mobile).not.toMatch(/frozen-col/)
+  })
+})
+
+
+describe('the lock toggle', () => {
+  it('defaults to FROZEN, because that is what shipped and what was asked for', () => {
+    // ⚠️ `?? true`. `?? false` would quietly un-freeze the column for everyone
+    // on first load after this deploy, which reads as the feature regressing.
+    expect(VIEW).toMatch(/persistedState\.nameFrozen \?\? true/)
+  })
+
+  it('persists through useViewState, so it survives a reload mid-war', () => {
+    // Not a bespoke localStorage key — it rides with the rest of the board's
+    // prefs, and must be in the sync effect's dependency array or the last
+    // toggle before a refresh is lost.
+    const sync = VIEW.slice(VIEW.indexOf('setPersistedState({'))
+    expect(sync.slice(0, sync.indexOf('})'))).toMatch(/nameFrozen/)
+    expect(VIEW).toMatch(/notesPanelOpen, nameFrozen, setPersistedState\]/)
+  })
+
+  it('unfreezing drops the stripe class as well as the sticky one', () => {
+    // ⚠️ Keeping `frozen-col-striped` on an unfrozen cell paints an opaque
+    // name cell over a translucent row — the exact seam the compositing exists
+    // to avoid, with none of the benefit.
+    const at = VIEW.indexOf('const frozenCell = nameFrozen')
+    expect(at).toBeGreaterThan(-1)
+    const block = VIEW.slice(at, at + 220)
+    expect(block).toMatch(/frozen-col \$\{idx % 2 === 0 \? '' : 'frozen-col-striped'\}/)
+    expect(block).toMatch(/: ''/)   // the unfrozen branch is empty, not partial
+  })
+
+  it('⚠️ stops the header sorting when the lock is used, by click AND by key', () => {
+    // The whole <th> sorts on click and on Enter/Space. Without both guards,
+    // tabbing to the lock and pressing Enter would freeze the column and
+    // re-sort the board underneath whoever was reading it.
+    const at = VIEW.indexOf('onToggleFrozen && (')
+    expect(at).toBeGreaterThan(-1)
+    const button = VIEW.slice(at, VIEW.indexOf('</button>', at))
+    expect(button).toMatch(/onClick=\{\(e\) => \{ e\.stopPropagation\(\)/)
+    expect(button).toMatch(/onKeyDown[\s\S]*e\.stopPropagation\(\)/)
+  })
+
+  it('announces its state to a screen reader and says what the click does', () => {
+    const at = VIEW.indexOf('onToggleFrozen && (')
+    const button = VIEW.slice(at, VIEW.indexOf('</button>', at))
+    expect(button).toMatch(/aria-pressed=\{frozen\}/)
+    expect(button).toMatch(/aria-label=\{frozen \?/)
+    // The tooltip names the OUTCOME, not the current state — "click to let it
+    // scroll" rather than "frozen", which leaves you guessing what happens.
+    expect(button).toMatch(/click to let it scroll/)
+    expect(button).toMatch(/click to freeze it/)
+  })
+
+  it('shows an open padlock when unfrozen and a closed one when frozen', () => {
+    const at = VIEW.indexOf('onToggleFrozen && (')
+    expect(VIEW.slice(at, VIEW.indexOf('</button>', at) + 9))
+      .toMatch(/frozen \? <Lock [^>]*\/> : <LockOpen /)
+    expect(VIEW).toMatch(/import \{[^}]*\bLock\b[^}]*\bLockOpen\b[^}]*\} from 'lucide-react'/)
   })
 })
