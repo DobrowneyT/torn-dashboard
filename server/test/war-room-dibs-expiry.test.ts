@@ -214,75 +214,59 @@ describe('war-room dibs auto-expiry', () => {
   // Farm mode walks straight into this, because the loop IS
   // hospital → out → hit → hospital → out.
 
-  it('#376 disarms the countdown when the target goes down a NON-hospital route', async () => {
-    // ⚠️ Retargeted to Jail (2026-10-03). This used to use Hospital, but
-    // Okay→Hospital now DROPS the claim outright — the holder converted and the
-    // claim is spent. #376's disarm still matters for every other way a target
-    // stops being attackable: jail, travel. Nobody converted there, so the
-    // claim survives as a reservation and only the countdown is cleared.
+  for (const downstate of ['Hospital', 'Jail', 'Traveling', 'Abroad']) {
+    it(`releases the claim when an Okay target goes to ${downstate}`, async () => {
+      // MonChoon, 2026-10-03: *"once okay any state change off of okay should
+      // release the dibs"*. The claim's only job is "this target is mine to
+      // hit"; the moment they cannot be hit it has no job, and holding it
+      // blocks everybody else. Jail and travel were added after hospital —
+      // nobody converted there, but the target is just as unreachable.
+      await seedDib({ state: 'Okay', until: null })
+
+      stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({ state: downstate, until: 1752209999 }))
+      const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+      await createWarRoomTicker(tickerDeps()).tick()
+
+      const dib = await stack.db.query(
+        `SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+      )
+      expect(dib.rows).toHaveLength(0)
+    })
+  }
+
+  it('⚠️ keeps the claim on Hospital→Okay — the reservation paying off', async () => {
+    // ⚠️ The one transition that must NOT release, and the reason the rule is
+    // `wasOkay && …` rather than "any state change". You claimed somebody
+    // BECAUSE they were in hospital, so that you would have them when they
+    // surface. Releasing here kills the claim at the exact moment it becomes
+    // useful — a worse version of the bug this all started from.
     await seedDib({ state: 'Hospital', until: 1752200500 })
-    let status: Record<string, unknown> = { state: 'Okay', until: null }
-    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload(status))
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({ state: 'Okay', until: null }))
 
     const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
-    const ticker = createWarRoomTicker(tickerDeps())
-
-    await ticker.tick() // out of hospital → countdown armed
-    expect((await stack.db.query(
-      `SELECT auto_expire_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`
-    )).rows[0].auto_expire_at).toBeTruthy()
-
-    // Jailed, not hospitalised: unattackable, but nobody got the kill.
-    status = { state: 'Jail', until: 1752207000 }
-    await ticker.tick()
+    await createWarRoomTicker(tickerDeps()).tick()
 
     const dib = await stack.db.query(
       `SELECT deleted_at, auto_expire_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`
     )
     expect(dib.rows[0].deleted_at).toBeNull()
-    expect(dib.rows[0].auto_expire_at).toBeNull()
+    expect(dib.rows[0].auto_expire_at).toBeTruthy()   // the 30s window is armed
   })
 
-  it('#376 no stale deadline survives a target going down and coming back', async () => {
-    // ⚠️ Retargeted to Jail (2026-10-03) — see the note on the disarm test.
-    // The landmine this guards (a lapsed deadline sitting on a claim, dropping
-    // it the instant the target resurfaces) is now unreachable via hospital,
-    // because the claim does not survive the re-hospitalisation at all. It is
-    // still reachable through any other downstate, which is what this covers.
-    //
-    // The original symptom: the second exit dropped the claim on the spot,
-    // because the first exit's deadline was still sitting there, already past.
-    await seedDib({ state: 'Hospital', until: 1752200500 })
-    let status: Record<string, unknown> = { state: 'Okay', until: null }
-    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload(status))
+  it('⚠️ a MISSING status reading is not a downstate — unknown is not down', async () => {
+    // Load-bearing. Without the `typeof next?.state === 'string'` guard, a sync
+    // hiccup that left rows with no status would read as "not Okay" for every
+    // target at once and tombstone every live claim in a single tick.
+    await seedDib({ state: 'Okay', until: null })
 
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`, () => enemyPayload({}))
     const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
-    const ticker = createWarRoomTicker(tickerDeps())
+    await createWarRoomTicker(tickerDeps()).tick()
 
-    await ticker.tick()                                    // first exit: armed
-    status = { state: 'Jail', until: 1752207000 }
-    await ticker.tick()                                    // jailed → disarmed
-
-    // A real hospital stay is minutes, so the first exit's 30s deadline lapses
-    // while they are still in there. Without backdating, the ticks run
-    // milliseconds apart and the deadline is never reached — the test would
-    // pass without exercising the bug at all.
-    await stack.db.query(
-      `UPDATE war_room_dibs_v2 SET auto_expire_at = now() - interval '2 minutes'
-       WHERE target_id = ${TARGET} AND deleted_at IS NULL AND auto_expire_at IS NOT NULL`
-    )
-
-    status = { state: 'Okay', until: null }
-    await ticker.tick()                                    // back out
-
-    // ⚠️ Alive and NOT dropped: the backdated deadline was disarmed on the way
-    // down, so it cannot fire here. The claim carries no countdown because
-    // #106 only arms on a HOSPITAL exit — pre-existing behaviour, unchanged.
     const dib = await stack.db.query(
-      `SELECT deleted_at, auto_expire_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`
+      `SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
     )
-    expect(dib.rows[0].deleted_at).toBeNull()
-    expect(dib.rows[0].auto_expire_at).toBeNull()
+    expect(dib.rows).toHaveLength(1)
   })
 
   it('⚠️ a spurious Okay flicker now COSTS the claim — the accepted trade', async () => {

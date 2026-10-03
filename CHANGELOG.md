@@ -18,6 +18,30 @@ surface it automatically.
 
 ---
 
+## [3.178.0] - 2026-10-03
+
+### Changed
+- **Dibs now release when an Okay target enters ANY unreachable state** — jail
+  and travel as well as hospital. Broadens 3.177.0, which covered hospital
+  only. MonChoon, 2026-10-03: *"once okay any state change off of okay should
+  release the dibs."*
+
+### Notes
+- The claim's only job is "this target is mine to hit". The moment they cannot
+  be hit it has no job, and holding it blocks everybody else. Nobody converted
+  on a jail or a flight, but the target is just as unreachable.
+- ⚠️ **`Hospital → Okay` deliberately does NOT release** — that is the
+  reservation paying off, and the 30s window arms as before. You claimed
+  somebody *because* they were in hospital; releasing when they surface would
+  kill the claim at the exact moment it becomes useful.
+- ⚠️ **A missing status reading is not a downstate.** The rule requires an
+  actual state string, so a sync hiccup that left rows without a status cannot
+  read as "not Okay" for every target at once and tombstone every live claim in
+  one tick. Unknown is not down.
+- #376's disarm is now largely unreachable rather than wrong: an armed
+  countdown implies the target was recently Okay, and a recently-Okay target
+  that goes down is dropped outright. Kept as a cheap guard.
+
 ## [3.177.0] - 2026-10-03
 
 ### Fixed
