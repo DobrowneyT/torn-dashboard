@@ -18,6 +18,26 @@ surface it automatically.
 
 ---
 
+## [3.174.0] - 2026-10-02
+
+### Added
+- **A padlock on the War Room's Name column header freezes or unfreezes it.**
+  #841 shipped the frozen column always-on; this makes it a choice. Closed
+  padlock means frozen, open means it scrolls with the board. The setting is
+  per-user and rides along with the rest of the board's preferences, so it
+  survives a reload mid-war.
+
+### Notes
+- Defaults to **frozen**, which is what 3.173.0 shipped — anything else would
+  read as the feature having regressed on first load after this deploy.
+- ⚠️ The padlock stops the header's click **and** its Enter/Space handler.
+  The whole `<th>` sorts on both, so without the keyboard guard, tabbing to the
+  lock and pressing Enter would freeze the column and re-sort the board
+  underneath whoever was reading it.
+- ⚠️ Unfreezing drops the stripe class as well as the sticky one. Leaving the
+  stripe behind would paint an opaque name cell over a translucent row — the
+  exact seam the compositing in #841 exists to avoid, with none of the benefit.
+
 ## [3.173.0] - 2026-10-02
 
 ### Added
