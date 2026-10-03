@@ -310,7 +310,9 @@ describe('war-room dibs under concurrency (#385)', () => {
       let tombstonesExplained = 0
       let windowExpiries = 0
       let untilJumpDrops = 0
+      let downedDrops = 0
       let canaryWindows = 0
+      let canaryDowned = 0
       const violations: string[] = []
 
       for (let round = 1; round <= ROUNDS; round++) {
@@ -395,6 +397,15 @@ describe('war-room dibs under concurrency (#385)', () => {
               && prev.until != null && next.until != null && next.until > prev.until) {
             untilJumpDrops++; tombstonesExplained++; continue
           }
+          // Okay→Hospital — the target went down, so the claim is spent
+          // (2026-10-03). ⚠️ A legitimate cause added AFTER this property test
+          // was written: previously a converted claim was deliberately kept,
+          // which is what let claims sit on hospitalised targets for half an
+          // hour mid-war. The test correctly flagged every one of these as
+          // "tombstoned with no cause" until the cause was declared here.
+          if (prev?.state === 'Okay' && next.state === 'Hospital') {
+            downedDrops++; tombstonesExplained++; continue
+          }
           // #106/#159 — the window lapsed against a target that was Okay for
           // the whole window. The "whole window" half is the #376 property:
           // a deadline armed before a hospital stay must have been disarmed,
@@ -435,11 +446,25 @@ describe('war-room dibs under concurrency (#385)', () => {
           )
         }
         if (!canary) {
-          violations.push(
-            `round ${round}: the canary claim on ${CANARY} was released. Its holder never ` +
-            `let go and it is never up for longer than the expiry window, so no rule ` +
-            `legitimately frees it — this is #376.`
-          )
+          // ⚠️ Narrowed 2026-10-03. The canary runs a farm-mode loop, so it now
+          // legitimately loses its claim once per cycle: Okay→Hospital means
+          // the target went down and the claim is spent. That is the new rule
+          // working, not the #376 landmine.
+          //
+          // The guard is kept exactly where it still has teeth — a canary that
+          // vanishes on ANY OTHER transition has been killed by a stale
+          // deadline, which is the bug this canary exists to catch.
+          const wentDown = beforeStatus.get(CANARY)!.state === 'Okay'
+            && statuses.get(CANARY)!.state === 'Hospital'
+          if (wentDown) {
+            canaryDowned++
+          } else {
+            violations.push(
+              `round ${round}: the canary claim on ${CANARY} was released without going ` +
+              `down. Its holder never let go and it is never up for longer than the ` +
+              `expiry window, so no rule legitimately frees it — this is #376.`
+            )
+          }
           // Re-take it so the rest of the run still reports, rather than
           // collapsing into one failure at the first cycle.
           await claim(CANARY_HOLDER, CANARY)
