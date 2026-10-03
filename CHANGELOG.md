@@ -18,6 +18,37 @@ surface it automatically.
 
 ---
 
+## [3.181.0] - 2026-10-03
+
+### Changed
+- **Member Overview numbers now say what they are a rate OF (#866).** Every
+  per-day figure carries a `/d`, a **120d** window joins the list, and one
+  toggle switches the whole table between per-day rates and window totals.
+
+### Notes
+- ⚠️ **The arithmetic was never wrong and is untouched.** `perDay = delta /
+  daysCovered` divides by the days actually covered, never by the window
+  length, so a short history is not diluted. Singularity read `80 (2,400 in
+  30d)`, took the large unlabelled figure at face value, and concluded the
+  system was understating them — a legibility failure, not a maths one, and
+  worth taking seriously because the reader was competent and still misread it.
+- ⚠️ The `/d` goes on the **value**, not only the column header: the table
+  scrolls horizontally, so a header-only label is invisible exactly when a
+  reader is deep in the right-hand columns. The chain-watch grid settled the
+  same argument by spelling out `TCT` on every row.
+- ⚠️ One `RateCell` now renders every per-day column **including gym energy**.
+  They were two near-identical render paths, which is how the gym header ended
+  up with a `/d` the stat headers never got.
+- ⚠️ A member whose history is shorter than the window shows an **amber**
+  bracket on the cell being read. The signal used to be an underline on the
+  far-left name cell, which somebody studying the Xanax column never looks at.
+  No per-cell tooltip — thirty hover targets per row is worse than the problem.
+- ⚠️ Sorting follows the **displayed** figure. With totals showing, sorting by
+  the per-day rate would order the table by a number nobody can see.
+- Per-day stays the default: it is the only basis on which a 6-day member and a
+  300-day member are comparable, and it is what the thresholds check.
+- 90d is unchanged and still available.
+
 ## [3.180.0] - 2026-10-03
 
 ### Added
