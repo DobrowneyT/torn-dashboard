@@ -18,6 +18,31 @@ surface it automatically.
 
 ---
 
+## [3.180.0] - 2026-10-03
+
+### Added
+- **A member can download their own stat history as CSV (#867).** On the
+  Dashboard: pick a range, get one row per day of your personal stats and gym
+  contributions. Prompted by Singularity, who maintains their own workstat
+  script and would rather have the raw series than read our table.
+
+### Notes
+- ⚠️ **The route takes no member parameter and no table parameter.** The id
+  comes from the verified session and nowhere else. A `?member=` that is merely
+  *checked* is one refactor away from an IDOR, so there is nothing to check.
+- ⚠️ `member_daily_stats` **stays `role: 'leadership'`**. This adds a narrower
+  door rather than widening the existing one — relaxing that registry entry
+  would hand the whole roster to anyone with a session. A test pins it.
+- Visitors are refused with a reason rather than handed an empty CSV, which
+  would read as "you have no stats".
+- ⚠️ The client **verifies the completion marker before saving**. The status
+  line goes out with the headers, so a stream that dies halfway still arrives
+  as a 200 and opens perfectly with most of its rows missing. A truncated file
+  that saves cleanly is worse than one that fails.
+- Gym columns start from the day a member joined this dashboard and can never
+  be backfilled — they come from a current-only endpoint. The tooltip says so,
+  because an unexplained blank column gets reported as a bug.
+
 ## [3.179.0] - 2026-10-03
 
 ### Fixed
