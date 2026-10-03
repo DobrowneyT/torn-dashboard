@@ -18,6 +18,34 @@ surface it automatically.
 
 ---
 
+## [3.175.0] - 2026-10-03
+
+### Added
+- **Faction upgrades panel (#458)** at Members → Upgrades, open to everyone.
+  Shows which perk branches are **actually in effect** — Torn splits the tree
+  into war and peace sets and only one side does anything at a time, so the
+  active set is primary and the other is collapsed and labelled as giving
+  nothing. Core unlocks sit apart, since they are always on.
+- `GET /api/faction/upgrades`, serving the newest daily snapshot.
+
+### Notes
+- The data layer for this shipped back with #395 (migration 0038, the
+  `faction-upgrades` scraper job). **No migration and no new API calls** — the
+  panel reads the raw `payload` already being stored.
+- ⚠️ Every effect string is Torn's own `ability` text, verbatim. Nothing
+  re-derives a bonus from a level: a wrong percentage on a gym-gain display
+  looks exactly like a right one.
+- ⚠️ When Torn does not report war/peace state, **no side is shown as active**
+  rather than guessing one — a wrong "in effect" list is worse than none.
+- ⚠️ War and peace share branch names (forge carries Aggression, Toleration and
+  Voracity on both sides), so the two sets are never merged or deduplicated.
+- ⚠️ `unlocked_at` is epoch **seconds** from Torn, not a Postgres timestamp. It
+  is converted to milliseconds server-side and named `unlockedMs` so no caller
+  has to guess the unit.
+- The Steadfast parser's "never verified against a live response" caveat is now
+  resolved: checked against live forge data, it reads str 10 / def 16 / speed 15
+  / dex 10 with nothing unparsed.
+
 ## [3.174.0] - 2026-10-02
 
 ### Added
