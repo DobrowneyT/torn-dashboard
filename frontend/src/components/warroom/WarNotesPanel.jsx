@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react'
-import { LoaderCircle, Lock, ChevronUp, ChevronDown, ChevronRight, ClipboardList, X, Plus } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { LoaderCircle, Lock, ChevronUp, ChevronDown, ChevronRight, ClipboardList, X, Plus, Copy, Check } from 'lucide-react'
 import RollCallResultsTable from './RollCallResultsTable'
 import WarNotesArchive from './WarNotesArchive'
 import OpponentHistoryPanel from './OpponentHistoryPanel'
 import { notePointsFromText, notePointsToText, rollCallTally } from '../../utils/rollCall'
+import { splitChaseLists, formatChaseList } from '../../utils/rollCallChase'
+import { withBattleStats } from '../../utils/warRoomBattleStats'
 import { fmtAgo } from '../../utils/time'
 import InfoTooltip from '../InfoTooltip'
 
@@ -11,7 +13,7 @@ import InfoTooltip from '../InfoTooltip'
 // roll-call results table and a "not yet responded" list. Edited responses
 // (revised=true) are highlighted so leaders notice changes.
 // readOnly: rendered for visitors — all fields disabled, Save hidden.
-export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [], enemyMembers = [], ourFactionId = null, readOnly = false }) {
+export default function WarNotesPanel({ currentWar, notes, privateNotes = '', onSave, saving, saveError, rollCallRows = [], ourMembers = [], ourBattleStats = {}, enemyMembers = [], ourFactionId = null, readOnly = false }) {
   // Collapsed by default: the tally is the headline, the table is the detail.
   const [rollCallOpen, setRollCallOpen] = useState(false)
   const [warType, setWarType] = useState(notes?.war_type ?? 'real')
@@ -98,6 +100,32 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
 
   const tally = rollCallTally(rollCallRows)
   const respondedIds = new Set(rollCallRows.map(r => Number(r.member_id)))
+  // Two chase lists for the buttons below (MonChoon, 2026-10-03). Battle stats
+  // are merged in here rather than expected on `ourMembers`: the roster the War
+  // Room passes down is the raw poll result, and only the roster TABLE runs it
+  // through `withBattleStats`. Without this every line would read "???".
+  const chase = useMemo(
+    () => splitChaseLists(withBattleStats(ourMembers, ourBattleStats), rollCallRows),
+    [ourMembers, ourBattleStats, rollCallRows]
+  )
+  const [copied, setCopied] = useState(null)
+
+  async function copyChase(kind) {
+    const entries = kind === 'maybe' ? chase.maybe : chase.missing
+    const title = kind === 'maybe' ? 'Maybe (not on at start, can self-hosp)' : 'Missing'
+    try {
+      await navigator.clipboard.writeText(formatChaseList(entries, { title }))
+      setCopied(kind)
+      setTimeout(() => setCopied(null), 2000)
+    } catch {
+      // ⚠️ Clipboard access can be refused (insecure context, denied
+      // permission). Silence would look like the button is broken, so say so
+      // where the label is.
+      setCopied('error')
+      setTimeout(() => setCopied(null), 3000)
+    }
+  }
+
   const nonResponders = ourMembers
     .filter(m => !respondedIds.has(Number(m.member_id)))
     .sort((a, b) => (a.member_name || '').localeCompare(b.member_name || '', undefined, { sensitivity: 'base' }))
@@ -271,6 +299,42 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
 
         {rollCallOpen && (
           <div className="mt-2">
+            {/* ⚠️ Two buttons, two lists, deliberately not one. "No to the
+                start" is not the same question as "not coming": somebody who
+                said no to the start but yes to self-hospitalising needs a ping
+                five minutes before the war, and somebody who said no to both
+                needs replacing. A single list of every "no" mixes the people
+                worth chasing in with the people worth writing off. */}
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => copyChase('missing')}
+                disabled={chase.missing.length === 0}
+                className="inline-flex items-center gap-1.5 rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
+                title="Copy everyone not turning up: no response, not available, or needs a merc"
+              >
+                {copied === 'missing' ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                Copy missing ({chase.missing.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => copyChase('maybe')}
+                disabled={chase.maybe.length === 0}
+                className="inline-flex items-center gap-1.5 rounded border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-600 dark:text-gray-200 dark:hover:bg-slate-700"
+                title="Copy the maybes: said no to the start but can self-hospitalise, so worth checking just before the war"
+              >
+                {copied === 'maybe' ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                Copy maybes ({chase.maybe.length})
+              </button>
+              <InfoTooltip label={<span className="text-xs text-gray-400 dark:text-gray-500">what's the difference?</span>}>
+                <div><b>Missing</b> — no response, said they are not available, or need a merc. They are not getting themselves in.</div>
+                <div className="mt-1.5"><b>Maybes</b> — said no to the start but <i>can</i> self-hospitalise. Check them 5–10 minutes before the war; if they have not hospitalised yet, chase them.</div>
+                <div className="mt-1.5">Both copy as name, ID, battle stats and a profile link — one per line, strongest first.</div>
+              </InfoTooltip>
+              {copied === 'error' && (
+                <span className="text-xs text-red-600 dark:text-red-400">Could not reach the clipboard — copy from the table instead.</span>
+              )}
+            </div>
             <RollCallResultsTable rows={rollCallRows} />
             {nonResponders.length > 0 && (
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
