@@ -18,6 +18,42 @@ surface it automatically.
 
 ---
 
+## [3.177.0] - 2026-10-03
+
+### Fixed
+- **Dibs now release when the target goes down.** Reported mid-war: claims were
+  sticking to hospitalised targets. On forge, 20 of 22 live claims sat on
+  people already in hospital, most of them naming the *holder* in "Attacked
+  by" — the oldest held for 33 minutes, blocking everyone else from a target
+  its holder had already converted.
+
+### Notes
+- ⚠️ **This reverses a deliberate rule, not a broken one.** The sweep released
+  claims the holder *failed* to convert and deliberately **kept** the ones they
+  converted, so they could farm the same target. In a war that turned every
+  successful hit into a permanent reservation:
+
+  > out of hospital → 30s window armed → holder hits → back to hospital →
+  > countdown disarmed → claim held → repeat forever
+
+- ⚠️ The existing "hospital time increased" rule (#107) was real and working,
+  but only fires on **Hospital→Hospital**. A target who is hit after surfacing
+  passes through Okay, so that check was skipped entirely — which is why
+  neither mechanism covered the common case.
+- A claim is now spent whether the holder landed the hit or somebody else did.
+  Either way the target is down. A farmer who wants the next cycle re-claims,
+  which puts them back in the queue instead of ahead of it.
+- ⚠️ **Accepted trade:** a spurious `Okay` poll reading followed by `Hospital`
+  is indistinguishable from a real hit, so a flicker now costs a re-claim. The
+  two errors are not symmetric — a flicker costs seconds on a target still in
+  hospital, where not dropping cost half an hour of a blocked target. Telling
+  them apart needs the last hospital `until` remembered across the Okay gap,
+  which is a column on the claim rather than a one-tick snapshot.
+- #376's disarm still governs every other way a target stops being attackable
+  (jail, travel) — nobody converted there, so the claim survives.
+- **Unrelated to load**: the VPS was at 2.47 on 4 cores with 4.8 GB free and
+  the roster poll holding 1.5s. This was never a cadence problem.
+
 ## [3.176.0] - 2026-10-03
 
 ### Added

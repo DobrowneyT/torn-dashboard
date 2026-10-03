@@ -41,6 +41,11 @@ export async function snapshotDibbedStatus(db: pg.Pool): Promise<Map<number, Tar
  * dibs rows tombstoned this tick (for a dibs-channel broadcast).
  *
  *  #107 — target still in hospital but its until jumped up → drop now.
+ *  Okay→Hospital — the target went down; the claim is spent → drop now.
+ *         ⚠️ Reverses the original "a converted claim is kept" rule — see the
+ *         note at the branch. Without it a successful hit became a permanent
+ *         reservation, because the re-hospitalisation disarmed the countdown
+ *         and nothing else ever released the claim.
  *  #106 — target left hospital (Hospital→Okay) → schedule a release
  *         `expirySeconds` out; a later tick's sweep drops it if still held.
  *  #376 — target is no longer Okay → disarm any scheduled release. The
@@ -72,6 +77,7 @@ export async function sweepDibsExpiry(
     const prev = prevStatus.get(Number(row.target_id)) ?? null
     const next = (row.status as TargetStatus) ?? null
     const wasHospital = prev?.state === 'Hospital'
+    const wasOkay = prev?.state === 'Okay'
 
     // #376 — the target is no longer alive, so any countdown against this
     // claim has lost its premise and must be disarmed.
@@ -90,6 +96,31 @@ export async function sweepDibsExpiry(
       const pu = until(prev)
       const nu = until(next)
       if (pu !== null && nu !== null && nu > pu) dropNow.push(row.id) // #107
+    } else if (wasOkay && next?.state === 'Hospital') {
+      // ⚠️ A CLAIM IS SPENT THE MOMENT THE TARGET GOES DOWN (MonChoon,
+      // 2026-10-03, mid-war). This reverses the original #159 rule, which
+      // deliberately let a holder who converted KEEP the claim so they could
+      // farm the same target. In a live war that turned every successful hit
+      // into a permanent reservation:
+      //
+      //   out of hospital → #106 arms 30s → holder hits → back to hospital
+      //   → #376 disarms the countdown → claim held → repeat forever
+      //
+      // Observed on forge during a war: 20 of 22 live claims sat on
+      // hospitalised targets, most with the HOLDER'S OWN NAME in "Attacked
+      // by", one held for 33 minutes — blocking everybody else from a target
+      // the holder had already taken.
+      //
+      // ⚠️ This is also the case #107 could never catch. #107 only fires on
+      // Hospital→Hospital, and a target who is hit after surfacing passes
+      // through Okay, so `wasHospital` is false and the until-increase check
+      // is skipped entirely.
+      //
+      // It does not matter whether the holder landed the hit or somebody else
+      // did: either way the target is down and the claim has done its job. A
+      // farmer who wants the next cycle re-claims, which is the point — it
+      // puts them back in the queue instead of ahead of it.
+      dropNow.push(row.id)
     } else if (wasHospital && next?.state === 'Okay' && row.auto_expire_at == null) {
       schedule.push(row.id) // #106
     }
