@@ -41,11 +41,13 @@ export async function snapshotDibbedStatus(db: pg.Pool): Promise<Map<number, Tar
  * dibs rows tombstoned this tick (for a dibs-channel broadcast).
  *
  *  #107 — target still in hospital but its until jumped up → drop now.
- *  Okay→Hospital — the target went down; the claim is spent → drop now.
- *         ⚠️ Reverses the original "a converted claim is kept" rule — see the
- *         note at the branch. Without it a successful hit became a permanent
- *         reservation, because the re-hospitalisation disarmed the countdown
- *         and nothing else ever released the claim.
+ *  Okay→anything-else — the target stopped being attackable (hospital, jail,
+ *         travel); the claim is spent → drop now. ⚠️ Reverses the original
+ *         "a converted claim is kept" rule — see the note at the branch.
+ *         Without it a successful hit became a permanent reservation, because
+ *         the re-hospitalisation disarmed the countdown and nothing else ever
+ *         released the claim. Hospital→Okay is deliberately NOT included: that
+ *         is the reservation paying off.
  *  #106 — target left hospital (Hospital→Okay) → schedule a release
  *         `expirySeconds` out; a later tick's sweep drops it if still held.
  *  #376 — target is no longer Okay → disarm any scheduled release. The
@@ -96,12 +98,25 @@ export async function sweepDibsExpiry(
       const pu = until(prev)
       const nu = until(next)
       if (pu !== null && nu !== null && nu > pu) dropNow.push(row.id) // #107
-    } else if (wasOkay && next?.state === 'Hospital') {
-      // ⚠️ A CLAIM IS SPENT THE MOMENT THE TARGET GOES DOWN (MonChoon,
-      // 2026-10-03, mid-war). This reverses the original #159 rule, which
-      // deliberately let a holder who converted KEEP the claim so they could
-      // farm the same target. In a live war that turned every successful hit
-      // into a permanent reservation:
+    } else if (wasOkay && typeof next?.state === 'string' && next.state !== 'Okay') {
+      // ⚠️ A CLAIM IS SPENT THE MOMENT THE TARGET STOPS BEING ATTACKABLE
+      // (MonChoon, 2026-10-03, mid-war). Hospital, jail, travel — any of them.
+      // The claim's only job is "this target is mine to hit"; the moment they
+      // cannot be hit, it has no job, and holding it blocks everyone else.
+      //
+      // ⚠️ `typeof next?.state === 'string'` is load-bearing: a MISSING state
+      // reading must not count as a downstate. Without it a sync hiccup that
+      // left rows without a status would tombstone every live claim at once.
+      // Unknown is not down.
+      //
+      // ⚠️ The one transition that must NOT release is Hospital→Okay — that is
+      // the reservation paying off, and releasing there would kill the claim at
+      // the exact moment it becomes useful. It is excluded by `wasOkay`.
+      //
+      // This reverses the original #159 rule, which deliberately let a holder
+      // who converted KEEP the claim so they could farm the same target. In a
+      // live war that turned every successful hit into a permanent
+      // reservation:
       //
       //   out of hospital → #106 arms 30s → holder hits → back to hospital
       //   → #376 disarms the countdown → claim held → repeat forever
@@ -120,6 +135,12 @@ export async function sweepDibsExpiry(
       // did: either way the target is down and the claim has done its job. A
       // farmer who wants the next cycle re-claims, which is the point — it
       // puts them back in the queue instead of ahead of it.
+      //
+      // ⚠️ This makes #376's disarm below largely unreachable rather than
+      // wrong. An armed countdown implies the target was recently Okay, and a
+      // recently-Okay target that goes down is now dropped outright, so there
+      // is usually no surviving claim left to disarm. It is kept as a cheap
+      // guard against any path that still reaches it.
       dropNow.push(row.id)
     } else if (wasHospital && next?.state === 'Okay' && row.auto_expire_at == null) {
       schedule.push(row.id) // #106
