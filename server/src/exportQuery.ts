@@ -174,11 +174,26 @@ export interface BuiltQuery {
  *
  * Nothing stored is altered or dropped — the raw column is always still there.
  */
+/**
+ * Restrict an export to rows belonging to one member (#867).
+ *
+ * ⚠️ The VALUE is a bound parameter and the COLUMN comes from the registry,
+ * never from the request. A self-service export must have no way to express
+ * "somebody else" — not a checked parameter, not a filtered one. The route
+ * supplies the caller's own id from their verified session claims and nothing
+ * reaches this from the query string.
+ */
+export interface ScopeToMember {
+  column: string
+  memberId: string
+}
+
 export function buildExportQuery(
   table: string,
   spec: ExportTable,
   cols: ColumnInfo[],
-  bounds: RangeBounds
+  bounds: RangeBounds,
+  scope?: ScopeToMember
 ): BuiltQuery {
   const epochCols = new Set(spec.epochCols ?? [])
   const resolve = new Set(spec.resolveNames ?? [])
@@ -215,12 +230,24 @@ export function buildExportQuery(
 
   const cmp = bounds.hiInclusive ? '<=' : '<'
   const timeRef = `t.${ident(spec.timeCol)}`
+  const params: (string | number)[] = [bounds.lo, bounds.hi]
+
+  // ⚠️ The scoping column is `ident()`-quoted like every other identifier here
+  // and its value is bound, not interpolated. Both halves matter: the column
+  // name is chosen by the route from the registry, and the id is the session's.
+  let scopeSql = ''
+  if (scope) {
+    params.push(scope.memberId)
+    scopeSql = ` AND t.${ident(scope.column)}::text = $${params.length}\n`
+  }
+
   const sql =
     `SELECT ${select.join(', ')}\n` +
     `  FROM ${ident(table)} t\n` +
     (joins.length ? `  ${joins.join('\n  ')}\n` : '') +
     ` WHERE ${timeRef} >= $1 AND ${timeRef} ${cmp} $2\n` +
+    scopeSql +
     ` ORDER BY ${timeRef} ASC`
 
-  return { sql, params: [bounds.lo, bounds.hi], columns }
+  return { sql, params, columns }
 }
