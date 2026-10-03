@@ -455,7 +455,14 @@ CREATE TABLE public.oc_payout_weeks (
   saved_at timestamp without time zone DEFAULT now(),
   updated_at timestamp without time zone DEFAULT now(),
   crime_ids text[],
-  payout_mode text
+  payout_mode text,
+  -- #871: what the sheet SHOWED when it was saved. Reopening a week renders
+  -- these rather than re-deriving from live data, because item prices move
+  -- with the market and a re-priced week is not the week that was paid.
+  -- ⚠️ Nullable: weeks saved before 0067 genuinely have no record of their
+  -- itemised prices, and that is shown as "not recorded", never as live prices.
+  item_breakdown jsonb,
+  crime_values   jsonb
 );
 
 CREATE TABLE public.pricing_batches (

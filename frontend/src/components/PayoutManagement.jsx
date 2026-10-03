@@ -26,6 +26,8 @@ import {
   buildHistoricalWeekCrimesData,
   PAYOUT_MODES,
   DEFAULT_PAYOUT_MODE,
+  MIN_TIME_FOR_FULL_TICKETS,
+  MIN_TIME_FOR_ANY_PAYOUT,
   payoutShare,
   countEqualParticipants
 } from '../utils/payoutCalculations'
@@ -74,6 +76,12 @@ export const OC_PAYOUT_COLUMNS = [
  */
 function recalculateWithItemPrices(results, factionCutPercent, mode) {
   if (!results || !results.itemBreakdown) return results
+  // ⚠️ #871: a settled week is a record, not a model. Editing a price on one
+  // must not silently rewrite what was paid — this is the exact path that
+  // re-split TNL week 5 by tickets on a week marked `equal`, and the one that
+  // re-priced reopened weeks at the current market. The price edit still shows
+  // in the breakdown; it simply no longer propagates into the payouts.
+  if (results.isSavedWeek) return results
 
   // Refresh totalValue for every item from its current unitValue.
   const updatedRewards = {}
@@ -176,6 +184,11 @@ export default function PayoutManagement() {
   // Calculation state
   const [hasCalculated, setHasCalculated] = useState(false)
   const [payoutResults, setPayoutResults] = useState(null)
+  // ⚠️ #871. True while a settled week is on screen; every recalculation path
+  // checks it. A ref rather than state because the guard is read inside the
+  // effect that produces `payoutResults`, and putting it in state would make
+  // the effect depend on its own output.
+  const savedWeekRef = useRef(false)
 
   // Add to state declarations (around line 38)
   const [penaltyOverrides, setPenaltyOverrides] = useState({})
@@ -306,6 +319,8 @@ export default function PayoutManagement() {
     setFromTimestamp(currentWeek.mondayTimestamp)
     setToTimestamp(currentWeek.sundayTimestamp)
     setHasCalculated(false)
+    // #871: back to a live, unsettled sheet — recalculation is correct again.
+    savedWeekRef.current = false
     setPayoutResults(null)
   }
 
@@ -327,6 +342,8 @@ export default function PayoutManagement() {
       setToTimestamp(previousWeek.sundayTimestamp)
     }
     setHasCalculated(false)
+    // #871: back to a live, unsettled sheet — recalculation is correct again.
+    savedWeekRef.current = false
     setPayoutResults(null)
   }
 
@@ -342,6 +359,8 @@ export default function PayoutManagement() {
       setToTimestamp(nextWeek.sundayTimestamp)
     }
     setHasCalculated(false)
+    // #871: back to a live, unsettled sheet — recalculation is correct again.
+    savedWeekRef.current = false
     setPayoutResults(null)
   }
 
@@ -437,6 +456,8 @@ export default function PayoutManagement() {
       setFromTimestamp(Math.floor(date.getTime() / 1000))
     }
     setHasCalculated(false)
+    // #871: back to a live, unsettled sheet — recalculation is correct again.
+    savedWeekRef.current = false
     setPayoutResults(null)
   }
 
@@ -449,6 +470,8 @@ export default function PayoutManagement() {
       setToTimestamp(Math.floor(date.getTime() / 1000))
     }
     setHasCalculated(false)
+    // #871: back to a live, unsettled sheet — recalculation is correct again.
+    savedWeekRef.current = false
     setPayoutResults(null)
   }
 
@@ -474,6 +497,14 @@ export default function PayoutManagement() {
 
   // Calculate payouts when data is loaded
   useEffect(() => {
+    // ⚠️ #871: a SAVED week is a record of what was paid, not a calculation to
+    // re-run. Without this guard, opening one and touching the mode selector —
+    // or merely having `ineligibleMembers` rehydrate — recomputes it against
+    // today's data and overwrites the stored figures on screen.
+    //
+    // ⚠️ `savedWeekRef`, not `payoutResults.isSavedWeek`: reading the results
+    // here would need them in the dependency array, and this effect SETS them.
+    if (savedWeekRef.current) return
     if (crimesData && membersData && fromTimestamp && toTimestamp) {
       const results = calculatePayouts(
         crimesData,
@@ -673,7 +704,17 @@ export default function PayoutManagement() {
         total_time_spent: payoutResults.totalTimeSpent,
         average_time_spent: payoutResults.averageTime,
         total_adjusted_tickets: payoutResults.totalAdjustedTickets,
-        payout_mode: payoutMode
+        payout_mode: payoutMode,
+        // ⚠️ Written explicitly (#871). These columns existed and were
+        // allowlisted but never sent, so every saved row carried the table
+        // default regardless of what the week was actually computed under.
+        min_time_for_full_tickets: MIN_TIME_FOR_FULL_TICKETS,
+        min_time_for_any_payout: MIN_TIME_FOR_ANY_PAYOUT,
+        // ⚠️ The sheet AS SHOWN, not re-derived at save time (#871). This is
+        // the market-fluctuating part: unit prices here are the ones the
+        // payout was actually calculated and handed out against.
+        item_breakdown: payoutResults.itemBreakdown ?? null,
+        crime_values: payoutResults.crimeValues ?? null,
       }
 
       const memberData = payoutResults.members.map(m => ({
@@ -759,8 +800,21 @@ export default function PayoutManagement() {
       // Load member payouts for this week
       const { members } = await apiGet(`/api/payouts/weeks/${weekId}/members`)
 
-      // Build item breakdown from linked crimes
-      let itemBreakdown = { rewards: {}, costs: {} }
+      // ⚠️ #871: a SAVED week renders what it showed when it was saved.
+      //
+      // `item_breakdown` carries the unit prices the payout was actually
+      // calculated against. When it is present nothing below re-derives the
+      // breakdown and nothing re-prices it — reopening a July week in October
+      // used to rebuild it from live crime data and enrich it at October's
+      // market, showing a pot nobody received.
+      //
+      // ⚠️ When it is ABSENT (saved before 0067) we do NOT fall back to live
+      // prices. The stored per-member payouts are correct and complete; the
+      // itemised prices were simply never recorded, and the UI says so.
+      const storedBreakdown = weekData.item_breakdown ?? null
+      const pricesRecorded = storedBreakdown != null
+
+      let itemBreakdown = storedBreakdown ?? { rewards: {}, costs: {} }
       const crimeIds = weekData.crime_ids || []
       // #389: occupancy + occupancy_polls for this week's window, carried
       // from the crime-data fetch below into the final setCrimesData call
@@ -768,7 +822,10 @@ export default function PayoutManagement() {
       // read off windowData directly.
       let occupancyForWeek = { occupancy: [], occupancy_polls: [] }
 
-      if (crimeIds.length > 0) {
+      if (crimeIds.length > 0 && !pricesRecorded) {
+        // Legacy weeks only. Quantities can still be rebuilt from the linked
+        // crimes; the PRICES cannot, so this produces a breakdown that the UI
+        // renders without unit values rather than one priced at today's market.
         // The window endpoint returns item rows for a superset of the linked
         // crimes; filter down to exactly the linked ids.
         // db-time-safe: week_start/week_end are DATE columns ("2026-08-03"),
@@ -800,6 +857,18 @@ export default function PayoutManagement() {
         }
 
         itemBreakdown = { rewards, costs }
+      } else if (crimeIds.length > 0) {
+        // Prices are recorded, so the breakdown is already final — but #389's
+        // occupancy still has to be fetched for Crime Statistics.
+        // db-time-safe: week_start/week_end are DATE columns, UTC midnight.
+        const fromTs = weekData.week_start_timestamp ?? Math.floor(new Date(weekData.week_start).getTime() / 1000)
+        // db-time-safe: DATE column, as above.
+        const toTs = weekData.week_end_timestamp ?? (Math.floor(new Date(weekData.week_end).getTime() / 1000) + 86400)
+        const windowData = await apiGet(`/api/payouts/crime-data?from=${fromTs}&to=${toTs}`)
+        occupancyForWeek = {
+          occupancy: windowData.occupancy || [],
+          occupancy_polls: windowData.occupancy_polls || [],
+        }
       }
 
       // Set the date range
@@ -867,22 +936,31 @@ export default function PayoutManagement() {
         totalTimeSpent: weekData.total_time_spent || 0,
         averageTime: weekData.average_time_spent || 0,
         totalAdjustedTickets: weekData.total_adjusted_tickets || 0,
-        itemBreakdown
+        itemBreakdown,
+        crimeValues: weekData.crime_values ?? null,
+        // ⚠️ `isSavedWeek` is what stops every recalculation path from firing
+        // against a settled sheet. `pricesRecorded` distinguishes "saved with
+        // its prices" from "saved before 0067", which the UI must not conflate.
+        isSavedWeek: true,
+        pricesRecorded,
       }
 
-      // Enrich item breakdown with names for display only.
-      // Summary totals (totalItemReward, totalItemCost, netItemValue) are kept
-      // from the stored snapshot — do NOT overwrite with current market prices,
-      // as item prices are volatile and the snapshot is the source of truth.
-      if (Object.keys(itemBreakdown.rewards).length > 0 || Object.keys(itemBreakdown.costs).length > 0) {
-        enrichItemBreakdown(itemBreakdown).then(enriched => {
-          setPayoutResults(prev => ({
-            ...prev,
-            itemBreakdown: enriched,
-          }))
-        })
-      }
+      // ⚠️ #871: NO enrichment on a saved week, ever.
+      //
+      // This used to call `enrichItemBreakdown` here, with a comment saying it
+      // was "for display only … names". It is not: the enricher returns unit
+      // values from the CURRENT market and the result replaced the breakdown
+      // wholesale, so every reopened week was silently re-priced. That is the
+      // bug #871 exists to close, and it hid behind a comment claiming the
+      // opposite for months.
+      //
+      // A week saved from 0067 onward already carries its own priced
+      // breakdown. A legacy week carries quantities with no prices, and the UI
+      // renders that as "not recorded" rather than filling it in.
 
+      // ⚠️ Set BEFORE the results land, so no effect that reacts to them can
+      // fire a recalculation in the gap.
+      savedWeekRef.current = true
       setPayoutResults(results)
       setHasCalculated(true)
       setShowHistory(false)
@@ -1155,6 +1233,20 @@ export default function PayoutManagement() {
           {showItemRewards && payoutResults.itemBreakdown?.rewards && (
             <div className="card bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-700">
               <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-3">Item Rewards Breakdown</h4>
+
+              {/* ⚠️ #871: a week saved before migration 0067 has no record of
+                  what its items were worth. Say so plainly — the alternative
+                  is a column of blanks that reads as a loading failure, or
+                  (what it used to do) today's market prices presented as the
+                  ones this week was paid against. The per-member payouts above
+                  are correct and complete either way. */}
+              {payoutResults.isSavedWeek && !payoutResults.pricesRecorded && (
+                <p className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+                  Itemised prices were not recorded for this week, so unit values are
+                  blank. The payouts above are the amounts that were actually paid.
+                  Weeks saved from now on keep their prices.
+                </p>
+              )}
 
               <div className="overflow-x-auto">
                 <div className="min-w-full">

@@ -18,6 +18,41 @@ surface it automatically.
 
 ---
 
+## [3.179.0] - 2026-10-03
+
+### Fixed
+- **A settled OC payout week is now a static sheet (#871).** Reopening one
+  rebuilt its item breakdown from live crime data and **re-priced it at the
+  current market** — so a week settled in July, reopened in October, showed a
+  pot nobody received. It now renders exactly what it showed when it was saved.
+
+### Added
+- Migration **0067** — `oc_payout_weeks.item_breakdown` and `crime_values`,
+  holding the sheet as displayed at save time, unit prices included.
+
+### Notes
+- ⚠️ The re-pricing hid behind a comment claiming the opposite. The restore
+  path called `enrichItemBreakdown` under *"for display only … names"*; the
+  enricher returns **current market** unit values and replaced the breakdown
+  wholesale. That call is gone.
+- ⚠️ **Nothing recalculates a saved week** any more — not on open, not on a
+  payout-mode change, not on an item-price edit. A `savedWeekRef` guards the
+  calculation effect and `recalculateWithItemPrices` returns untouched. This is
+  the same path that re-split TNL week 5 by tickets on a week marked `equal`.
+- ⚠️ `min_time_for_full_tickets` / `min_time_for_any_payout` are now **written**.
+  They were allowlisted on the server from the start but never sent, so every
+  stored row silently carried the table default regardless of what the week was
+  computed under.
+- ⚠️ **Weeks saved before 0067 are not backfilled** and do not fall back to live
+  prices. They open on their stored payouts — which are correct and complete —
+  with a notice that itemised prices were never recorded. A past market price
+  cannot be recovered, and inventing one is what this change exists to prevent.
+- **RW payouts were already correct** and are unchanged. `war_payouts` stores
+  the cache prices as used, every weight, and `total_reward` — the pot itself —
+  and restores them as inputs. Tests now pin that, so RW cannot drift into the
+  OC bug.
+- Preparing a new, unsaved week is behaviourally unchanged.
+
 ## [3.178.0] - 2026-10-03
 
 ### Changed
