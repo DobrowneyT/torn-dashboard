@@ -2942,6 +2942,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             saveError={notesError}
             rollCallRows={rollCallRows}
             ourMembers={ourMembers}
+            ourBattleStats={ourBattleStats}
             enemyMembers={members}
             ourFactionId={OUR_FACTION_ID}
             readOnly={isVisitor}
