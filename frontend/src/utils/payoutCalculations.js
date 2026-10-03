@@ -129,8 +129,13 @@ import { occupancySecondsByMember, pollCoverage, joinedAtDrift } from './occupan
 const FLAT_BASE_TICKETS = TIER_TICKETS[1]
 
 // Time thresholds for penalty calculation (in seconds)
-const MIN_TIME_FOR_FULL_TICKETS = 120 * 3600  // 120 hours = 432,000 seconds
-const MIN_TIME_FOR_ANY_PAYOUT = 48 * 3600     // 48 hours = 172,800 seconds
+// ⚠️ Exported for #871: a saved week records the thresholds it was computed
+// under. They were allowlisted on the server from the start but never actually
+// written, so every stored row silently carried the table DEFAULT whether or
+// not that is what was used — latent today, wrong the moment they become
+// configurable.
+export const MIN_TIME_FOR_FULL_TICKETS = 120 * 3600  // 120 hours = 432,000 seconds
+export const MIN_TIME_FOR_ANY_PAYOUT = 48 * 3600     // 48 hours = 172,800 seconds
 
 /**
  * Get week range from a date (Monday 00:00:00 UTC to Sunday 23:59:59 UTC)

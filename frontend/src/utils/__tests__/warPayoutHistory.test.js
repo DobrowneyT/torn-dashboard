@@ -186,3 +186,54 @@ describe('driftAgainst', () => {
     expect(d.matches).toBe(true)
   })
 })
+
+// ── #871 verification: RW payouts are already static ─────────────────────────
+//
+// ⚠️ The RW half of #871 is VERIFICATION, not construction. `war_payouts` was
+// built to this principle from the start: it stores the cache prices as used
+// (`price_*_cache`), every multiplier and weight, and `total_reward` — the pot
+// itself. Loading a saved payout restores those as INPUTS and recomputes from
+// them, so the result is deterministic and reproduces what was paid.
+//
+// That is a different design from OC, which rebuilt its item breakdown from
+// live data and re-priced it at the current market. These tests pin the
+// property so a future change cannot quietly give RW the OC bug.
+describe('#871 — a saved war payout recomputes from stored inputs only', () => {
+  it('takes the pot from the stored row, not from live cache prices', () => {
+    // `total_reward` is the money the payout was built against. Re-deriving it
+    // from today's cache prices is exactly the OC bug.
+    const s = restoredWarPayoutSettings({ total_reward: 4_200_000_000, faction_cut_percent: 15 })
+    expect(s.totalReward).toBe(4_200_000_000)
+    expect(s.factionCutPercent).toBe(15)
+  })
+
+  it('⚠️ never feeds an OUTPUT back in as an input', () => {
+    // total_payout / member_count are results of the calculation. Restoring
+    // them as inputs is how a reloaded payout quietly stops matching itself.
+    const s = restoredWarPayoutSettings({
+      total_reward: 100, total_payout: 999_999, member_count: 42, war_id: 7,
+    })
+    expect(Object.values(s)).not.toContain(999_999)
+    expect(Object.values(s)).not.toContain(42)
+    expect(s).not.toHaveProperty('totalPayout')
+    expect(s).not.toHaveProperty('memberCount')
+  })
+
+  it('restores every weight that moves the split', () => {
+    const s = restoredWarPayoutSettings({
+      attacks_weight: 0.7, assist_multiplier: 0.3, min_score_threshold: 25,
+      merc_cost: 11, reviver_cost: 22, faction_top_up: 33,
+    })
+    expect(s.minScoreThreshold).toBe(25)
+    expect(s.mercCost).toBe(11)
+    expect(s.reviverCost).toBe(22)
+    expect(s.factionTopUp).toBe(33)
+  })
+
+  it('falls back to documented defaults rather than inventing a number', () => {
+    const s = restoredWarPayoutSettings({})
+    expect(s.factionCutPercent).toBe(20)
+    expect(s.totalReward).toBe(0)
+    expect(s.minScoreThreshold).toBe(50)
+  })
+})

@@ -15,6 +15,9 @@ const WEEK_COLUMNS = new Set([
   'total_member_payout', 'member_count', 'crimes_processed', 'total_time_spent',
   'average_time_spent', 'total_adjusted_tickets', 'total_time_spent_percent',
   'min_time_for_full_tickets', 'min_time_for_any_payout', 'payout_mode',
+  // #871 — what the sheet showed at save time, so reopening it renders the
+  // week that was PAID rather than re-pricing it at today's market.
+  'item_breakdown', 'crime_values',
 ])
 const MEMBER_COLUMNS = new Set([
   'member_id', 'member_name', 'tier', 'base_tickets', 'sit_out_penalty',
