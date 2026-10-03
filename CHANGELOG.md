@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.176.0] - 2026-10-03
+
+### Added
+- **Two copy buttons on the War Room's Roll Call section.** "Copy missing" and
+  "Copy maybes" put a pasteable list on the clipboard — name, ID, battle stats,
+  the reason they are on the list, and a profile link, one per line, strongest
+  first.
+
+### Notes
+- ⚠️ **Two lists, deliberately not one.** "No to the start" is not the same
+  question as "not coming": somebody who said no to the start but yes to
+  self-hospitalising needs a ping five minutes before the war, and somebody who
+  said no to both needs replacing. A single list of every "no" mixes the people
+  worth chasing with the people worth writing off.
+  - **Missing** — no response at all, not available, or needs a merc.
+  - **Maybes** — said no to the start but *can* self-hospitalise.
+- ⚠️ **A non-responder counts as missing, not as unknown.** Silence is the most
+  common way somebody fails to turn up, and leaving the silent ones off makes
+  the chase list look reassuringly short.
+- ⚠️ `can_self_hospital` is NULL whenever `on_at_start` is true — the server
+  nulls it on write, because the question only applies to a "no". Reading it
+  without checking `on_at_start` first would put the entire attending roster in
+  the missing list.
+- Battle stats are merged in at the panel, not assumed on the roster: the War
+  Room passes down the raw poll result and only the roster *table* runs it
+  through `withBattleStats`. An unread total shows as `???`, never `0`.
+- Links go to the **profile**, not an attack page — these are our own members,
+  and the profile is what answers "have they self-hospped yet".
+
 ## [3.175.0] - 2026-10-03
 
 ### Added
