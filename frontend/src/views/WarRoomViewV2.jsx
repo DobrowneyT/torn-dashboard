@@ -74,7 +74,7 @@ import { loadAlertPrefs, fireAlert, surgeAlertKind } from '../utils/warRoomAlert
 import { rollCallGateActive, canSeeWarNotes, isRollCallDismissed, markRollCallDismissed,
   rollCallLabel, rollCallTitle, compareRollCall } from '../utils/rollCall'
 import { isGreenTarget, splitFarmAbroad } from '../utils/warRoomFarmSort'
-import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon, CloudFog, Droplet, LifeBuoy } from 'lucide-react'
+import { Smartphone, Settings, Crosshair, Loader2, ClipboardList, HelpCircle, AlertTriangle, X as XIcon, CloudFog, Droplet, LifeBuoy, Lock, LockOpen } from 'lucide-react'
 import HelpPanel from '../components/warroom/HelpPanel'
 import SpotlightTour from '../components/warroom/SpotlightTour'
 import { tourStepsFor } from '../components/warroom/warRoomTourSteps'
@@ -996,7 +996,7 @@ function FairFightCell({ mine, target }) {
  * to a keyboard and announces nothing. That is fixed here rather than by
  * replacing the component.
  */
-function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title, frozen = false }) {
+function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title, frozen = false, onToggleFrozen }) {
   const active = sortCol === col
   // ⚠️ The frozen corner cell emits ONE z-index class, not `z-20 z-30` and a
   // bet on which order Tailwind happens to write them out in. `frozen-col-head`
@@ -1018,6 +1018,34 @@ function SortTh({ col, sortCol, sortDir, onSort, children, className = '', title
     >
       <span className="flex items-center gap-1">
         {children}
+        {onToggleFrozen && (
+          // ⚠️ stopPropagation on BOTH click and keydown. The whole <th> sorts
+          // on click and also on Enter/Space (its keyboard parity), so without
+          // the second one, tabbing to the lock and pressing Enter would
+          // freeze the column AND re-sort the board — the same trap the
+          // InfoDot below already had to dodge.
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleFrozen() }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation(); e.preventDefault(); onToggleFrozen()
+              }
+            }}
+            aria-pressed={frozen}
+            title={frozen
+              ? 'Name column is frozen — click to let it scroll with the board'
+              : 'Name column scrolls away — click to freeze it to the left edge'}
+            aria-label={frozen ? 'Unfreeze the Name column' : 'Freeze the Name column'}
+            className={`inline-flex rounded p-0.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+              frozen
+                ? 'text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300'
+                : 'text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400'
+            }`}
+          >
+            {frozen ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
+          </button>
+        )}
         {title && (
           // ⚠️ stopPropagation, not decoration: the whole <th> sorts on click,
           // so without it reading the column's explanation would also re-sort
@@ -1856,6 +1884,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const [sortCol, setSortCol] = useState(() => persistedState.sortCol ?? 'timer')
   const [sortDir, setSortDir] = useState(() => persistedState.sortDir ?? 'asc')
 
+  // ⚠️ Defaults to FROZEN (#841 shipped it always-on, and that is the
+  // behaviour people asked for) — so `?? true`, not `?? false`. Persisted
+  // through useViewState like every other pref here rather than a bespoke
+  // localStorage key, so it survives a reload mid-war and travels with the
+  // rest of the board's state.
+  const [nameFrozen, setNameFrozen] = useState(() => persistedState.nameFrozen ?? true)
+
   // Sync all reload-persisted prefs back to the context whenever they change.
   // Sets are flattened to arrays so they survive JSON.stringify.
   useEffect(() => {
@@ -1870,8 +1905,9 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       sortDir,
       leadershipPanelOpen,
       notesPanelOpen,
+      nameFrozen,
     })
-  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, ffMaxOnly, sortCol, sortDir, leadershipPanelOpen, notesPanelOpen, setPersistedState])
+  }, [statusFilter, activityFilter, statsFilterEnabled, statsFilterMin, statsFilterMax, ffMaxOnly, sortCol, sortDir, leadershipPanelOpen, notesPanelOpen, nameFrozen, setPersistedState])
 
   function handleSort(col) {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -3229,7 +3265,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               <table className="w-full text-sm border-separate border-spacing-0">
                 <thead>
                   <tr className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-2" frozen>Name</SortTh>
+                    <SortTh col="name"     sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort} className="px-2"
+                      frozen={nameFrozen} onToggleFrozen={() => setNameFrozen(v => !v)}>Name</SortTh>
                     {columns.rollCall && (
                       <SortTh col="roll_call" sortCol={activeSortCol} sortDir={sortDir} onSort={handleSort}
                         title={
@@ -3348,7 +3385,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                     // `.frozen-col` supplies the opaque base that matches an
                     // EVEN row; odd rows add the translucent tint on top. See
                     // the compositing note in index.css (#841).
-                    const frozenTint = idx % 2 === 0 ? '' : 'frozen-col-striped'
+                    //
+                    // ⚠️ Unfrozen drops BOTH classes, not just the sticky one.
+                    // Leaving the stripe behind would paint an opaque name
+                    // cell over a translucent row — the seam the compositing
+                    // exists to avoid, with none of the benefit.
+                    const frozenCell = nameFrozen
+                      ? `frozen-col ${idx % 2 === 0 ? '' : 'frozen-col-striped'}`
+                      : ''
 
                     // Abroad section divider (#561): only inserted once, right
                     // before the first row of the trailing Abroad group that
@@ -3367,7 +3411,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                             widest column by a distance and the FF column has to
                             come from somewhere. Truncates rather than wrapping,
                             so row height stays uniform down a 100-row board. */}
-                        <td className={`py-2.5 px-2 whitespace-nowrap max-w-[13rem] frozen-col ${frozenTint}`}>
+                        <td className={`py-2.5 px-2 whitespace-nowrap max-w-[13rem] ${frozenCell}`}>
                           <div className="flex items-center gap-1.5 min-w-0">
                             <a href={`https://www.torn.com/profiles.php?XID=${m.member_id}`}
                               target="_blank" rel="noopener noreferrer"
