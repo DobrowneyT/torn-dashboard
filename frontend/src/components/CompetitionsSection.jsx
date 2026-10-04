@@ -309,13 +309,9 @@ function HistoryList({ resolutions }) {
 }
 
 function Leaderboard({ standings, lottery = false }) {
-  if (standings.length === 0) {
-    return <div className="text-xs text-gray-500 dark:text-gray-400 py-2 px-1">No data in this window yet.</div>
-  }
-  // In a lottery, non-qualifiers are shown greyed (they're not in the draw).
-  // Frozen history rows carry no `qualified` flag — they are all pool members.
-  // A resolved board carries the prize each member earned (#239) → show it.
-  const showPrize = standings.some((r) => r.prize)
+  // ⚠️ Called BEFORE the early return below. A hook after a conditional
+  // return changes the hook count when the condition flips, and React throws
+  // "Rendered more hooks than during the previous render".
   // ⚠️ Opens on rank, which is the order a standings board is published in.
   // `#` and `Value` are the same sort — rank is derived from value — and both
   // are offered because people reach for whichever column they are reading.
@@ -323,6 +319,13 @@ function Leaderboard({ standings, lottery = false }) {
     useTableSort(standings, STANDINGS_COLUMNS, {
       initialCol: 'rank', initialDir: 'asc', tieBreak: 'member',
     })
+  if (standings.length === 0) {
+    return <div className="text-xs text-gray-500 dark:text-gray-400 py-2 px-1">No data in this window yet.</div>
+  }
+  // In a lottery, non-qualifiers are shown greyed (they're not in the draw).
+  // Frozen history rows carry no `qualified` flag — they are all pool members.
+  // A resolved board carries the prize each member earned (#239) → show it.
+  const showPrize = standings.some((r) => r.prize)
   return (
     <table className="w-full text-sm">
       <thead>
