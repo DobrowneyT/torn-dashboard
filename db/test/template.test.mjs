@@ -113,6 +113,10 @@ const NEW_TABLES = [
   // removed or changed" record, so a row that can be rewritten is worth
   // nothing.
   'grudge_targets', 'grudge_entries', 'grudge_audit',
+  // #892: claiming a target so a chain does not waste hits. ⚠️ A separate
+  // table from the War Room's dibs on purpose — shared rules, separate
+  // state, so a grudge claim cannot break a war or vice versa.
+  'grudge_claims',
 ]
 
 let server

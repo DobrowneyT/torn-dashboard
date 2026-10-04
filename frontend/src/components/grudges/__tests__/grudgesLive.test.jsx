@@ -16,7 +16,7 @@ vi.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 9010, name: 'Me' } }),
 }))
 
-const { apiGet, apiPut } = await import('../../../utils/apiClient')
+const { apiGet, apiPut, apiPost } = await import('../../../utils/apiClient')
 const { default: GrudgeList } = await import('../GrudgeList')
 const { default: GrudgeSettings } = await import('../GrudgeSettings')
 const { default: GrudgeHistory } = await import('../GrudgeHistory')
@@ -203,5 +203,74 @@ describe('GrudgeHistory', () => {
     apiGet.mockRejectedValue(new Error('audit unavailable'))
     render(<GrudgeHistory />)
     expect(await screen.findByText('audit unavailable')).toBeTruthy()
+  })
+})
+
+describe('claiming (#892)', () => {
+  const claimed = (over = {}) => target({
+    claim_member_id: '9999', claim_member_name: 'Pdub', claim_ms: Date.now(), ...over,
+  })
+
+  it('offers a Claim button on an unheld target', () => {
+    render(<GrudgeList targets={[target()]} viewerId={9010} />)
+    expect(screen.getByLabelText(/Claim Likor/i)).toBeTruthy()
+  })
+
+  it('names the holder rather than just saying "taken"', () => {
+    render(<GrudgeList targets={[claimed()]} viewerId={9010} />)
+    expect(screen.getByText('Pdub')).toBeTruthy()
+    expect(screen.queryByLabelText(/Claim Likor/i)).toBeNull()
+  })
+
+  it('says "You" for your own claim', () => {
+    render(<GrudgeList targets={[claimed({ claim_member_id: '9010', claim_member_name: 'Me' })]} viewerId={9010} />)
+    expect(screen.getByText('You')).toBeTruthy()
+  })
+
+  it('⚠️ offers release on your own claim but not on somebody else’s', () => {
+    const rows = [
+      claimed({ id: 1, target_id: '1', target_name: 'Mine', claim_member_id: '9010' }),
+      claimed({ id: 2, target_id: '2', target_name: 'Theirs', claim_member_id: '9999' }),
+    ]
+    render(<GrudgeList targets={rows} viewerId={9010} isLeadership={false} />)
+    expect(screen.getByLabelText(/Release the claim on Mine/i)).toBeTruthy()
+    expect(screen.queryByLabelText(/Release the claim on Theirs/i)).toBeNull()
+  })
+
+  it('⚠️ lets leadership free a claim somebody forgot about', () => {
+    // Mid-chain a stuck reservation on a good target costs the whole faction.
+    render(<GrudgeList targets={[claimed({ target_name: 'Theirs' })]} viewerId={9010} isLeadership />)
+    expect(screen.getByLabelText(/Release the claim on Theirs/i)).toBeTruthy()
+  })
+
+  it('⚠️ says WHO has it when a claim loses the race', async () => {
+    // "Could not claim" sends somebody to ask in chat; this is the answer
+    // they were going to get.
+    apiPost.mockRejectedValue(new Error('Pdub already has this target'))
+    render(<GrudgeList targets={[target()]} viewerId={9010} />)
+    fireEvent.click(screen.getByLabelText(/Claim Likor/i))
+    expect(await screen.findByText('Pdub already has this target')).toBeTruthy()
+  })
+
+  it('shows the head-start countdown so nobody has to guess', () => {
+    render(<GrudgeList targets={[claimed({ claim_expires_ms: Date.now() + 25_000 })]} viewerId={9010} />)
+    expect(screen.getByText(/2[0-9]s/)).toBeTruthy()
+  })
+
+  it('⚠️ sorts UNCLAIMED first — those are the ones you can take', () => {
+    const rows = [
+      claimed({ id: 1, target_id: '1', target_name: 'Taken' }),
+      target({ id: 2, target_id: '2', target_name: 'Free' }),
+    ]
+    const { container } = render(<GrudgeList targets={rows} viewerId={9010} />)
+    fireEvent.click(container.querySelectorAll('thead th')[7].querySelector('button'))
+    const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
+    expect(names).toEqual(['Free', 'Taken'])
+  })
+
+  it('⚠️ says plainly that claiming is a courtesy, not a lock', () => {
+    // Presenting it as something Torn enforces would be a lie.
+    render(<GrudgeList targets={[target()]} viewerId={9010} />)
+    expect(screen.getByText(/not something Torn enforces/i)).toBeTruthy()
   })
 })

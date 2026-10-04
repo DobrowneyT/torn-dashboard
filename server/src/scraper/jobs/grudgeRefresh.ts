@@ -20,6 +20,7 @@ import {
   regateOnFactionChange, type ResolvedTarget,
 } from '../../grudgeEnrich.js'
 import { planWatchCycle, shardFor, describePlan } from '../../grudgeWatchPlan.js'
+import { decideClaim, CLAIM_HEADSTART_SECONDS } from '../../grudgeClaims.js'
 
 /**
  * How often the job does a full pass when watch mode is OFF.
@@ -134,9 +135,22 @@ export async function grudgeRefreshJob({ db, pool, client }: JobDeps): Promise<R
   }
 
   // ── write ────────────────────────────────────────────────────────────────
+  // #892 — the live claims, read BEFORE the status updates land. Each carries
+  // the reading it last saw, because the target row is overwritten by this very
+  // sweep: by the time we compare, the "before" would already be gone.
+  const claimRows = await db.query(
+    `SELECT c.id, c.target_row_id, c.member_id, c.seen_state, c.seen_until,
+            extract(epoch from c.auto_expire_at) * 1000 AS expires_ms
+       FROM grudge_claims c WHERE c.released_at IS NULL`
+  )
+  const claimsByTargetRow = new Map<string, any>()
+  for (const c of claimRows.rows) claimsByTargetRow.set(String(c.target_row_id), c)
+
   let updated = 0
   let renamed = 0
   let regated = 0
+  let claimsReleased = 0
+  let claimsArmed = 0
 
   for (const [targetId, p] of resolved) {
     const row = byTargetId.get(targetId)
@@ -174,6 +188,48 @@ export async function grudgeRefreshJob({ db, pool, client }: JobDeps): Promise<R
         [row.id, targetId, c.field, c.from, c.to]
       )
     }
+    // ⚠️ Claim rules applied against what the CLAIM last saw, not against the
+    // target row — which this sweep has just overwritten. Every rule here was
+    // earned by the War Room's dibs in a live war.
+    const claim = claimsByTargetRow.get(String(row.id))
+    if (claim) {
+      const decision = decideClaim(
+        { state: claim.seen_state, until: claim.seen_until },
+        { state: p.statusState, until: p.statusUntil },
+        { armed: claim.expires_ms != null, expiresAt: claim.expires_ms }
+      )
+      if (decision.release) {
+        await db.query(
+          `UPDATE grudge_claims SET released_at = now(), release_reason = $2 WHERE id = $1`,
+          [claim.id, decision.release]
+        )
+        claimsReleased += 1
+        await db.query(
+          `INSERT INTO grudge_audit
+             (target_row_id, target_id, actor_member_id, action, field, old_value, new_value)
+           VALUES ($1,$2,'system','edited','claim','claimed',$3)`,
+          [row.id, targetId, `released: ${decision.release}`]
+        )
+      } else {
+        if (decision.arm) {
+          await db.query(
+            `UPDATE grudge_claims
+                SET auto_expire_at = now() + ($2 || ' seconds')::interval
+              WHERE id = $1`,
+            [claim.id, String(CLAIM_HEADSTART_SECONDS)]
+          )
+          claimsArmed += 1
+        }
+        // ⚠️ Advance what the claim has seen ONLY when it survives. Updating
+        // it on a release would be harmless now and wrong the moment somebody
+        // re-claims the same target in the same sweep.
+        await db.query(
+          `UPDATE grudge_claims SET seen_state = $2, seen_until = $3 WHERE id = $1`,
+          [claim.id, p.statusState, p.statusUntil]
+        )
+      }
+    }
+
     if (nextState) {
       regated += 1
       await db.query(
@@ -200,6 +256,8 @@ export async function grudgeRefreshJob({ db, pool, client }: JobDeps): Promise<R
       individual_lookups: plan.individuals.length,
       renamed,
       regated,
+      claims_released: claimsReleased,
+      claims_armed: claimsArmed,
       keys: active.length,
     },
   }
