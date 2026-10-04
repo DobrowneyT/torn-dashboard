@@ -15,11 +15,16 @@ import { rolesFromClaims } from './auth.js'
 import {
   parseTargetId, initialState, canSeeTarget, canModifyEntry, normaliseReason,
 } from './grudges.js'
-import { readProfile } from './grudgeEnrich.js'
+import { readProfile, readFactionName } from './grudgeEnrich.js'
+import { resolveSpyProviders } from './spyFetch.js'
+import {
+  fetchTornStatsFaction, readTornStatsFaction, fetchBspStats, type SpyReading,
+} from './spyProviders.js'
 import {
   normaliseSeverities, normaliseWatchedFactions, removedSeverityIds,
 } from './grudgeSettings.js'
 import { planWatchCycle, describePlan } from './grudgeWatchPlan.js'
+import { canRelease } from './grudgeClaims.js'
 import { planStatusRefresh } from './grudges.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
@@ -122,13 +127,27 @@ export interface GrudgeRouteDeps {
   db: pg.Pool
   tornBaseUrl: string
   encryptionKey?: string
+  /**
+   * Spy-provider config — the SAME shape the scraper and the war-room setup
+   * route already take.
+   *
+   * ⚠️ Resolving this from `process.env` here instead was wrong twice over: it
+   * ignored the operator's base-URL overrides, so the stats-on-add path could
+   * not be pointed at a test fixture and was never actually exercised; and it
+   * made a third place decide where a faction's TornStats key comes from.
+   */
+  tornStatsApiKey?: string
+  bspApiKey?: string
+  tornStatsBaseUrl?: string
+  bspBaseUrl?: string
 }
 
 export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps) {
   const db = deps.db
 
   type Looked =
-    | ({ ok: true } & NonNullable<ReturnType<typeof readProfile>>)
+    | ({ ok: true; factionName: string | null; stats: SpyReading | null }
+       & NonNullable<ReturnType<typeof readProfile>>)
     | { ok: false; reason: 'no_key' | 'fetch_failed' }
 
   /**
@@ -142,6 +161,43 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
    * ⚠️ `/user/{id}/profile`, never `/user/{id}/basic`: `basic` carries no
    * faction, and the faction is the whole reason this call happens here.
    */
+  /**
+   * Battle stats for a target being added, right now.
+   *
+   * ⚠️ Same precedence as everywhere else — TornStats first, BSP for the
+   * rest — through the shared `spyProviders`, so a target added by hand and a
+   * target filled by the nightly job are read identically. Three copies of
+   * "which field is defense" is how surfaces end up disagreeing.
+   *
+   * ⚠️ THIRD-PARTY servers, so this is wrapped by the caller and may fail
+   * freely. One extra call on a deliberate human action is affordable where
+   * the same call on a sweep would not be, which is why the nightly job still
+   * exists and still refetches only what is stale.
+   */
+  async function resolveTargetStats(
+    targetId: string, factionId: string | null
+  ): Promise<SpyReading | null> {
+    const providers = await resolveSpyProviders(db, {
+      encryptionKey: deps.encryptionKey,
+      tornStatsApiKey: deps.tornStatsApiKey,
+      bspApiKey: deps.bspApiKey,
+      tornStatsBaseUrl: deps.tornStatsBaseUrl,
+      bspBaseUrl: deps.bspBaseUrl,
+    })
+    if (providers.tsKey && factionId) {
+      const payload = await fetchTornStatsFaction(
+        providers.tsKey, factionId, providers.tornStatsBaseUrl
+      )
+      const found = readTornStatsFaction(payload, new Set([Number(targetId)]))
+      const hit = found.get(Number(targetId))
+      if (hit) return hit
+    }
+    if (providers.bspKey) {
+      return await fetchBspStats(providers.bspKey, targetId, providers.bspBaseUrl)
+    }
+    return null
+  }
+
   async function lookupTarget(targetId: string): Promise<Looked> {
     if (!deps.encryptionKey) return { ok: false, reason: 'no_key' }
     try {
@@ -154,7 +210,21 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
       })
       const data = await client.fetch(`/v2/user/${targetId}/profile`, claimed.key)
       const p = readProfile(data)
-      return p ? { ok: true, ...p } : { ok: false, reason: 'fetch_failed' }
+      if (!p) return { ok: false, reason: 'fetch_failed' }
+
+      // ⚠️ Everything below is BEST EFFORT and runs in parallel. A target with
+      // a name and a faction is already usable; a missing faction name or spy
+      // is a cosmetic gap the background jobs will fill. Neither may fail the
+      // add, and neither may fail the other — TornStats being down must not
+      // cost us the faction name, which comes from Torn.
+      const [factionName, stats] = await Promise.all([
+        p.factionId
+          ? client.fetch(`/v2/faction/${p.factionId}/basic`, claimed.key)
+              .then(readFactionName).catch(() => null)
+          : Promise.resolve(null),
+        resolveTargetStats(targetId, p.factionId).catch(() => null),
+      ])
+      return { ok: true, ...p, factionName, stats }
     } catch {
       // ⚠️ A Torn failure must not fail the ADD. The grudge is the member's
       // contribution and is worth keeping; the lookup is enrichment and the
@@ -293,6 +363,90 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
     }
   )
 
+  /**
+   * Claim a target (#892).
+   *
+   * ⚠️ The unique index does the arbitration, not a read-then-write. Two
+   * people pressing Claim on the same target in the same second is the exact
+   * case this feature exists for, and a check-then-insert would let both
+   * through.
+   */
+  app.post(
+    '/api/grudges/targets/:id/claim',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      const { id } = req.params as { id: string }
+      if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'invalid id' })
+
+      const t = await db.query(
+        `SELECT id, target_id, state, status_state, status_until
+           FROM grudge_targets WHERE id = $1 AND removed_at IS NULL`, [id]
+      )
+      if (!t.rows[0]) return reply.status(404).send({ error: 'not found' })
+      // ⚠️ A target nobody can see cannot be claimed. Otherwise claiming
+      // would leak the existence of a pending own-faction target.
+      if (t.rows[0].state !== 'active') {
+        return reply.status(409).send({ error: 'That target is not on the list' })
+      }
+
+      try {
+        const ins = await db.query(
+          `INSERT INTO grudge_claims (target_row_id, member_id, seen_state, seen_until)
+           VALUES ($1,$2,$3,$4) RETURNING id, extract(epoch from claimed_at) * 1000 AS claimed_ms`,
+          [id, viewer.memberId, t.rows[0].status_state, t.rows[0].status_until]
+        )
+        await audit(db, {
+          targetRowId: Number(id), targetId: t.rows[0].target_id,
+          actor: viewer.memberId, action: 'edited', field: 'claim', newValue: 'claimed',
+        })
+        return reply.status(201).send({ claim_id: Number(ins.rows[0].id), target_row_id: Number(id) })
+      } catch (err: any) {
+        // 23505 = unique violation: somebody already holds it.
+        if (err?.code === '23505') {
+          const held = await db.query(
+            `SELECT c.member_id, m.member_name FROM grudge_claims c
+               LEFT JOIN members m ON m.member_id = c.member_id
+              WHERE c.target_row_id = $1 AND c.released_at IS NULL`, [id]
+          )
+          const who = held.rows[0]?.member_name || held.rows[0]?.member_id || 'somebody'
+          return reply.status(409).send({ error: `${who} already has this target` })
+        }
+        throw err
+      }
+    }
+  )
+
+  /** Drop a claim. The holder, or leadership freeing a forgotten one. */
+  app.delete(
+    '/api/grudges/targets/:id/claim',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      const { id } = req.params as { id: string }
+      if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'invalid id' })
+      const c = await db.query(
+        `SELECT c.id, c.member_id, t.target_id FROM grudge_claims c
+           JOIN grudge_targets t ON t.id = c.target_row_id
+          WHERE c.target_row_id = $1 AND c.released_at IS NULL`, [id]
+      )
+      const claim = c.rows[0]
+      if (!claim) return reply.status(404).send({ error: 'nobody holds that target' })
+      if (!canRelease(claim, viewer)) return reply.status(403).send({ error: 'Forbidden' })
+
+      await db.query(
+        `UPDATE grudge_claims SET released_at = now(), release_reason = 'manual' WHERE id = $1`,
+        [claim.id]
+      )
+      await audit(db, {
+        targetRowId: Number(id), targetId: claim.target_id,
+        actor: viewer.memberId, action: 'edited', field: 'claim',
+        oldValue: 'claimed', newValue: 'released',
+      })
+      return { released: Number(claim.id) }
+    }
+  )
+
   /** How many grudges use each severity, so the editor warns BEFORE a removal. */
   app.get('/api/grudges/settings/usage', { preHandler: requireAuth() }, async (req, reply) => {
     const viewer = viewerOf(req)
@@ -314,21 +468,28 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
       // ⚠️ Timestamps converted to epoch ms IN SQL. This stack serves
       // timestamptz with a bare two-digit offset that `new Date()` reads as
       // NaN (#140); the client never meets that string.
-      `SELECT id, target_id, target_name, faction_id, faction_name, level, state,
-              bsp_total, bsp_str, bsp_spd, bsp_def, bsp_dex, spy_source,
-              extract(epoch from bsp_fetched_at) * 1000 AS bsp_fetched_ms,
-              -- ⚠️ When the SPY was taken, not when we fetched it. A TornStats
-              -- spy can be months older than bsp_fetched_at, and the column
-              -- shows this date so nobody reads a stale figure as current.
-              -- (No backticks in here: this is inside a JS template literal,
-              -- and one would end the string mid-query.)
-              extract(epoch from ts_spy_at) * 1000 AS ts_spy_ms,
-              status_state, status_until, status_description,
-              extract(epoch from status_fetched_at) * 1000 AS status_fetched_ms,
-              added_by, extract(epoch from added_at) * 1000 AS added_ms
-         FROM grudge_targets
-        WHERE removed_at IS NULL
-        ORDER BY added_at DESC`
+      `SELECT g.id, g.target_id, g.target_name, g.faction_id, g.faction_name, g.level, g.state,
+              g.bsp_total, g.bsp_str, g.bsp_spd, g.bsp_def, g.bsp_dex, g.spy_source,
+              -- ⚠️ RAW timestamptz, not epoch ms, for these two alone. The
+              -- shared BattleStatsCell renders their age with fmtAgo, which
+              -- goes through parseDbTime and expects the bare "+00" string the
+              -- API serves (#140). Handing it a number would print a dash.
+              g.bsp_fetched_at, g.ts_spy_at,
+              g.status_state, g.status_until, g.status_description,
+              extract(epoch from g.status_fetched_at) * 1000 AS status_fetched_ms,
+              g.added_by, extract(epoch from g.added_at) * 1000 AS added_ms,
+              -- #892: the LIVE claim, if any. A left join so an unclaimed
+              -- target is still a row rather than disappearing from the board.
+              c.member_id AS claim_member_id,
+              cm.member_name AS claim_member_name,
+              extract(epoch from c.claimed_at) * 1000 AS claim_ms,
+              extract(epoch from c.auto_expire_at) * 1000 AS claim_expires_ms
+         FROM grudge_targets g
+         LEFT JOIN grudge_claims c
+                ON c.target_row_id = g.id AND c.released_at IS NULL
+         LEFT JOIN members cm ON cm.member_id = c.member_id
+        WHERE g.removed_at IS NULL
+        ORDER BY g.added_at DESC`
     )
     const visible = targets.filter((t: any) => canSeeTarget(t, viewer))
     if (visible.length === 0) return { targets: [] }
@@ -409,10 +570,33 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
           // ⚠️ Revive the SAME row rather than inserting a new one, so the
           // audit trail stays attached to the target it is about.
           state = pendingReason === null ? 'active' : 'pending_approval'
+          // ⚠️ Re-enrich on revive. A target off the list for a month may have
+          // changed faction, name or stats entirely, and reviving them with
+          // the old row would show stale facts as current.
+          const st = looked.ok ? looked.stats : null
           await db.query(
             `UPDATE grudge_targets
-                SET removed_at = NULL, removed_by = NULL, state = $2, state_changed_at = now()
-              WHERE id = $1`, [targetRowId, state]
+                SET removed_at = NULL, removed_by = NULL, state = $2, state_changed_at = now(),
+                    target_name = COALESCE($3, target_name),
+                    level = COALESCE($4, level),
+                    faction_id = $5, faction_name = $6,
+                    status_state = $7, status_until = $8, status_description = $9,
+                    status_fetched_at = CASE WHEN $7::text IS NULL THEN status_fetched_at ELSE now() END,
+                    bsp_total = COALESCE($10, bsp_total),
+                    bsp_str = COALESCE($11, bsp_str), bsp_spd = COALESCE($12, bsp_spd),
+                    bsp_def = COALESCE($13, bsp_def), bsp_dex = COALESCE($14, bsp_dex),
+                    spy_source = COALESCE($15, spy_source),
+                    bsp_fetched_at = CASE WHEN $15::text IS NULL THEN bsp_fetched_at ELSE now() END,
+                    ts_spy_at = COALESCE($16, ts_spy_at)
+              WHERE id = $1`,
+            [targetRowId, state,
+             looked.ok ? looked.name : null, looked.ok ? looked.level : null,
+             looked.ok ? looked.factionId : null, looked.ok ? looked.factionName : null,
+             looked.ok ? looked.statusState : null,
+             looked.ok ? looked.statusUntil : null,
+             looked.ok ? looked.statusDescription : null,
+             st?.total ?? null, st?.str ?? null, st?.spd ?? null,
+             st?.def ?? null, st?.dex ?? null, st?.source ?? null, st?.spiedAt ?? null]
           )
           await audit(db, { targetRowId, targetId, actor: viewer.memberId, action: 'restored' })
         }
@@ -421,18 +605,29 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
         // ⚠️ The name is NOT accepted from the client — it comes from the
         // lookup above and nowhere else, so there is exactly one source for it
         // and a rename is a fact we observe rather than a guess somebody typed.
+        const st = looked.ok ? looked.stats : null
         const ins = await db.query(
           `INSERT INTO grudge_targets
-             (target_id, target_name, level, faction_id, state, state_changed_at, added_by,
-              status_state, status_until, status_description, status_fetched_at)
-           VALUES ($1,$2,$3,$4,$5,now(),$6,$7,$8,$9,
-                   CASE WHEN $7::text IS NULL THEN NULL ELSE now() END)
+             (target_id, target_name, level, faction_id, faction_name,
+              state, state_changed_at, added_by,
+              status_state, status_until, status_description, status_fetched_at,
+              bsp_total, bsp_str, bsp_spd, bsp_def, bsp_dex, spy_source,
+              bsp_fetched_at, ts_spy_at)
+           VALUES ($1,$2,$3,$4,$5,$6,now(),$7,$8,$9,$10,
+                   CASE WHEN $8::text IS NULL THEN NULL ELSE now() END,
+                   $11,$12,$13,$14,$15,$16,
+                   CASE WHEN $16::text IS NULL THEN NULL ELSE now() END,
+                   $17)
            RETURNING id`,
           [targetId, looked.ok ? looked.name : null, looked.ok ? looked.level : null,
-           factionId, state, viewer.memberId,
+           factionId, looked.ok ? looked.factionName : null,
+           state, viewer.memberId,
            looked.ok ? looked.statusState : null,
            looked.ok ? looked.statusUntil : null,
-           looked.ok ? looked.statusDescription : null]
+           looked.ok ? looked.statusDescription : null,
+           st?.total ?? null, st?.str ?? null, st?.spd ?? null,
+           st?.def ?? null, st?.dex ?? null, st?.source ?? null,
+           st?.spiedAt ?? null]
         )
         targetRowId = Number(ins.rows[0].id)
         await audit(db, {
@@ -459,6 +654,10 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
         // them up at all.
         pending_reason: state === 'pending_approval' ? pendingReason : null,
         target_name: looked.ok ? looked.name : null,
+        faction_name: looked.ok ? looked.factionName : null,
+        // ⚠️ So the form can say whether stats came back. "Added" with a blank
+        // FF column reads as broken; "added, no spy on record" does not.
+        stats_source: looked.ok ? (looked.stats?.source ?? null) : null,
       })
     }
   )

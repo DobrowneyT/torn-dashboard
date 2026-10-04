@@ -18,6 +18,125 @@ surface it automatically.
 
 ---
 
+## [3.200.0] - 2026-10-04
+
+### Fixed
+- ⚠️ **The stats fetch on adding a target had never actually been exercised.**
+  It worked, but the route resolved its spy-provider config from `process.env` and
+  took no base-URL overrides, so it could not be pointed at a test fixture — and a
+  third place was deciding where a faction's TornStats key comes from. The routes now
+  take the same config the scraper and the war-room setup route already take.
+- With that in place, there are now tests proving stats **do** land on the first
+  insert: a TornStats reading with every stat checked individually, the BSP fallback
+  when TornStats has no spy, and a dead provider that leaves the target added with
+  its Torn data intact.
+  ⚠️ Each stat is asserted separately because Fair Fight is a sum of square
+  **roots** of the four — a transposition produces a plausible wrong answer rather
+  than an obvious one.
+  ⚠️ The capture-time assertion deliberately avoids `new Date()`: these columns
+  are served as raw timestamptz with a bare "+00" offset, which `new Date` reads as
+  NaN (#140). That trap caught this very test on its first run.
+
+## [3.199.0] - 2026-10-04
+
+### Changed
+- **Battle stats on the Book of Grudges now use the SAME cell as the War Room**, not a
+  lookalike. Hover or tap for the per-stat breakdown, the source and how old the
+  reading is. ⚠️ `BattleStatsCell` was extracted in #355 precisely so the
+  measured-versus-estimated distinction is made in one place; restating it a third
+  time in different words is how two surfaces end up disagreeing about a player.
+  A solid underline means measured, dotted means estimated, and no reading shows
+  **???** rather than a zero that would read as a free hit.
+  ⚠️ The API now returns `ts_spy_at` / `bsp_fetched_at` as **raw timestamptz**
+  rather than epoch ms, because that cell ages them with `fmtAgo` → `parseDbTime`,
+  which expects the bare "+00" string (#140). A number would have printed a dash.
+- **The FF column header carries the War Room's explanation, verbatim** — the
+  formula, the 3.00 saturation, what a dotted underline means, and that the column is
+  personal. ⚠️ Copied word for word on purpose: the same number explained two
+  different ways is how two surfaces drift apart.
+
+### Added
+- `SortableTh` takes an optional `info` panel, rendered as an **InfoDot beside** the
+  sort button. ⚠️ Outside the button, never inside: the header is already an
+  enabled control, so wrapping it would force one tap to choose between sorting and
+  opening the panel — and a button inside a button is invalid markup.
+
+## [3.198.0] - 2026-10-04
+
+### Added
+- **Severity can be set on a grudge that already exists.** ⚠️ The API accepted
+  `severity_id` from the start — the edit form simply never sent it — so anything
+  added before a faction configured its severities could never be given one.
+  ⚠️ Clearing sends `null`, not `undefined`: the API reads an omitted field as
+  "leave it alone", so undefined would make clearing impossible.
+- **Severities are numbered and re-orderable**, most serious first — **1 is the top
+  priority**. ⚠️ The number IS the row's position; there is no separate order
+  field, because two sources of truth for one fact is two things to drift.
+  ⚠️ Up/down buttons rather than drag-and-drop: they work on a phone, with a
+  keyboard and with a screen reader, and a chain is not the moment to find out a
+  drag handle does not.
+  ⚠️ Reordering preserves every id, so no grudge is orphaned by a shuffle.
+
+### Fixed
+- ⚠️ **`grudge-stats` rebuilt its provider config from `process.env`** instead of
+  using `deps.spy` — the same object the War Room's spy fetch uses, assembled once
+  in `buildDeps`. That ignored the operator's base-URL overrides, so the job could
+  not be pointed at a test fixture, and it meant two places deciding where a
+  faction's TornStats key comes from. It now shares one source.
+
+## [3.197.0] - 2026-10-04
+
+### Changed
+- **A target is fully resolved the moment it is added (#889).** The profile lookup
+  already happened inline; the **faction name** and **battle stats** now do too, so
+  the row is useful the instant it exists instead of showing a bare faction id and an
+  empty FF column until the next sweep.
+  - ⚠️ The three sources are fetched **in parallel and fail independently**. A
+    TornStats outage must not cost us the faction name, which comes from Torn, and
+    neither may fail the add — the grudge is the member's contribution and is kept
+    regardless.
+  - ⚠️ **No faction call at all for an unfactioned target.** There is nothing to
+    name, and asking about faction 0 is a wasted call that would 404.
+  - ⚠️ Stats use the same TornStats-then-BSP precedence as everywhere else,
+    through the shared `spyProviders`, so a target added by hand and one filled by
+    the nightly job are read identically.
+  - One extra pair of calls on a deliberate human action is affordable where the same
+    calls on a sweep would not be — which is why the nightly job still exists and
+    still refetches only what is stale.
+- ⚠️ **Re-adding a removed target now re-enriches it.** A target off the list for
+  a month may have changed faction, name or stats entirely, and reviving the old row
+  would have presented stale facts as current.
+
+## [3.196.0] - 2026-10-04
+
+### Added
+- **Claiming a target (#892).** Migration **0071** adds `grudge_claims`. One live claim
+  per target, so a chain does not waste hits on somebody already being handled.
+  - ⚠️ **Claiming is a courtesy, not a lock**, and the page says so. It stops two
+    people wasting hits; it cannot stop anybody attacking, and presenting it as
+    something Torn enforces would be a lie.
+  - ⚠️ **A partial unique index arbitrates the race**, not a read-then-write. Two
+    people pressing Claim in the same second is the case this exists for, and a
+    check-then-insert would let both through. The loser is told **who** has it —
+    "could not claim" sends somebody to ask in chat for the answer we already had.
+  - ⚠️ **The expiry rules are the War Room's, re-implemented rather than shared.**
+    Each was earned in a live war; the dibs tables are war-scoped with their own job
+    and broadcast, and the two must not be able to break each other.
+    - Okay → anything else: the claim is **spent**.
+    - Hospital → Hospital with the timer jumped: **spent**, somebody else got there.
+    - Hospital → Okay: the claim is **kept** and a 30-second head start armed — the
+      holder waited for exactly that moment.
+    - ⚠️ **A missing status reading releases NOTHING.** One failed sweep would
+      otherwise free every claim on the board at once, mid-chain, with no
+      explanation. Verified by probe.
+  - Leadership can free a claim somebody forgot about: mid-chain a stuck reservation
+    on a good target costs the whole faction.
+  - ⚠️ Unclaimed targets sort **first** — those are the ones you can take.
+  - ⚠️ A pending target cannot be claimed, which would otherwise leak the existence
+    of a held own-faction target to anybody who guessed its row id.
+  - Claims are **never hard-deleted**; the release reason is recorded, because "the
+    claim went away" is useless mid-chain where "spent — they went to hospital" is not.
+
 ## [3.195.0] - 2026-10-04
 
 ### Added

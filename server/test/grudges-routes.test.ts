@@ -57,6 +57,11 @@ const givenTarget = (id: string, factionId: number | null, name = `Target${id}`)
   }))
 }
 
+/** Name a faction, so the add path can resolve it inline. */
+const givenFactionName = (id: number, name: string) => {
+  stack.torn.setHandler(`/v2/faction/${id}/basic`, () => ({ basic: { id, name } }))
+}
+
 /** No handler at all — the lookup fails and the add must fail CLOSED. */
 const givenUnresolvable = (id: string) => {
   stack.torn.setHandler(`/v2/user/${id}/profile`, () => ({ error: { code: 6, error: 'Incorrect ID' } }))
@@ -569,6 +574,230 @@ describe('⚠️ our own faction is always watched', () => {
     givenTarget('7778', 12345)
     expect((await call('POST', '/api/grudges', member, { target: '7778', reason: 'stranger' })).body.state)
       .toBe('active')
+  })
+})
+
+describe('⚠️ enrichment on the very first insert', () => {
+  beforeAll(reset)
+
+  it('resolves name, level, faction id AND faction name in one go', async () => {
+    // The point of doing it inline: the row is useful the moment it exists,
+    // rather than showing a bare id until the next sweep.
+    givenTarget('9601', 4321, 'Likor')
+    givenFactionName(4321, 'Some Other Faction')
+    const r = await call('POST', '/api/grudges', member, { target: '9601', reason: 'enriched' })
+    expect(r.body.target_name).toBe('Likor')
+    expect(r.body.faction_name).toBe('Some Other Faction')
+
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9601')
+    expect(t.faction_id).toBe('4321')
+    expect(t.faction_name).toBe('Some Other Faction')
+    expect(t.level).toBe(50)
+    expect(t.status_state).toBe('Okay')
+  })
+
+  it('⚠️ a missing faction NAME does not cost us the faction id', async () => {
+    // The two come from different calls, and one failing must not take the
+    // other with it.
+    givenTarget('9602', 5555)
+    const r = await call('POST', '/api/grudges', member, { target: '9602', reason: 'no name' })
+    expect(r.status).toBe(201)
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9602')
+    expect(t.faction_id).toBe('5555')
+    expect(t.faction_name).toBeNull()
+  })
+
+  it('⚠️ makes no faction call at all for an unfactioned target', async () => {
+    // There is no faction to name, and asking for faction 0 is a wasted call
+    // that would 404.
+    givenTarget('9603', null)
+    const r = await call('POST', '/api/grudges', member, { target: '9603', reason: 'loner' })
+    expect(r.status).toBe(201)
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9603')
+    expect(t.faction_id).toBeNull()
+    expect(t.faction_name).toBeNull()
+  })
+
+  it('⚠️ FETCHES BATTLE STATS ON THE FIRST INSERT, from TornStats', async () => {
+    // The whole point: a target is useful the moment it is added, with a
+    // working FF, rather than waiting for the nightly sweep.
+    //
+    // ⚠️ This test could not exist until the route was given the operator's
+    // spy base URLs. It resolved them from process.env, so it could never be
+    // pointed at a fixture and this path was never actually exercised.
+    const spied = 1_750_000_000
+    stack.torn.setHandler('/api/v2/TSKEY123/spy/faction/4321', () => ({
+      faction: {
+        members: {
+          '9605': {
+            id: 9605,
+            spy: {
+              total: 7_000_000, strength: 3_000_000, speed: 2_000_000,
+              defense: 1_500_000, dexterity: 500_000, timestamp: spied,
+            },
+          },
+        },
+      },
+    }))
+    givenTarget('9605', 4321, 'Spied')
+    const r = await call('POST', '/api/grudges', member, { target: '9605', reason: 'measured' })
+    expect(r.status).toBe(201)
+    expect(r.body.stats_source).toBe('tornstats')
+
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9605')
+    // ⚠️ Every stat individually — Fair Fight is a sum of square ROOTS of the
+    // four, so a transposition produces a wrong FF rather than an obvious one.
+    expect(Number(t.bsp_total)).toBe(7000000)
+    expect(Number(t.bsp_str)).toBe(3000000)
+    expect(Number(t.bsp_spd)).toBe(2000000)
+    expect(Number(t.bsp_def)).toBe(1500000)
+    expect(Number(t.bsp_dex)).toBe(500000)
+    expect(t.spy_source).toBe('tornstats')
+    // ⚠️ The SPY's capture time, not our fetch time — and asserted WITHOUT
+    // `new Date()`. These columns are served as raw timestamptz with a bare
+    // "+00" offset, which `new Date` reads as NaN (#140). That trap caught
+    // this very test on its first run.
+    const spiedDay = new Date(spied * 1000).toISOString().slice(0, 10)
+    expect(String(t.ts_spy_at)).toContain(spiedDay)
+  })
+
+  it('⚠️ falls back to BSP when TornStats has no spy for them', async () => {
+    stack.torn.setHandler('/api/v2/TSKEY123/spy/faction/4322', () => ({ faction: { members: {} } }))
+    stack.torn.setHandler('/api/battlestats/BSPKEY99/9606/TornForge', () => ({
+      Result: 1, TBS: 3_000_000, Strength: 1_000_000, Speed: 1_000_000,
+      Defense: 500_000, Dexterity: 500_000,
+    }))
+    givenTarget('9606', 4322, 'Predicted')
+    const r = await call('POST', '/api/grudges', member, { target: '9606', reason: 'estimated' })
+    expect(r.body.stats_source).toBe('bsp')
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9606')
+    expect(Number(t.bsp_total)).toBe(3_000_000)
+    // ⚠️ BSP gives no capture time, and we must not invent one — that would
+    // present an estimate of unknown age as taken this minute.
+    expect(t.ts_spy_at ?? null).toBeNull()
+  })
+
+  it('⚠️ a dead stats provider does not fail the add', async () => {
+    // The grudge is the member's contribution; the spy is enrichment.
+    // No handler at all for faction 4323 or for this player on BSP — the
+    // fixture 404s, which is exactly what a provider that is down looks like
+    // from here. (Throwing inside the fixture's handler hangs the socket and
+    // times the test out instead of simulating anything.)
+    givenTarget('9607', 4323, 'Unspied')
+    const r = await call('POST', '/api/grudges', member, { target: '9607', reason: 'kept anyway' })
+    expect(r.status).toBe(201)
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9607')
+    expect(t.target_name).toBe('Unspied')   // the Torn half still landed
+  })
+
+  it('⚠️ re-enriches a target that is re-added after removal', async () => {
+    // A target off the list for a month may have changed faction or name
+    // entirely; reviving the old row would present stale facts as current.
+    const list = await get('/api/grudges', member)
+    const row = list.body.targets.find((x: any) => x.target_id === '9601')
+    await call('DELETE', `/api/grudges/targets/${row.id}`, leader)
+
+    givenTarget('9601', 7777, 'LikorRenamed')
+    givenFactionName(7777, 'A Different Faction')
+    const again = await call('POST', '/api/grudges', member2, { target: '9601', reason: 'back again' })
+    expect(again.body.target_row_id).toBe(row.id)   // same row, history intact
+
+    const after = await get('/api/grudges', member)
+    const t = after.body.targets.find((x: any) => x.target_id === '9601')
+    expect(t.target_name).toBe('LikorRenamed')
+    expect(t.faction_id).toBe('7777')
+    expect(t.faction_name).toBe('A Different Faction')
+  })
+
+  it('⚠️ still records the grudge when every lookup fails', async () => {
+    // The grudge is the member's contribution; enrichment is not.
+    givenUnresolvable('9604')
+    const r = await call('POST', '/api/grudges', member, { target: '9604', reason: 'kept regardless' })
+    expect(r.status).toBe(201)
+    expect(r.body.state).toBe('pending_approval')
+    expect(r.body.pending_reason).toBe('unverified')
+  })
+})
+
+describe('claiming a target (#892)', () => {
+  let rowId: number
+
+  beforeAll(async () => {
+    await reset()
+    givenTarget('9501', 99999, 'Quarry')
+    const r = await call('POST', '/api/grudges', member, { target: '9501', reason: 'mine' })
+    rowId = r.body.target_row_id
+  })
+
+  it('claims an unheld target', async () => {
+    const r = await call('POST', `/api/grudges/targets/${rowId}/claim`, member)
+    expect(r.status).toBe(201)
+  })
+
+  it('shows the holder on the list', async () => {
+    const list = await get('/api/grudges', member2)
+    const t = list.body.targets.find((x: any) => x.target_id === '9501')
+    expect(t.claim_member_id).toBe('9010')
+  })
+
+  it('⚠️ refuses a second claim and says WHO has it', async () => {
+    // Two people pressing Claim in the same second is the exact case this
+    // feature exists for. The unique index arbitrates, not a read-then-write,
+    // which would let both through.
+    const r = await call('POST', `/api/grudges/targets/${rowId}/claim`, member2)
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/already has this target/)
+  })
+
+  it('⚠️ refuses an unrelated member releasing it', async () => {
+    expect((await call('DELETE', `/api/grudges/targets/${rowId}/claim`, member2)).status).toBe(403)
+  })
+
+  it('lets the holder release it, and then it can be taken', async () => {
+    expect((await call('DELETE', `/api/grudges/targets/${rowId}/claim`, member)).status).toBe(200)
+    expect((await call('POST', `/api/grudges/targets/${rowId}/claim`, member2)).status).toBe(201)
+  })
+
+  it('⚠️ lets leadership free a claim somebody forgot about', async () => {
+    expect((await call('DELETE', `/api/grudges/targets/${rowId}/claim`, leader)).status).toBe(200)
+  })
+
+  it('⚠️ a released claim is kept, not deleted', async () => {
+    // "Who had this and when did they let it go" is a question people ask
+    // mid-chain, and a DELETE cannot answer it.
+    const rows = await stack.db.query(
+      `SELECT release_reason FROM grudge_claims WHERE target_row_id = $1 AND released_at IS NOT NULL`,
+      [rowId]
+    )
+    expect(rows.rows.length).toBeGreaterThanOrEqual(2)
+    expect(rows.rows.every((r: any) => r.release_reason === 'manual')).toBe(true)
+  })
+
+  it('records claims and releases in the history', async () => {
+    const r = await get('/api/grudges/audit?target_id=9501', member)
+    const claimRows = r.body.history.filter((h: any) => h.field === 'claim')
+    expect(claimRows.length).toBeGreaterThan(0)
+  })
+
+  it('⚠️ refuses to claim a target that is not on the public list', async () => {
+    // Otherwise claiming would leak the existence of a pending own-faction
+    // target to anybody who guessed its row id.
+    const ours = await stack.db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
+    givenTarget('9502', Number(ours.rows[0].torn_faction_id))
+    const added = await call('POST', '/api/grudges', member, { target: '9502', reason: 'pending' })
+    expect(added.body.state).toBe('pending_approval')
+    const r = await call('POST', `/api/grudges/targets/${added.body.target_row_id}/claim`, member2)
+    expect(r.status).toBe(409)
+  })
+
+  it('404s on a target that does not exist', async () => {
+    expect((await call('POST', '/api/grudges/targets/999999/claim', member)).status).toBe(404)
   })
 })
 

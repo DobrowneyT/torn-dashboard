@@ -190,7 +190,7 @@ describe('GrudgeList', () => {
       ] }),
     ]
     const { container } = render(<GrudgeList targets={rows} viewerId={9010} />)
-    const grudgeTh = container.querySelectorAll('thead th')[7]
+    const grudgeTh = container.querySelectorAll('thead th')[8]
     expect(grudgeTh.textContent).toContain('Grudges')
     fireEvent.click(grudgeTh.querySelector('button'))   // ascending
     const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
@@ -201,7 +201,7 @@ describe('GrudgeList', () => {
     // A header that looks clickable and reorders nothing is worse than one
     // that plainly does not.
     const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} />)
-    const attackTh = container.querySelectorAll('thead th')[9]
+    const attackTh = container.querySelectorAll('thead th')[10]
     expect(attackTh.textContent).toContain('Attack')
     expect(attackTh.querySelector('button')).toBeNull()
   })
@@ -335,12 +335,37 @@ describe('GrudgeList', () => {
     expect(span.className).not.toMatch(/decoration-dotted/)
   })
 
-  it('⚠️ shows the spy source and when the SPY was taken', () => {
-    // Not when we fetched it — a TornStats spy can be months older, and the
-    // fetch time would make a stale figure look current.
-    const old = Date.UTC(2026, 0, 15)
-    render(<GrudgeList targets={[spied({ ts_spy_ms: old })]} viewerId={9010} myBattleStats={mine} />)
-    expect(screen.getByText(new RegExp(`tornstats.*${new Date(old).toLocaleDateString()}`))).toBeTruthy()
+  it('⚠️ renders battle stats through the SHARED cell, not a lookalike', async () => {
+    // Same component as the War Room and Member Overview (#355). The
+    // measured-vs-estimated distinction must not be restated a third time in
+    // different words, so the breakdown, source and age come from there.
+    const row = spied({ ts_spy_at: '2026-01-15 12:00:00+00', bsp_fetched_at: '2026-10-04 12:00:00+00' })
+    const { container } = render(<GrudgeList targets={[row]} viewerId={9010} myBattleStats={mine} />)
+    const statsCell = container.querySelectorAll('tbody td')[2]
+    // The trigger shows the total; the panel behind it carries the breakdown.
+    expect(statsCell.textContent).toMatch(/4[.,]?0*0?m|4,000,000|4m/i)
+    fireEvent.click(statsCell.querySelector('button'))
+    expect(await screen.findByText('STR')).toBeTruthy()
+    expect(screen.getByText('DEX')).toBeTruthy()
+    // ⚠️ The age comes from the SPY time, not our fetch time — a TornStats
+    // spy can be months older, and the fetch time would make it look current.
+    expect(screen.getByText(/\(TS\)/)).toBeTruthy()
+  })
+
+  it('⚠️ shows "???" rather than a zero when there is no reading', () => {
+    // A zero would put somebody at the bottom of every sort and make them
+    // look like a free hit.
+    const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} />)
+    expect(container.querySelectorAll('tbody td')[2].textContent).toContain('???')
+  })
+
+  it('explains how FF is worked out, in the War Room’s own words', async () => {
+    const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} />)
+    const ffTh = container.querySelectorAll('thead th')[3]
+    const dot = [...ffTh.querySelectorAll('button')].pop()
+    fireEvent.click(dot)
+    expect(await screen.findByText(/FF = min\(3, 1 \+ 8\/3/)).toBeTruthy()
+    expect(screen.getByText(/saturates at the 3.00 cap/i)).toBeTruthy()
   })
 
   it('⚠️ sorts FF, and sinks the targets it cannot compute', () => {
