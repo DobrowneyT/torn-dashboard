@@ -657,8 +657,12 @@ describe('⚠️ enrichment on the very first insert', () => {
     expect(Number(t.bsp_def)).toBe(1500000)
     expect(Number(t.bsp_dex)).toBe(500000)
     expect(t.spy_source).toBe('tornstats')
-    // ⚠️ The SPY's capture time, not our fetch time.
-    expect(new Date(t.ts_spy_at).getTime()).toBe(spied * 1000)
+    // ⚠️ The SPY's capture time, not our fetch time — and asserted WITHOUT
+    // `new Date()`. These columns are served as raw timestamptz with a bare
+    // "+00" offset, which `new Date` reads as NaN (#140). That trap caught
+    // this very test on its first run.
+    const spiedDay = new Date(spied * 1000).toISOString().slice(0, 10)
+    expect(String(t.ts_spy_at)).toContain(spiedDay)
   })
 
   it('⚠️ falls back to BSP when TornStats has no spy for them', async () => {
@@ -675,7 +679,7 @@ describe('⚠️ enrichment on the very first insert', () => {
     expect(Number(t.bsp_total)).toBe(3_000_000)
     // ⚠️ BSP gives no capture time, and we must not invent one — that would
     // present an estimate of unknown age as taken this minute.
-    expect(t.ts_spy_at).toBeNull()
+    expect(t.ts_spy_at ?? null).toBeNull()
   })
 
   it('⚠️ a dead stats provider does not fail the add', async () => {
