@@ -127,6 +127,19 @@ export interface GrudgeRouteDeps {
   db: pg.Pool
   tornBaseUrl: string
   encryptionKey?: string
+  /**
+   * Spy-provider config — the SAME shape the scraper and the war-room setup
+   * route already take.
+   *
+   * ⚠️ Resolving this from `process.env` here instead was wrong twice over: it
+   * ignored the operator's base-URL overrides, so the stats-on-add path could
+   * not be pointed at a test fixture and was never actually exercised; and it
+   * made a third place decide where a faction's TornStats key comes from.
+   */
+  tornStatsApiKey?: string
+  bspApiKey?: string
+  tornStatsBaseUrl?: string
+  bspBaseUrl?: string
 }
 
 export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps) {
@@ -166,8 +179,10 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
   ): Promise<SpyReading | null> {
     const providers = await resolveSpyProviders(db, {
       encryptionKey: deps.encryptionKey,
-      tornStatsApiKey: process.env.TORNSTATS_API_KEY,
-      bspApiKey: process.env.BSP_API_KEY,
+      tornStatsApiKey: deps.tornStatsApiKey,
+      bspApiKey: deps.bspApiKey,
+      tornStatsBaseUrl: deps.tornStatsBaseUrl,
+      bspBaseUrl: deps.bspBaseUrl,
     })
     if (providers.tsKey && factionId) {
       const payload = await fetchTornStatsFaction(

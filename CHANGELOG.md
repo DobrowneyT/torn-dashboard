@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.200.0] - 2026-10-04
+
+### Fixed
+- ⚠️ **The stats fetch on adding a target had never actually been exercised.**
+  It worked, but the route resolved its spy-provider config from `process.env` and
+  took no base-URL overrides, so it could not be pointed at a test fixture — and a
+  third place was deciding where a faction's TornStats key comes from. The routes now
+  take the same config the scraper and the war-room setup route already take.
+- With that in place, there are now tests proving stats **do** land on the first
+  insert: a TornStats reading with every stat checked individually, the BSP fallback
+  when TornStats has no spy, and a dead provider that leaves the target added with
+  its Torn data intact.
+  ⚠️ Each stat is asserted separately because Fair Fight is a sum of square
+  **roots** of the four — a transposition produces a plausible wrong answer rather
+  than an obvious one.
+  ⚠️ The capture-time assertion deliberately avoids `new Date()`: these columns
+  are served as raw timestamptz with a bare "+00" offset, which `new Date` reads as
+  NaN (#140). That trap caught this very test on its first run.
+
 ## [3.199.0] - 2026-10-04
 
 ### Changed

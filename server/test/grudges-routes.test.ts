@@ -621,13 +621,79 @@ describe('⚠️ enrichment on the very first insert', () => {
     expect(t.faction_name).toBeNull()
   })
 
-  it('⚠️ records no spy source when no provider is configured', async () => {
-    // Not an error: a faction with neither TornStats nor BSP key simply has no
-    // battle stats, and the column says so rather than showing a zero.
+  it('⚠️ FETCHES BATTLE STATS ON THE FIRST INSERT, from TornStats', async () => {
+    // The whole point: a target is useful the moment it is added, with a
+    // working FF, rather than waiting for the nightly sweep.
+    //
+    // ⚠️ This test could not exist until the route was given the operator's
+    // spy base URLs. It resolved them from process.env, so it could never be
+    // pointed at a fixture and this path was never actually exercised.
+    const spied = 1_750_000_000
+    stack.torn.setHandler('/api/v2/TSKEY123/spy/faction/4321', () => ({
+      faction: {
+        members: {
+          '9605': {
+            id: 9605,
+            spy: {
+              total: 7_000_000, strength: 3_000_000, speed: 2_000_000,
+              defense: 1_500_000, dexterity: 500_000, timestamp: spied,
+            },
+          },
+        },
+      },
+    }))
+    givenTarget('9605', 4321, 'Spied')
+    const r = await call('POST', '/api/grudges', member, { target: '9605', reason: 'measured' })
+    expect(r.status).toBe(201)
+    expect(r.body.stats_source).toBe('tornstats')
+
     const list = await get('/api/grudges', member)
-    const t = list.body.targets.find((x: any) => x.target_id === '9601')
-    expect(t.bsp_total).toBeNull()
-    expect(t.spy_source).toBeNull()
+    const t = list.body.targets.find((x: any) => x.target_id === '9605')
+    // ⚠️ Every stat individually — Fair Fight is a sum of square ROOTS of the
+    // four, so a transposition produces a wrong FF rather than an obvious one.
+    expect(Number(t.bsp_total)).toBe(7000000)
+    expect(Number(t.bsp_str)).toBe(3000000)
+    expect(Number(t.bsp_spd)).toBe(2000000)
+    expect(Number(t.bsp_def)).toBe(1500000)
+    expect(Number(t.bsp_dex)).toBe(500000)
+    expect(t.spy_source).toBe('tornstats')
+    // ⚠️ The SPY's capture time, not our fetch time — and asserted WITHOUT
+    // `new Date()`. These columns are served as raw timestamptz with a bare
+    // "+00" offset, which `new Date` reads as NaN (#140). That trap caught
+    // this very test on its first run.
+    const spiedDay = new Date(spied * 1000).toISOString().slice(0, 10)
+    expect(String(t.ts_spy_at)).toContain(spiedDay)
+  })
+
+  it('⚠️ falls back to BSP when TornStats has no spy for them', async () => {
+    stack.torn.setHandler('/api/v2/TSKEY123/spy/faction/4322', () => ({ faction: { members: {} } }))
+    stack.torn.setHandler('/api/battlestats/BSPKEY99/9606/TornForge', () => ({
+      Result: 1, TBS: 3_000_000, Strength: 1_000_000, Speed: 1_000_000,
+      Defense: 500_000, Dexterity: 500_000,
+    }))
+    givenTarget('9606', 4322, 'Predicted')
+    const r = await call('POST', '/api/grudges', member, { target: '9606', reason: 'estimated' })
+    expect(r.body.stats_source).toBe('bsp')
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9606')
+    expect(Number(t.bsp_total)).toBe(3_000_000)
+    // ⚠️ BSP gives no capture time, and we must not invent one — that would
+    // present an estimate of unknown age as taken this minute.
+    expect(t.ts_spy_at ?? null).toBeNull()
+  })
+
+  it('⚠️ a dead stats provider does not fail the add', async () => {
+    // The grudge is the member's contribution; the spy is enrichment.
+    // No handler at all for faction 4323 or for this player on BSP — the
+    // fixture 404s, which is exactly what a provider that is down looks like
+    // from here. (Throwing inside the fixture's handler hangs the socket and
+    // times the test out instead of simulating anything.)
+    givenTarget('9607', 4323, 'Unspied')
+    const r = await call('POST', '/api/grudges', member, { target: '9607', reason: 'kept anyway' })
+    expect(r.status).toBe(201)
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9607')
+    expect(t.target_name).toBe('Unspied')   // the Torn half still landed
   })
 
   it('⚠️ re-enriches a target that is re-added after removal', async () => {
