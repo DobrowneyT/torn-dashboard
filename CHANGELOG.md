@@ -18,6 +18,34 @@ surface it automatically.
 
 ---
 
+## [3.187.0] - 2026-10-04
+
+### Added
+- **The Book of Grudges — schema and API (#889, slice 1).** A perpetual,
+  faction-wide shared target list where a target earns its place by a stated
+  grudge. Migration **0069** adds `grudge_targets`, `grudge_entries` and
+  `grudge_audit`.
+  - ⚠️ **One target, many grudges.** Two members can independently hold one
+    against the same person, and the list shows that person once with both
+    reasons rather than twice.
+  - ⚠️ **A reason is mandatory at three layers** — route, core module and a
+    `CHECK (btrim(reason) <> '')` constraint. A target on the list for no stated
+    reason is the one thing this feature exists to prevent.
+  - ⚠️ **Targets in a watched faction land `pending_approval`**, visible only
+    to leadership and their author until ruled on. The watched list is a faction
+    setting, not a hardcoded own-faction check, so the faction family and allies
+    go through the same gate.
+  - ⚠️ **Nothing is hard-deleted.** `grudge_audit` is append-only and keeps the
+    removed text readable; re-adding a removed target revives the same row so its
+    history stays attached.
+
+### Internal
+- ⚠️ **Slice 1 makes no Torn API calls, deliberately.** Every call this epic
+  needs is gated behind the API Key Usage disclosure update and the forced
+  re-accept, because pointing an already-disclosed endpoint at arbitrary players
+  and factions is a change of USE even though it is not a new endpoint.
+  `target_name` is nullable for the same reason — resolving it needs a call.
+
 ## [3.186.0] - 2026-10-04
 
 ### Changed

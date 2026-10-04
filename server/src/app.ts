@@ -28,6 +28,7 @@ import { registerCompetitionRoutes, resolveCompetition } from './competitions.js
 import { registerCalendarRoutes } from './calendar.js'
 import { registerFactionUpgradeRoutes } from './factionUpgradeRoutes.js'
 import { registerMemberHofRoutes } from './memberHofRoutes.js'
+import { registerGrudgeRoutes } from './grudgeRoutes.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
 import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
@@ -434,6 +435,7 @@ export async function buildServer(
     registerWarRoutes(app, opts.db)
     registerFactionUpgradeRoutes(app, opts.db)
     registerMemberHofRoutes(app, opts.db)
+    registerGrudgeRoutes(app, opts.db)
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     app.warRoomHub = await registerWarRoomRoutes(app, {

@@ -105,6 +105,14 @@ const NEW_TABLES = [
   // that can be read back afterwards — which is exactly what the payout needs.
   'chain_events', 'chain_watch_signups',
   'chain_samples', 'member_activity_samples',
+  // Book of Grudges (#889): a perpetual, faction-wide shared target list.
+  //
+  // ⚠️ One target, MANY grudges — two members can independently hold one
+  // against the same person, and the list shows that person once with both
+  // reasons. `grudge_audit` is append-only: it IS the "when was this added,
+  // removed or changed" record, so a row that can be rewritten is worth
+  // nothing.
+  'grudge_targets', 'grudge_entries', 'grudge_audit',
 ]
 
 let server
