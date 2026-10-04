@@ -179,3 +179,67 @@ describe('nextDirection', () => {
     expect(nextDirection('name', 'score', 'desc')).toBe('asc')
   })
 })
+
+describe('tieBreak as a list', () => {
+  // ⚠️ Shared positions make ties the NORM on a leaderboard, not an edge case:
+  // a whole faction at level 100 sits at rank 1 together. A single-column
+  // tie-break then orders the entire board alphabetically, which is what the
+  // Hall of Fame shipped doing.
+  const COLUMNS = [
+    { key: 'factionRank', accessor: (r) => r.factionRank, kind: 'number' },
+    { key: 'globalRank', accessor: (r) => r.globalRank ?? null, kind: 'number' },
+    { key: 'name', accessor: (r) => r.name, kind: 'text' },
+  ]
+  const rows = [
+    { name: 'Albatra', factionRank: 1, globalRank: 3089 },
+    { name: 'AlleyCat', factionRank: 1, globalRank: 280 },
+    { name: 'Goosey', factionRank: 1, globalRank: 1452 },
+    { name: 'Zeta', factionRank: 2, globalRank: 9 },
+  ]
+  const names = (out) => out.map((r) => r.name)
+
+  it('settles a tie on the first list entry that separates the rows', () => {
+    const out = sortRows(rows, COLUMNS, 'factionRank', 'asc', {
+      tieBreak: ['globalRank', 'name'],
+    })
+    expect(names(out)).toEqual(['AlleyCat', 'Goosey', 'Albatra', 'Zeta'])
+  })
+
+  it('still accepts a single key, as every existing caller passes', () => {
+    const out = sortRows(rows, COLUMNS, 'factionRank', 'asc', { tieBreak: 'name' })
+    expect(names(out)).toEqual(['Albatra', 'AlleyCat', 'Goosey', 'Zeta'])
+  })
+
+  it('⚠️ skips a tie column that is the sorted column and uses the next', () => {
+    // Sorting BY global rank must still fall through to the name, not stop.
+    const tied = [
+      { name: 'Beta', factionRank: 3, globalRank: 50 },
+      { name: 'Alpha', factionRank: 1, globalRank: 50 },
+    ]
+    const out = sortRows(tied, COLUMNS, 'globalRank', 'asc', {
+      tieBreak: ['globalRank', 'name'],
+    })
+    expect(names(out)).toEqual(['Alpha', 'Beta'])
+  })
+
+  it('⚠️ sinks a member with no global rank within their tie group', () => {
+    // #351: absent is not "worst placed", it is unplaced — and the name still
+    // settles the unplaced among themselves rather than leaving them to arrive
+    // in whatever order the data did.
+    const withGaps = [
+      { name: 'Zed', factionRank: 1, globalRank: null },
+      { name: 'Ava', factionRank: 1, globalRank: null },
+      { name: 'Mid', factionRank: 1, globalRank: 700 },
+    ]
+    const out = sortRows(withGaps, COLUMNS, 'factionRank', 'asc', {
+      tieBreak: ['globalRank', 'name'],
+    })
+    expect(names(out)).toEqual(['Mid', 'Ava', 'Zed'])
+  })
+
+  it('is stable across repeated sorts, which is the point of a tie-break', () => {
+    const once = sortRows(rows, COLUMNS, 'factionRank', 'asc', { tieBreak: ['globalRank', 'name'] })
+    const twice = sortRows(once, COLUMNS, 'factionRank', 'asc', { tieBreak: ['globalRank', 'name'] })
+    expect(names(twice)).toEqual(names(once))
+  })
+})
