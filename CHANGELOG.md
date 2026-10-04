@@ -18,6 +18,28 @@ surface it automatically.
 
 ---
 
+## [3.184.0] - 2026-10-04
+
+### Fixed
+- **Hall of Fame sorted every number as text.** `compareValues` falls through to a
+  text comparison when a column declares no `kind`, and the board declared one only
+  on the member name. So `#` came out `1, 10, 11 … 19, 2, 20 … 29, 3`, racing skill
+  `9.77, 9.32, 8.94, 77.35, 7.91`, racing wins `97, 94, 933, 93, 89, 8,775`, and
+  travel time likewise. All four columns now state `kind: 'number'`.
+  ⚠️ The existing tests could not have caught this: the fixture ranked three
+  members 1, 2, 3, and single digits sort identically as text and as numbers. The
+  new cases use two-digit ranks and decimals, so text order and numeric order
+  disagree.
+
+### Added
+- `sortColumnKinds` guard — a sort column with an `accessor` must declare a `kind`
+  or a `compare`. A missing `kind` is silent: the accessor returns a number, the
+  header sorts, the arrow moves, and the order is simply wrong. Every other table
+  in the app already declared one, so this only holds the line.
+- The Hall of Fame travel-time header now states its unit. Torn's spec says
+  *"Traveltime is shown in seconds"*; worth labelling, because the live values are
+  all exact multiples of 86,400 and read far more like a day count.
+
 ## [3.183.0] - 2026-10-04
 
 ### Fixed
