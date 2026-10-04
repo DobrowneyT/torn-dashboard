@@ -507,6 +507,71 @@ describe('PUT /api/grudges/settings', () => {
   })
 })
 
+describe('watch mode', () => {
+  beforeAll(reset)
+
+  it('⚠️ refuses a plain member', async () => {
+    expect((await call('PUT', '/api/grudges/watch', member, { enabled: true })).status).toBe(403)
+  })
+
+  it('is off until leadership turns it on', async () => {
+    const r = await get('/api/grudges/settings', leader)
+    expect(r.body.watch.enabled).toBe(false)
+  })
+
+  it('turns on and reports the cadence it will actually achieve', async () => {
+    const r = await call('PUT', '/api/grudges/watch', leader, { enabled: true })
+    expect(r.status).toBe(200)
+    expect(r.body.enabled).toBe(true)
+    // ⚠️ The cadence is COMPUTED, never configured — a configured rate is a
+    // promise the key budget may not keep.
+    expect(typeof r.body.description).toBe('string')
+    expect(r.body).toHaveProperty('calls_per_sweep')
+    expect(r.body).toHaveProperty('seconds_per_sweep')
+  })
+
+  it('turns back off', async () => {
+    expect((await call('PUT', '/api/grudges/watch', leader, { enabled: false })).body.enabled).toBe(false)
+  })
+})
+
+describe('⚠️ our own faction is always watched', () => {
+  beforeAll(async () => {
+    await reset()
+    // Deliberately store a list that does NOT contain our own faction.
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('grudge_watched_factions', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(['999999'])]
+    )
+  })
+
+  it('holds a target from our own faction even when it is not in the list', async () => {
+    // ⚠️ Read from faction_config, never written down: this stack serves five
+    // factions, and a literal id would watch the wrong roster on four of them.
+    const ours = await stack.db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
+    const ourId = Number(ours.rows[0].torn_faction_id)
+    givenTarget('7777', ourId)
+    const r = await call('POST', '/api/grudges', member, { target: '7777', reason: 'friendly fire' })
+    expect(r.body.state).toBe('pending_approval')
+    expect(r.body.pending_reason).toBe('watched_faction')
+  })
+
+  it('tells leadership which id is the automatic one', async () => {
+    const r = await get('/api/grudges/settings', leader)
+    expect(String(r.body.own_faction_id)).toBe(String(TEST_FACTION.tornFactionId))
+    // ⚠️ NOT folded into the editable list, so nobody can delete it and
+    // wonder why it comes back.
+    expect(r.body.watched_factions).toEqual(['999999'])
+  })
+
+  it('still lets an unrelated faction through', async () => {
+    givenTarget('7778', 12345)
+    expect((await call('POST', '/api/grudges', member, { target: '7778', reason: 'stranger' })).body.state)
+      .toBe('active')
+  })
+})
+
 describe('visitors', () => {
   it('⚠️ may read the list but may not add to it', async () => {
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9030, 'visitor')`)

@@ -168,7 +168,11 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // ⚠️ Purpose-scoped: it claims only keys whose owner accepted the Target
   // Lookups disclosure, and does nothing at all if none have. That is a
   // legitimate state, not a failure.
-  ['grudge-refresh', '0 */15 * * * *', grudgeRefreshJob],
+  // ⚠️ Ticks every MINUTE and decides for itself whether to work. Watch
+  // mode on means a fast sharded refresh; off means one pass a quarter-hour.
+  // One job rather than two, because two would double-refresh on every
+  // minute where both happened to be due.
+  ['grudge-refresh', '0 * * * * *', grudgeRefreshJob],
   // #889 slice 5 — battle stats for grudge targets.
   //
   // ⚠️ DAILY, not quarter-hourly like the refresh beside it, and the gap is

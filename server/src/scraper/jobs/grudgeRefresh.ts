@@ -19,13 +19,35 @@ import {
   readProfile, readFactionName, readFactionMembers, identityChanges,
   regateOnFactionChange, type ResolvedTarget,
 } from '../../grudgeEnrich.js'
+import { planWatchCycle, shardFor, describePlan } from '../../grudgeWatchPlan.js'
+
+/**
+ * How often the job does a full pass when watch mode is OFF.
+ *
+ * ⚠️ The job ticks every minute so watch mode can be fast, but off-duty it
+ * must not refresh every minute — that would spend the budget whether anybody
+ * is chaining or not. A stated tunable, not a magic number.
+ */
+const IDLE_SWEEP_MINUTES = 15
 
 export async function grudgeRefreshJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   const targets = await db.query(
-    `SELECT id, target_id, target_name, faction_id, state
+    `SELECT id, target_id, target_name, faction_id, faction_name, state
        FROM grudge_targets WHERE removed_at IS NULL ORDER BY target_id`
   )
   if (targets.rows.length === 0) return { rows: 0, details: { note: 'no targets' } }
+
+  // ⚠️ Watch mode, the War Room's gate idea applied here with its own state.
+  // On: a fast, sharded refresh every minute. Off: one pass a quarter-hour.
+  // Nothing in this file reads war-room config.
+  const watchRow = await db.query(
+    `SELECT value FROM faction_settings WHERE key = 'grudge_watch'`
+  )
+  const watching = watchRow.rows[0]?.value?.enabled === true
+  const minute = Math.floor(Date.now() / 60_000)
+  if (!watching && minute % IDLE_SWEEP_MINUTES !== 0) {
+    return { rows: 0, details: { note: 'watch off; between idle sweeps' } }
+  }
 
   const { active, rfetch } = await createKeyRotator(pool, client, undefined, 'target-lookup')
   if (active.length === 0) {
@@ -42,7 +64,11 @@ export async function grudgeRefreshJob({ db, pool, client }: JobDeps): Promise<R
   const watched = Array.isArray(watchedRow.rows[0]?.value) ? watchedRow.rows[0].value : []
   const isWatched = (fid: string | null) => isWatchedFaction(fid, watched)
 
-  const plan = planStatusRefresh(targets.rows as any)
+  const full = planStatusRefresh(targets.rows as any)
+  // ⚠️ The cadence is DERIVED from the list and the keys available, never a
+  // constant. Twenty targets and four hundred are not the same job.
+  const cycle = planWatchCycle(full, active.length)
+  const plan = watching ? shardFor(full, cycle) : full
   const byTargetId = new Map(targets.rows.map((r: any) => [String(r.target_id), r]))
   const resolved = new Map<string, ResolvedTarget>()
   const factionNames = new Map<string, string>()
@@ -70,10 +96,20 @@ export async function grudgeRefreshJob({ db, pool, client }: JobDeps): Promise<R
       plan.individuals.push(gone)
     }
 
-    const basic = await rfetch(`/v2/faction/${factionId}/basic`)
-    calls += 1
-    const name = readFactionName(basic)
-    if (name) factionNames.set(factionId, name)
+    // ⚠️ Only when we do not already know the name. Faction names almost
+    // never change, and fetching one every sweep DOUBLED the cost of every
+    // grouped faction for a string we already had.
+    const known = (targets.rows as any[]).find(
+      (r) => String(r.faction_id) === factionId && r.faction_name
+    )?.faction_name
+    if (known) {
+      factionNames.set(factionId, known)
+    } else {
+      const basic = await rfetch(`/v2/faction/${factionId}/basic`)
+      calls += 1
+      const name = readFactionName(basic)
+      if (name) factionNames.set(factionId, name)
+    }
   }
 
   // ── individual: unfactioned, alone in their faction, or just departed ──────
@@ -153,6 +189,11 @@ export async function grudgeRefreshJob({ db, pool, client }: JobDeps): Promise<R
     rows: updated,
     details: {
       targets: targets.rows.length,
+      watching,
+      cadence: describePlan(cycle, active.length),
+      calls_per_sweep: cycle.callsPerSweep,
+      shards: cycle.shards,
+      seconds_per_sweep: cycle.secondsPerSweep,
       calls,
       // The saving grouping buys, stated rather than assumed.
       grouped_factions: plan.factions.length,
