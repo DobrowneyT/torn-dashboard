@@ -59,13 +59,29 @@ describe('GET /api/health', () => {
 describe('bootstrap', () => {
   it('reports what the member accepted, not merely whether', async () => {
     const r = await call('GET', '/api/bootstrap', token)
-    expect(r.body.user.consent_version).toBe('login-v1')
+    // ⚠️ A FRESH login now stores the current version, because the login modal
+    // will not submit until the member ticks the disclosure beside it. Pinning
+    // 'login-v1' here was a latent trap: `keyPool.store` overwrites
+    // consent_version on every login, so a member who accepted a newer
+    // disclosure and logged in again was silently reset and re-prompted
+    // forever.
+    expect(r.body.user.consent_version).toBe(CURRENT_DISCLOSURE_VERSION)
   })
 
-  it('⚠️ does not prompt anybody on the version everyone already has', async () => {
-    // Shipping this mechanism must be invisible until a disclosure changes.
+  it('does not prompt somebody who just logged in', async () => {
     const r = await call('GET', '/api/bootstrap', token)
     expect(r.body.user.consent_required).toBe(false)
+  })
+
+  it('⚠️ DOES prompt a member still on the previous disclosure', async () => {
+    // The whole point of slice 0: everyone enrolled before the Target Lookups
+    // row is asked again.
+    await stack.db.query(
+      `UPDATE member_secrets SET consent_version = 'login-v1' WHERE member_id = '9100'`
+    )
+    const r = await call('GET', '/api/bootstrap', token)
+    expect(r.body.user.consent_required).toBe(true)
+    expect(r.body.user.consent_version).toBe('login-v1')
   })
 
   it('⚠️ prompts a member whose stored version cannot be placed', async () => {
@@ -132,27 +148,27 @@ describe('⚠️ the key pool when consent is stale', () => {
     expect(claimed!.member_id).toBe('9100')
   })
 
-  it('⚠️ refuses the key for a purpose their version does not cover', async () => {
-    PURPOSE_VERSIONS['future-purpose'] = 'login-v1'
-    try {
-      const claimed = await pool().claim({ purpose: 'future-purpose' })
-      expect(claimed).toBeNull()
-    } finally {
-      delete PURPOSE_VERSIONS['future-purpose']
-    }
-  })
-
-  it('claims it again for that purpose once they accept', async () => {
+  it('⚠️ refuses the key for target lookups, which their version predates', async () => {
     await stack.db.query(
       `UPDATE member_secrets SET consent_version = 'login-v1' WHERE member_id = '9100'`
     )
-    PURPOSE_VERSIONS['future-purpose'] = 'login-v1'
-    try {
-      const claimed = await pool().claim({ purpose: 'future-purpose' })
-      expect(claimed?.member_id).toBe('9100')
-    } finally {
-      delete PURPOSE_VERSIONS['future-purpose']
-    }
+    expect(await pool().claim({ purpose: 'target-lookup' })).toBeNull()
+  })
+
+  it('⚠️ but STILL claims it for ordinary work in the same state', async () => {
+    // Said twice on purpose. This is the assertion the whole design exists
+    // for: a re-prompt must not cost the faction its data collection.
+    const claimed = await pool().claim()
+    expect(claimed?.member_id).toBe('9100')
+  })
+
+  it('claims it for target lookups once they accept', async () => {
+    await stack.db.query(
+      `UPDATE member_secrets SET consent_version = $1 WHERE member_id = '9100'`,
+      [CURRENT_DISCLOSURE_VERSION]
+    )
+    const claimed = await pool().claim({ purpose: 'target-lookup' })
+    expect(claimed?.member_id).toBe('9100')
   })
 
   it('⚠️ an unsatisfiable purpose claims NOTHING rather than falling through', async () => {

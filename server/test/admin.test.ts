@@ -3,6 +3,7 @@
 // documents, branding, scraper visibility/triggers, key-pool health.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
+import { CURRENT_DISCLOSURE_VERSION } from '../src/consent.js'
 
 let stack: TestStack
 let leadershipToken: string
@@ -383,7 +384,12 @@ describe('key-pool health', () => {
     const donor = res.body.keys.find((k: any) => k.member_id === '7600')
     expect(donor).toBeTruthy()
     expect(donor.member_name).toBe('KeyDonor')
-    expect(donor.consent_version).toBe('login-v1')
+    // ⚠️ Asserts the CURRENT disclosure, not a literal. Login records
+    // whatever the disclosure says today — the login modal will not submit
+    // until the member ticks it — so pinning a string here would break on
+    // every future bump and tempt somebody to 'fix' it by hardcoding the
+    // old value, which is the trap this replaced (#889 slice 0).
+    expect(donor.consent_version).toBe(CURRENT_DISCLOSURE_VERSION)
     expect(donor.disabled).toBe(false)
     // The fresh-faction bootstrap enrolls every in-faction login in this
     // file, and claims rotate least-recently-claimed — so the items-sync
