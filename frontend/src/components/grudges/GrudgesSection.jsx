@@ -7,11 +7,13 @@
 // surfaces — Chain Watch, Calendar, Upgrades — so it satisfies that without
 // inventing a top-level section for one table.
 import { useCallback, useEffect, useState } from 'react'
-import { LoaderCircle, ShieldAlert } from 'lucide-react'
+import { History, LoaderCircle, RefreshCw, Settings2, ShieldAlert } from 'lucide-react'
 import { apiGet, apiPost } from '../../utils/apiClient'
 import { useAuth } from '../../contexts/AuthContext'
 import AddGrudgeForm from './AddGrudgeForm'
 import GrudgeList from './GrudgeList'
+import GrudgeSettings from './GrudgeSettings'
+import GrudgeHistory from './GrudgeHistory'
 
 export default function GrudgesSection({ isLeadership = false }) {
   const [data, setData] = useState(null)
@@ -23,6 +25,8 @@ export default function GrudgesSection({ isLeadership = false }) {
   // every edit. A failure here is not a page failure — FF simply shows a dash,
   // which is the honest outcome for "we cannot work it out".
   const [myBattleStats, setMyBattleStats] = useState(null)
+  const [panel, setPanel] = useState(null)      // 'settings' | 'history' | null
+  const [refreshedAt, setRefreshedAt] = useState(null)
 
   useEffect(() => {
     let on = true
@@ -43,6 +47,7 @@ export default function GrudgesSection({ isLeadership = false }) {
       ])
       setData(list)
       setSettings(cfg)
+      setRefreshedAt(Date.now())
       if (isLeadership) {
         // ⚠️ Leadership-only, and a failure here must not blank the list —
         // the queue is a side panel, not the page.
@@ -57,6 +62,23 @@ export default function GrudgesSection({ isLeadership = false }) {
   }, [isLeadership])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * Keep the board current.
+   *
+   * ⚠️ This polls OUR OWN API, which is a database read — not Torn. The Torn
+   * side is the `grudge-refresh` job every fifteen minutes, and nothing here
+   * can make it run faster. So a minute is generous for picking up what that
+   * job wrote, and costs the stack almost nothing.
+   *
+   * ⚠️ The hospital countdowns do NOT depend on this: they tick locally from
+   * the stored `until`. This poll is only for state the server has newly
+   * learned — somebody discharged early, a target who changed faction.
+   */
+  useEffect(() => {
+    const id = setInterval(() => { load() }, 60_000)
+    return () => clearInterval(id)
+  }, [load])
 
   const rule = async (id, verb) => {
     await apiPost(`/api/grudges/targets/${id}/${verb}`, {})
@@ -110,6 +132,44 @@ export default function GrudgesSection({ isLeadership = false }) {
           </ul>
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button" onClick={load}
+          className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+        >
+          <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" /> Refresh
+        </button>
+        <button
+          type="button" onClick={() => setPanel(panel === 'history' ? null : 'history')}
+          className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+        >
+          <History className="h-3.5 w-3.5" aria-hidden="true" /> History
+        </button>
+        {isLeadership && (
+          <button
+            type="button" onClick={() => setPanel(panel === 'settings' ? null : 'settings')}
+            className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-1 text-sm text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+          >
+            <Settings2 className="h-3.5 w-3.5" aria-hidden="true" /> Settings
+          </button>
+        )}
+        {refreshedAt && (
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {/* refreshedAt is Date.now() — db-time-safe */}
+            Updated {new Date(refreshedAt).toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
+      {panel === 'settings' && isLeadership && (
+        <GrudgeSettings
+          severities={settings.severities}
+          watchedFactions={settings.watched_factions ?? []}
+          onSaved={load}
+        />
+      )}
+      {panel === 'history' && <GrudgeHistory />}
 
       <AddGrudgeForm severities={settings.severities} onAdded={load} />
 

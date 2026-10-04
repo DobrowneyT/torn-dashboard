@@ -18,6 +18,36 @@ surface it automatically.
 
 ---
 
+## [3.194.0] - 2026-10-04
+
+### Added
+- **Book settings (#889, slice 6).** Severities and watched factions were SQL-only,
+  which made the approval gate unusable — it worked and nobody could tell it what to
+  watch. Leadership can now edit both from the page.
+  ⚠️ **Renaming a severity keeps its id**, so no grudge is orphaned and the column
+  keeps rendering a label rather than a raw slug.
+  ⚠️ **Removing one clears it from any grudge using it**, and the editor says how
+  many BEFORE you save. The old value stays readable in the history, so a removal is
+  recoverable rather than a quiet data loss.
+- **History view (#889, slice 7).** The audit trail has been recorded since slice 1
+  and visible nowhere. ⚠️ It shows what a value changed **from**, not just that it
+  changed, and attributes an automatic rename to the lookup rather than to a person.
+- **Live hospital timers.** The status column counts down, and says **"Out now"** the
+  moment a timer expires — without waiting for the server, which refreshes every
+  fifteen minutes and would deliver that moment up to fifteen minutes late.
+  ⚠️ The countdown ticks locally from the stored `until` and needs no request;
+  the one-minute poll is only for state the server has newly learned.
+  ⚠️ "Hide anyone in hospital" now keeps somebody whose timer already expired —
+  otherwise it hides exactly the target you were waiting for.
+- The list defaults to **"who can I hit soonest"**. ⚠️ A target with no deadline
+  sinks rather than sorting first: unknown is not "available now".
+
+### Fixed
+- ⚠️ **Two sortable columns had no header.** `until` was unreachable entirely and
+  `added` could be sorted away from but never back to. `until` is replaced by the
+  availability sort; `added` has a header.
+- The target's **level** was fetched and stored since slice 4 and never displayed.
+
 ## [3.193.0] - 2026-10-04
 
 ### Added

@@ -16,6 +16,9 @@ import {
   parseTargetId, initialState, canSeeTarget, canModifyEntry, normaliseReason,
 } from './grudges.js'
 import { readProfile } from './grudgeEnrich.js'
+import {
+  normaliseSeverities, normaliseWatchedFactions, removedSeverityIds,
+} from './grudgeSettings.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 
@@ -125,6 +128,94 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
     }
   })
 
+  /**
+   * Save severities and watched factions (#889 slice 6).
+   *
+   * ⚠️ Leadership only. The watched-faction list decides which targets are held
+   * for approval, so a member who could edit it could let their own faction
+   * straight onto the public list.
+   */
+  app.put(
+    '/api/grudges/settings',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
+      const body = (req.body ?? {}) as any
+
+      const sev = normaliseSeverities(body.severities ?? [])
+      if (!sev.ok) return reply.status(400).send({ error: sev.error })
+      const watched = normaliseWatchedFactions(body.watched_factions ?? [])
+      if (!watched.ok) return reply.status(400).send({ error: watched.error })
+
+      const prior = await db.query(
+        `SELECT value FROM faction_settings WHERE key = 'grudge_severities'`
+      )
+      const before = Array.isArray(prior.rows[0]?.value) ? prior.rows[0].value : []
+      const dropped = removedSeverityIds(before, sev.severities)
+
+      // ⚠️ Removing a severity leaves grudges pointing at an id that no longer
+      // exists, and the list would render the raw slug. So the references are
+      // CLEARED and each one gets an audit row — the old value stays
+      // recoverable from the trail rather than vanishing. The editor warns
+      // with the count first, so this is never a surprise.
+      let cleared = 0
+      if (dropped.length > 0) {
+        const affected = await db.query(
+          `SELECT e.id, e.severity_id, e.target_row_id, t.target_id
+             FROM grudge_entries e JOIN grudge_targets t ON t.id = e.target_row_id
+            WHERE e.severity_id = ANY($1::text[]) AND e.removed_at IS NULL`,
+          [dropped]
+        )
+        for (const row of affected.rows) {
+          await audit(db, {
+            targetRowId: Number(row.target_row_id), targetId: row.target_id,
+            entryId: Number(row.id), actor: viewer.memberId, action: 'edited',
+            field: 'severity_id', oldValue: row.severity_id, newValue: null,
+          })
+        }
+        const upd = await db.query(
+          `UPDATE grudge_entries SET severity_id = NULL, updated_at = now()
+            WHERE severity_id = ANY($1::text[]) AND removed_at IS NULL`,
+          [dropped]
+        )
+        cleared = upd.rowCount ?? 0
+      }
+
+      for (const [key, value] of [
+        ['grudge_severities', sev.severities],
+        ['grudge_watched_factions', watched.factions],
+      ] as const) {
+        await db.query(
+          `INSERT INTO faction_settings (key, value, updated_at) VALUES ($1, $2, now())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+          [key, JSON.stringify(value)]
+        )
+      }
+
+      return {
+        severities: sev.severities,
+        watched_factions: watched.factions,
+        removed_severities: dropped,
+        grudges_cleared: cleared,
+      }
+    }
+  )
+
+  /** How many grudges use each severity, so the editor warns BEFORE a removal. */
+  app.get('/api/grudges/settings/usage', { preHandler: requireAuth() }, async (req, reply) => {
+    const viewer = viewerOf(req)
+    if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
+    const { rows } = await db.query(
+      `SELECT severity_id, count(*)::int AS n
+         FROM grudge_entries
+        WHERE removed_at IS NULL AND severity_id IS NOT NULL
+        GROUP BY severity_id`
+    )
+    const usage: Record<string, number> = {}
+    for (const r of rows) usage[String(r.severity_id)] = Number(r.n)
+    return { usage }
+  })
   /* ───────────────────────────────────────────────────────────── the list ── */
   app.get('/api/grudges', { preHandler: requireAuth() }, async (req) => {
     const viewer = viewerOf(req)

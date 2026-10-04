@@ -416,6 +416,97 @@ describe('the target name', () => {
   })
 })
 
+describe('PUT /api/grudges/settings', () => {
+  beforeAll(reset)
+
+  it('⚠️ refuses a plain member — the watched list is the approval gate', async () => {
+    // A member who could edit it could let their own faction straight onto
+    // the public list.
+    const r = await call('PUT', '/api/grudges/settings', member, { severities: [], watched_factions: [] })
+    expect(r.status).toBe(403)
+  })
+
+  it('saves severities and watched factions for leadership', async () => {
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ label: 'Petty' }, { label: 'Blood feud' }],
+      watched_factions: ['10739', 8103],
+    })
+    expect(r.status).toBe(200)
+    expect(r.body.severities).toEqual([
+      { id: 'petty', label: 'Petty' }, { id: 'blood-feud', label: 'Blood feud' },
+    ])
+    expect(r.body.watched_factions).toEqual(['10739', '8103'])
+  })
+
+  it('round-trips through the read the members use', async () => {
+    const r = await get('/api/grudges/settings', member)
+    expect(r.body.severities.map((s: any) => s.label)).toEqual(['Petty', 'Blood feud'])
+    // ⚠️ Still withheld from a plain member — leadership policy, not public.
+    expect(r.body.watched_factions).toBeUndefined()
+  })
+
+  it('rejects a malformed faction id rather than storing it', async () => {
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [], watched_factions: ['TNL'],
+    })
+    expect(r.status).toBe(400)
+  })
+
+  it('⚠️ a RENAME keeps every grudge’s severity', async () => {
+    // The id is preserved, so nothing is orphaned and the column keeps
+    // rendering a label rather than a raw slug.
+    await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ id: 'petty', label: 'Petty' }], watched_factions: [],
+    })
+    await call('POST', '/api/grudges', member, {
+      target: '8801', reason: 'petty grievance', severity_id: 'petty',
+    })
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ id: 'petty', label: 'Mildly annoying' }], watched_factions: [],
+    })
+    expect(r.body.grudges_cleared).toBe(0)
+    const list = await get('/api/grudges', leader)
+    const t = list.body.targets.find((x: any) => x.target_id === '8801')
+    expect(t.grudges[0].severity_id).toBe('petty')
+  })
+
+  it('⚠️ a REMOVAL clears the reference and says how many', async () => {
+    // Left alone, the column would render a raw slug for a severity that no
+    // longer exists.
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [], watched_factions: [],
+    })
+    expect(r.body.removed_severities).toEqual(['petty'])
+    expect(r.body.grudges_cleared).toBe(1)
+    const list = await get('/api/grudges', leader)
+    const t = list.body.targets.find((x: any) => x.target_id === '8801')
+    expect(t.grudges[0].severity_id).toBeNull()
+  })
+
+  it('⚠️ and the cleared value stays readable in the history', async () => {
+    // A soft record of what it was is the difference between a removal and a
+    // quiet data loss.
+    const r = await get('/api/grudges/audit?target_id=8801', leader)
+    const cleared = r.body.history.find((h: any) => h.field === 'severity_id')
+    expect(cleared.old_value).toBe('petty')
+    expect(cleared.new_value).toBeNull()
+  })
+
+  it('reports usage so the editor can warn before a removal', async () => {
+    await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ id: 'petty', label: 'Petty' }], watched_factions: [],
+    })
+    await call('PATCH', `/api/grudges/entries/1`, leader, { severity_id: 'petty' })
+    const r = await get('/api/grudges/settings/usage', leader)
+    expect(r.status).toBe(200)
+    expect(typeof r.body.usage).toBe('object')
+  })
+
+  it('⚠️ does not leak usage to a plain member', async () => {
+    expect((await get('/api/grudges/settings/usage', member)).status).toBe(403)
+  })
+})
+
 describe('visitors', () => {
   it('⚠️ may read the list but may not add to it', async () => {
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9030, 'visitor')`)
