@@ -174,26 +174,68 @@ describe('HofSection', () => {
     expect(ranked(container)).toEqual(['12','11','10','9','8','7','6','5','4','3','2','1'])
   })
 
-  it('⚠️ says travel time is in seconds, on the header but not the picker', async () => {
-    // Torn's own spec: "Traveltime is shown in seconds." The live figures are
-    // all exact multiples of 86,400, so they read as a DAY count and the unit
-    // is easy to get wrong from the data alone.
-    apiGet.mockResolvedValue({
-      memberCount: 1,
-      snapshotDate: '2026-10-04',
-      fetchedMs: Date.UTC(2026, 9, 4),
-      categories: [{
-        category: 'travel_time',
-        rows: [{ memberId: '1', memberName: 'Wanderer', value: 9_849_600, globalRank: 12, factionRank: 1 }],
-      }],
-    })
+  const travelBoard = (rows) => ({
+    memberCount: rows.length,
+    snapshotDate: '2026-10-04',
+    fetchedMs: Date.UTC(2026, 9, 4),
+    categories: [{
+      category: 'travel_time',
+      rows: rows.map(([memberName, value], i) => ({
+        memberId: String(i + 1), memberName, value, globalRank: i + 1, factionRank: i + 1,
+      })),
+    }],
+  })
+
+  it('⚠️ renders travel time as a duration, at a scale chosen per value', async () => {
+    // Torn's own spec: "Traveltime is shown in seconds." 9,849,600 is accurate
+    // and unreadable, and every live figure is an exact multiple of 86,400 so
+    // the raw column reads like a day count.
+    apiGet.mockResolvedValue(travelBoard([
+      ['Nomad', 72_489_600],
+      ['Wanderer', 9_849_600],
+      ['Tourist', 950_400],
+    ]))
+    const { container } = render(<HofSection />)
+    await screen.findByText('Nomad')
+    const cells = [...container.querySelectorAll('tbody tr')]
+      .map((tr) => tr.querySelectorAll('td')[2].textContent)
+    expect(cells).toEqual(['2y 109d', '114d', '11d'])
+  })
+
+  it('keeps the exact seconds on hover, and states no unit in the header', async () => {
+    apiGet.mockResolvedValue(travelBoard([['Wanderer', 9_849_600]]))
     const { container } = render(<HofSection />)
     await screen.findByText('Wanderer')
-    expect(container.querySelectorAll('thead th')[2].textContent).toContain('Travel time (seconds)')
-    // The picker chip stays unadorned.
-    const chip = [...container.querySelectorAll('button')]
-      .find((b) => b.textContent.trim() === 'Travel time')
-    expect(chip).toBeTruthy()
+    const cell = container.querySelectorAll('tbody td')[2]
+    expect(cell.getAttribute('title')).toBe('9,849,600 seconds')
+    // ⚠️ "(seconds)" above a cell reading "114d" is a contradiction. The
+    // value states its own unit now.
+    expect(container.querySelectorAll('thead th')[2].textContent).not.toMatch(/second/i)
+  })
+
+  it('⚠️ sorts travel time on the raw seconds, not the formatted text', async () => {
+    // "2y 109d" against "114d" is exactly the lexical trap this board was just
+    // fixed for. The accessor must keep reading the number.
+    apiGet.mockResolvedValue(travelBoard([
+      ['Nomad', 72_489_600],
+      ['Wanderer', 9_849_600],
+      ['Tourist', 950_400],
+    ]))
+    const { container } = render(<HofSection />)
+    await screen.findByText('Nomad')
+    fireEvent.click(container.querySelectorAll('thead th')[2].querySelector('button'))
+    const cells = [...container.querySelectorAll('tbody tr')]
+      .map((tr) => tr.querySelectorAll('td')[2].textContent)
+    expect(cells).toEqual(['11d', '114d', '2y 109d'])
+  })
+
+  it('leaves every other category as a plain number', async () => {
+    apiGet.mockResolvedValue(payload())
+    const { container } = render(<HofSection />)
+    await screen.findByText('Alice')
+    const cell = container.querySelectorAll('tbody td')[2]
+    expect(cell.textContent).toBe('12,000,000')
+    expect(cell.getAttribute('title')).toBeNull()
   })
 
   it('⚠️ sorts the global rank numerically, and still sinks the unplaced', async () => {

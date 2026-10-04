@@ -18,6 +18,28 @@ surface it automatically.
 
 ---
 
+## [3.185.0] - 2026-10-04
+
+### Changed
+- **Hall of Fame travel time reads as a duration.** `9,849,600` is accurate and
+  unreadable; it now renders `114d`, and `72,489,600` renders `2y 109d`. The unit is
+  chosen per value, so each row reads at its own scale instead of the whole column
+  being flattened to the largest one in it. The exact seconds stay on hover.
+  ⚠️ The header no longer states a unit. The value carries its own now, and
+  "(seconds)" above a cell reading `114d` is a contradiction.
+  ⚠️ Sorting still runs on the raw number. Formatting first would reintroduce
+  the lexical sort 3.184.0 just fixed, with `2y 109d` against `114d`.
+
+### Fixed
+- `formatDuration` carried a rounded unit instead of rendering `114d 24h`, `5h 60m`
+  or `60m`. All three branches had it.
+
+### Internal
+- `formatDuration` moved from `utils/occupancyReport` to `utils/duration` and grew a
+  year branch — a coverage window never reaches one, a travel-time board does.
+  `occupancyReport` re-exports it, so its callers are unchanged and its existing
+  assertions are pinned in the new suite.
+
 ## [3.184.0] - 2026-10-04
 
 ### Fixed
