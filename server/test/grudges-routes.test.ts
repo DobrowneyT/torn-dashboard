@@ -281,6 +281,63 @@ describe('⚠️ the audit trail', () => {
   })
 })
 
+describe('settings', () => {
+  beforeAll(async () => {
+    await reset()
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = 'grudge_severities'`)
+  })
+
+  it('⚠️ returns NO severities when the faction has configured none', async () => {
+    // The control then does not render. No hardcoded Low/Medium/High — an
+    // absent list is honest, three invented tiers are not.
+    const r = await get('/api/grudges/settings', member)
+    expect(r.status).toBe(200)
+    expect(r.body.severities).toEqual([])
+  })
+
+  it('returns whatever vocabulary the faction did configure', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('grudge_severities', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify([{ id: 'petty', label: 'Petty' }, { id: 'blood', label: 'Blood feud' }])]
+    )
+    const r = await get('/api/grudges/settings', member)
+    expect(r.body.severities.map((s: any) => s.label)).toEqual(['Petty', 'Blood feud'])
+  })
+
+  it('⚠️ does not tell a plain member which factions trip the gate', async () => {
+    // It is leadership policy, and a member learns nothing useful from it.
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('grudge_watched_factions', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(['10739'])]
+    )
+    expect((await get('/api/grudges/settings', member)).body.watched_factions).toBeUndefined()
+    expect((await get('/api/grudges/settings', leader)).body.watched_factions).toEqual(['10739'])
+  })
+})
+
+describe('the typed-in name', () => {
+  beforeAll(reset)
+
+  it('stores a name the adder typed, so the list reads before enrichment', async () => {
+    await call('POST', '/api/grudges', member, {
+      target: '4242', target_name: 'Likor', reason: 'he knows',
+    })
+    const list = await get('/api/grudges', member)
+    expect(list.body.targets[0].target_name).toBe('Likor')
+  })
+
+  it('⚠️ leaves the name NULL when none was given, rather than faking one', async () => {
+    // Storing the id as a stand-in would make "not looked up yet"
+    // indistinguishable from somebody actually called 4243.
+    await call('POST', '/api/grudges', member, { target: '4243', reason: 'anonymous grudge' })
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '4243')
+    expect(t.target_name).toBeNull()
+  })
+})
+
 describe('visitors', () => {
   it('⚠️ may read the list but may not add to it', async () => {
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9030, 'visitor')`)
