@@ -44,6 +44,22 @@ const LABELS = {
 }
 
 const label = (c) => LABELS[c] ?? c.replace(/_/g, ' ')
+
+/**
+ * Units, where the bare number does not say what it is.
+ *
+ * ⚠️ Travel time is SECONDS, straight from Torn's own spec rather than
+ * inferred: `/swagger/openapi.json` documents the hall-of-fame value as
+ * *"Value representing the chosen category. Traveltime is shown in seconds."*
+ * Worth stating, because the live figures are all exact multiples of 86,400
+ * — whole days — which reads much more like a day count than a second count
+ * and would be a very easy thing to label wrongly from the data alone.
+ *
+ * Only on the column header. The category picker stays unadorned; a unit in a
+ * chip is noise when you are choosing a board, not reading one.
+ */
+const UNITS = { travel_time: 'seconds' }
+const unitSuffix = (c) => (UNITS[c] ? ` (${UNITS[c]})` : '')
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString())
 
 /** "3rd", "48,000th" — an ordinal reads as a position where a bare number does not. */
@@ -63,13 +79,19 @@ function ordinal(n) {
  * "who has the biggest number" — and on a ties-share-a-position board those
  * are not the same order.
  */
+// ⚠️ **Every column states its kind.** `compareValues` falls through to TEXT
+// when none is given, so a numeric column that omits it sorts lexically and
+// says nothing about it: the board came out `1, 10, 11 … 19, 2, 20` and
+// `9.77, 9.32, 8.94, 77.35, 7.91`. Nothing about the declaration looked wrong,
+// which is the whole problem — the accessor returns a number, the header sorts,
+// and the order is quietly meaningless.
 const BOARD_COLUMNS = [
-  { key: 'factionRank', accessor: r => r.factionRank },
+  { key: 'factionRank', accessor: r => r.factionRank, kind: 'number' },
   { key: 'memberName', accessor: r => r.memberName, kind: 'text' },
-  { key: 'value', accessor: r => r.value },
+  { key: 'value', accessor: r => r.value, kind: 'number' },
   // ⚠️ Null sinks in BOTH directions: a member Torn gave no global rank for is
   // not "worst placed", they are unplaced (#351).
-  { key: 'globalRank', accessor: r => r.globalRank ?? null },
+  { key: 'globalRank', accessor: r => r.globalRank ?? null, kind: 'number' },
 ]
 
 export default function HofSection() {
@@ -165,7 +187,7 @@ export default function HofSection() {
               <tr className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 dark:bg-slate-800 dark:text-gray-400">
                 <SortableTh col="factionRank" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 w-16">#</SortableTh>
                 <SortableTh col="memberName"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Member</SortableTh>
-                <SortableTh col="value"       sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">{label(category)}</SortableTh>
+                <SortableTh col="value"       sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right" label={label(category)}>{label(category)}{unitSuffix(category)}</SortableTh>
                 <SortableTh col="globalRank"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">In Torn</SortableTh>
               </tr>
             </thead>
