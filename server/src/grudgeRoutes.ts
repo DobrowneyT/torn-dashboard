@@ -20,6 +20,7 @@ import {
   normaliseSeverities, normaliseWatchedFactions, removedSeverityIds,
 } from './grudgeSettings.js'
 import { planWatchCycle, describePlan } from './grudgeWatchPlan.js'
+import { canRelease } from './grudgeClaims.js'
 import { planStatusRefresh } from './grudges.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
@@ -293,6 +294,90 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
     }
   )
 
+  /**
+   * Claim a target (#892).
+   *
+   * ⚠️ The unique index does the arbitration, not a read-then-write. Two
+   * people pressing Claim on the same target in the same second is the exact
+   * case this feature exists for, and a check-then-insert would let both
+   * through.
+   */
+  app.post(
+    '/api/grudges/targets/:id/claim',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      const { id } = req.params as { id: string }
+      if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'invalid id' })
+
+      const t = await db.query(
+        `SELECT id, target_id, state, status_state, status_until
+           FROM grudge_targets WHERE id = $1 AND removed_at IS NULL`, [id]
+      )
+      if (!t.rows[0]) return reply.status(404).send({ error: 'not found' })
+      // ⚠️ A target nobody can see cannot be claimed. Otherwise claiming
+      // would leak the existence of a pending own-faction target.
+      if (t.rows[0].state !== 'active') {
+        return reply.status(409).send({ error: 'That target is not on the list' })
+      }
+
+      try {
+        const ins = await db.query(
+          `INSERT INTO grudge_claims (target_row_id, member_id, seen_state, seen_until)
+           VALUES ($1,$2,$3,$4) RETURNING id, extract(epoch from claimed_at) * 1000 AS claimed_ms`,
+          [id, viewer.memberId, t.rows[0].status_state, t.rows[0].status_until]
+        )
+        await audit(db, {
+          targetRowId: Number(id), targetId: t.rows[0].target_id,
+          actor: viewer.memberId, action: 'edited', field: 'claim', newValue: 'claimed',
+        })
+        return reply.status(201).send({ claim_id: Number(ins.rows[0].id), target_row_id: Number(id) })
+      } catch (err: any) {
+        // 23505 = unique violation: somebody already holds it.
+        if (err?.code === '23505') {
+          const held = await db.query(
+            `SELECT c.member_id, m.member_name FROM grudge_claims c
+               LEFT JOIN members m ON m.member_id = c.member_id
+              WHERE c.target_row_id = $1 AND c.released_at IS NULL`, [id]
+          )
+          const who = held.rows[0]?.member_name || held.rows[0]?.member_id || 'somebody'
+          return reply.status(409).send({ error: `${who} already has this target` })
+        }
+        throw err
+      }
+    }
+  )
+
+  /** Drop a claim. The holder, or leadership freeing a forgotten one. */
+  app.delete(
+    '/api/grudges/targets/:id/claim',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      const { id } = req.params as { id: string }
+      if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'invalid id' })
+      const c = await db.query(
+        `SELECT c.id, c.member_id, t.target_id FROM grudge_claims c
+           JOIN grudge_targets t ON t.id = c.target_row_id
+          WHERE c.target_row_id = $1 AND c.released_at IS NULL`, [id]
+      )
+      const claim = c.rows[0]
+      if (!claim) return reply.status(404).send({ error: 'nobody holds that target' })
+      if (!canRelease(claim, viewer)) return reply.status(403).send({ error: 'Forbidden' })
+
+      await db.query(
+        `UPDATE grudge_claims SET released_at = now(), release_reason = 'manual' WHERE id = $1`,
+        [claim.id]
+      )
+      await audit(db, {
+        targetRowId: Number(id), targetId: claim.target_id,
+        actor: viewer.memberId, action: 'edited', field: 'claim',
+        oldValue: 'claimed', newValue: 'released',
+      })
+      return { released: Number(claim.id) }
+    }
+  )
+
   /** How many grudges use each severity, so the editor warns BEFORE a removal. */
   app.get('/api/grudges/settings/usage', { preHandler: requireAuth() }, async (req, reply) => {
     const viewer = viewerOf(req)
@@ -314,21 +399,30 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
       // ⚠️ Timestamps converted to epoch ms IN SQL. This stack serves
       // timestamptz with a bare two-digit offset that `new Date()` reads as
       // NaN (#140); the client never meets that string.
-      `SELECT id, target_id, target_name, faction_id, faction_name, level, state,
-              bsp_total, bsp_str, bsp_spd, bsp_def, bsp_dex, spy_source,
-              extract(epoch from bsp_fetched_at) * 1000 AS bsp_fetched_ms,
+      `SELECT g.id, g.target_id, g.target_name, g.faction_id, g.faction_name, g.level, g.state,
+              g.bsp_total, g.bsp_str, g.bsp_spd, g.bsp_def, g.bsp_dex, g.spy_source,
+              extract(epoch from g.bsp_fetched_at) * 1000 AS bsp_fetched_ms,
               -- ⚠️ When the SPY was taken, not when we fetched it. A TornStats
               -- spy can be months older than bsp_fetched_at, and the column
               -- shows this date so nobody reads a stale figure as current.
               -- (No backticks in here: this is inside a JS template literal,
               -- and one would end the string mid-query.)
-              extract(epoch from ts_spy_at) * 1000 AS ts_spy_ms,
-              status_state, status_until, status_description,
-              extract(epoch from status_fetched_at) * 1000 AS status_fetched_ms,
-              added_by, extract(epoch from added_at) * 1000 AS added_ms
-         FROM grudge_targets
-        WHERE removed_at IS NULL
-        ORDER BY added_at DESC`
+              extract(epoch from g.ts_spy_at) * 1000 AS ts_spy_ms,
+              g.status_state, g.status_until, g.status_description,
+              extract(epoch from g.status_fetched_at) * 1000 AS status_fetched_ms,
+              g.added_by, extract(epoch from g.added_at) * 1000 AS added_ms,
+              -- #892: the LIVE claim, if any. A left join so an unclaimed
+              -- target is still a row rather than disappearing from the board.
+              c.member_id AS claim_member_id,
+              cm.member_name AS claim_member_name,
+              extract(epoch from c.claimed_at) * 1000 AS claim_ms,
+              extract(epoch from c.auto_expire_at) * 1000 AS claim_expires_ms
+         FROM grudge_targets g
+         LEFT JOIN grudge_claims c
+                ON c.target_row_id = g.id AND c.released_at IS NULL
+         LEFT JOIN members cm ON cm.member_id = c.member_id
+        WHERE g.removed_at IS NULL
+        ORDER BY g.added_at DESC`
     )
     const visible = targets.filter((t: any) => canSeeTarget(t, viewer))
     if (visible.length === 0) return { targets: [] }

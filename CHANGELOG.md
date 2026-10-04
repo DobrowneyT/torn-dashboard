@@ -18,6 +18,36 @@ surface it automatically.
 
 ---
 
+## [3.196.0] - 2026-10-04
+
+### Added
+- **Claiming a target (#892).** Migration **0071** adds `grudge_claims`. One live claim
+  per target, so a chain does not waste hits on somebody already being handled.
+  - ⚠️ **Claiming is a courtesy, not a lock**, and the page says so. It stops two
+    people wasting hits; it cannot stop anybody attacking, and presenting it as
+    something Torn enforces would be a lie.
+  - ⚠️ **A partial unique index arbitrates the race**, not a read-then-write. Two
+    people pressing Claim in the same second is the case this exists for, and a
+    check-then-insert would let both through. The loser is told **who** has it —
+    "could not claim" sends somebody to ask in chat for the answer we already had.
+  - ⚠️ **The expiry rules are the War Room's, re-implemented rather than shared.**
+    Each was earned in a live war; the dibs tables are war-scoped with their own job
+    and broadcast, and the two must not be able to break each other.
+    - Okay → anything else: the claim is **spent**.
+    - Hospital → Hospital with the timer jumped: **spent**, somebody else got there.
+    - Hospital → Okay: the claim is **kept** and a 30-second head start armed — the
+      holder waited for exactly that moment.
+    - ⚠️ **A missing status reading releases NOTHING.** One failed sweep would
+      otherwise free every claim on the board at once, mid-chain, with no
+      explanation. Verified by probe.
+  - Leadership can free a claim somebody forgot about: mid-chain a stuck reservation
+    on a good target costs the whole faction.
+  - ⚠️ Unclaimed targets sort **first** — those are the ones you can take.
+  - ⚠️ A pending target cannot be claimed, which would otherwise leak the existence
+    of a held own-faction target to anybody who guessed its row id.
+  - Claims are **never hard-deleted**; the release reason is recorded, because "the
+    claim went away" is useless mid-chain where "spent — they went to hospital" is not.
+
 ## [3.195.0] - 2026-10-04
 
 ### Added

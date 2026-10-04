@@ -10,9 +10,9 @@
 // import-free leaf modules and will be imported directly when slice 4/5 land;
 // nothing here reads war-room state.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Swords, Trash2, Pencil, ShieldAlert, X, Check } from 'lucide-react'
+import { Swords, Trash2, Pencil, ShieldAlert, X, Check, Hand } from 'lucide-react'
 import SortableTh, { useTableSort } from '../SortableTh.jsx'
-import { apiDelete, apiPatch } from '../../utils/apiClient'
+import { apiDelete, apiPatch, apiPost } from '../../utils/apiClient'
 // ⚠️ Imported AS-IS. `fairFight.js` is a 170-line leaf module with zero
 // imports of its own, so using it here couples nothing — this page never
 // touches war-room state. The grudge columns are named `bsp_*` precisely so
@@ -52,6 +52,57 @@ function FairFightCell({ mine, target }) {
       className={`hue-grad font-mono text-xs ${estimated ? 'underline decoration-dotted decoration-from-font' : ''}`}
       title={estimated ? 'Estimated — one side has only a stat total, so an even split was assumed.' : undefined}
     >{formatFF(ff)}</span>
+  )
+}
+
+/**
+ * Who holds this target, and the control to take or drop it.
+ *
+ * ⚠️ Claiming is advisory, not a lock. It stops two people wasting hits on the
+ * same target; it cannot stop anybody attacking, and presenting it as a
+ * reservation Torn enforces would be a lie.
+ */
+function ClaimCell({ target, viewerId, isLeadership, now, onClaim, onRelease }) {
+  const holder = target.claim_member_id
+  const mine = holder && String(holder) === String(viewerId)
+
+  if (!holder) {
+    return (
+      <button
+        type="button" onClick={() => onClaim(target)}
+        aria-label={`Claim ${target.target_name || target.target_id}`}
+        className="inline-flex items-center gap-1 rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+      >
+        <Hand className="h-3 w-3" aria-hidden="true" /> Claim
+      </button>
+    )
+  }
+
+  // ⚠️ The head start, shown as a countdown. The holder waited for this target
+  // to come out of hospital; everyone else can see exactly how long before it
+  // is fair game, rather than guessing.
+  const headStart = target.claim_expires_ms
+    ? Math.max(0, Math.round((target.claim_expires_ms - now) / 1000))
+    : null
+
+  return (
+    <span className="flex flex-wrap items-center gap-1 text-xs">
+      <span className={mine ? 'font-medium text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-300'}>
+        {mine ? 'You' : (target.claim_member_name || target.claim_member_id)}
+      </span>
+      {headStart !== null && headStart > 0 && (
+        <span className="font-mono tabular-nums text-amber-600 dark:text-amber-400">{headStart}s</span>
+      )}
+      {(mine || isLeadership) && (
+        <button
+          type="button" onClick={() => onRelease(target)}
+          aria-label={`Release the claim on ${target.target_name || target.target_id}`}
+          className="text-gray-400 hover:text-red-600"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
   )
 }
 
@@ -124,6 +175,7 @@ const COLUMNS = [
 export default function GrudgeList({
   targets = [], severities = [], viewerId, isLeadership, onChanged, myBattleStats = null,
 }) {
+  const [claimError, setClaimError] = useState(null)
   // ⚠️ A clock, ticked locally. The countdown needs NO request to run: the
   // server only has to say *when* they are out, once. That is how this page
   // shows a live timer while its server-side refresh runs every 15 minutes.
@@ -185,6 +237,10 @@ export default function GrudgeList({
       accessor: (r) => fairFight(myBattleStats, targetBattleStats(r)),
       kind: 'number',
     },
+    // ⚠️ Unclaimed sorts FIRST, because an unclaimed target is the one you
+    // can actually take. Claimed-first would put the unavailable ones at the
+    // head of a list people read in a hurry.
+    { key: 'claim', accessor: (r) => (r.claim_member_id ? 1 : 0), kind: 'number' },
     // ⚠️ "Who can I hit soonest" — attackable now first, then by time left.
     // This is the column a chain actually runs off, which is why it is also
     // the default sort.
@@ -221,6 +277,29 @@ export default function GrudgeList({
   }
 
   const canModify = (g) => isLeadership || String(g.member_id) === String(viewerId)
+
+  const claim = async (t) => {
+    setClaimError(null)
+    try {
+      await apiPost(`/api/grudges/targets/${t.id}/claim`, {})
+      onChanged?.()
+    } catch (e) {
+      // ⚠️ Says WHO has it. "Could not claim" sends somebody to ask in chat;
+      // "Pdub already has this target" is the answer they were going to get.
+      setClaimError(e?.message || 'Could not claim that target')
+      onChanged?.()
+    }
+  }
+
+  const unclaim = async (t) => {
+    setClaimError(null)
+    try {
+      await apiDelete(`/api/grudges/targets/${t.id}/claim`)
+      onChanged?.()
+    } catch (e) {
+      setClaimError(e?.message || 'Could not release that claim')
+    }
+  }
 
   if (targets.length === 0) {
     return (
@@ -259,6 +338,7 @@ export default function GrudgeList({
               <SortableTh col="severity" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Severity</SortableTh>
               <SortableTh col="level" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">Lvl</SortableTh>
               <SortableTh col="status" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Status</SortableTh>
+              <SortableTh col="claim" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Claimed by</SortableTh>
               <SortableTh col="grudges" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Grudges</SortableTh>
               {/* ⚠️ `added` is the only other column with data behind it. Without
                   a header you could sort away from it and never get back. */}
@@ -317,6 +397,12 @@ export default function GrudgeList({
                 <td className="px-3 py-2">{t.severityLabel ?? '—'}</td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">{t.level ?? '—'}</td>
                 <td className="px-3 py-2"><StatusCell target={t} now={now} /></td>
+                <td className="px-3 py-2">
+                  <ClaimCell
+                    target={t} viewerId={viewerId} isLeadership={isLeadership}
+                    now={now} onClaim={claim} onRelease={unclaim}
+                  />
+                </td>
                 <td className="px-3 py-2">
                   <ul className="space-y-1">
                     {(t.grudges ?? []).map((g) => (
@@ -381,11 +467,16 @@ export default function GrudgeList({
         </table>
       </div>
 
+      {claimError && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">{claimError}</p>
+      )}
+
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        FF is <b>yours</b> — it is what you would earn, so this column reads differently
-        for everyone. A dotted underline means one side had only a stat total and an even
-        split was assumed. A dash means we cannot work it out, which is not the same as a
-        bad target.
+        Claiming is a courtesy between you, not something Torn enforces &mdash; it stops two
+        people wasting hits on the same target. FF is <b>yours</b> — it is what you would earn, so this column reads differently
+        &mdash; it is what you would earn, so this column reads differently for everyone.
+        A dotted underline means one side had only a stat total and an even split was
+        assumed. A dash means we cannot work it out, which is not the same as a bad target.
       </p>
     </div>
   )

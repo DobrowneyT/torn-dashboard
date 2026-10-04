@@ -572,6 +572,82 @@ describe('⚠️ our own faction is always watched', () => {
   })
 })
 
+describe('claiming a target (#892)', () => {
+  let rowId: number
+
+  beforeAll(async () => {
+    await reset()
+    givenTarget('9501', 99999, 'Quarry')
+    const r = await call('POST', '/api/grudges', member, { target: '9501', reason: 'mine' })
+    rowId = r.body.target_row_id
+  })
+
+  it('claims an unheld target', async () => {
+    const r = await call('POST', `/api/grudges/targets/${rowId}/claim`, member)
+    expect(r.status).toBe(201)
+  })
+
+  it('shows the holder on the list', async () => {
+    const list = await get('/api/grudges', member2)
+    const t = list.body.targets.find((x: any) => x.target_id === '9501')
+    expect(t.claim_member_id).toBe('9010')
+  })
+
+  it('⚠️ refuses a second claim and says WHO has it', async () => {
+    // Two people pressing Claim in the same second is the exact case this
+    // feature exists for. The unique index arbitrates, not a read-then-write,
+    // which would let both through.
+    const r = await call('POST', `/api/grudges/targets/${rowId}/claim`, member2)
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/already has this target/)
+  })
+
+  it('⚠️ refuses an unrelated member releasing it', async () => {
+    expect((await call('DELETE', `/api/grudges/targets/${rowId}/claim`, member2)).status).toBe(403)
+  })
+
+  it('lets the holder release it, and then it can be taken', async () => {
+    expect((await call('DELETE', `/api/grudges/targets/${rowId}/claim`, member)).status).toBe(200)
+    expect((await call('POST', `/api/grudges/targets/${rowId}/claim`, member2)).status).toBe(201)
+  })
+
+  it('⚠️ lets leadership free a claim somebody forgot about', async () => {
+    expect((await call('DELETE', `/api/grudges/targets/${rowId}/claim`, leader)).status).toBe(200)
+  })
+
+  it('⚠️ a released claim is kept, not deleted', async () => {
+    // "Who had this and when did they let it go" is a question people ask
+    // mid-chain, and a DELETE cannot answer it.
+    const rows = await stack.db.query(
+      `SELECT release_reason FROM grudge_claims WHERE target_row_id = $1 AND released_at IS NOT NULL`,
+      [rowId]
+    )
+    expect(rows.rows.length).toBeGreaterThanOrEqual(2)
+    expect(rows.rows.every((r: any) => r.release_reason === 'manual')).toBe(true)
+  })
+
+  it('records claims and releases in the history', async () => {
+    const r = await get('/api/grudges/audit?target_id=9501', member)
+    const claimRows = r.body.history.filter((h: any) => h.field === 'claim')
+    expect(claimRows.length).toBeGreaterThan(0)
+  })
+
+  it('⚠️ refuses to claim a target that is not on the public list', async () => {
+    // Otherwise claiming would leak the existence of a pending own-faction
+    // target to anybody who guessed its row id.
+    const ours = await stack.db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
+    givenTarget('9502', Number(ours.rows[0].torn_faction_id))
+    const added = await call('POST', '/api/grudges', member, { target: '9502', reason: 'pending' })
+    expect(added.body.state).toBe('pending_approval')
+    const r = await call('POST', `/api/grudges/targets/${added.body.target_row_id}/claim`, member2)
+    expect(r.status).toBe(409)
+  })
+
+  it('404s on a target that does not exist', async () => {
+    expect((await call('POST', '/api/grudges/targets/999999/claim', member)).status).toBe(404)
+  })
+})
+
 describe('visitors', () => {
   it('⚠️ may read the list but may not add to it', async () => {
     await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9030, 'visitor')`)
