@@ -492,6 +492,10 @@ export async function buildServer(
     registerMemberHofRoutes(app, opts.db)
     registerGrudgeRoutes(app, {
       db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
+      // Same provider config the war-room setup route gets, so a target added
+      // by hand is read exactly the way the nightly job reads one.
+      tornStatsApiKey: opts.tornStatsApiKey, bspApiKey: opts.bspApiKey,
+      tornStatsBaseUrl: opts.tornStatsBaseUrl, bspBaseUrl: opts.bspBaseUrl,
     })
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
