@@ -164,15 +164,14 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
         }
       } else {
         state = initialState(factionId, watched)
-        // ⚠️ `target_name` is whatever the adder typed, and is explicitly NOT
-        // authoritative — the enrichment pass overwrites it once Torn lookups
-        // are permitted. It exists so the list is readable before then: a
-        // column of bare ids is technically honest and practically useless.
-        const typedName = String(body.target_name ?? '').trim() || null
+        // ⚠️ The name is NOT accepted from the client. It is resolved by the
+        // enrichment pass and nowhere else, so there is exactly one source for
+        // it and a rename is a fact we observe rather than a guess somebody
+        // typed. Until then it stays null and the list shows the id.
         const ins = await db.query(
-          `INSERT INTO grudge_targets (target_id, target_name, faction_id, state, state_changed_at, added_by)
-           VALUES ($1,$2,$3,$4,now(),$5) RETURNING id`,
-          [targetId, typedName, factionId, state, viewer.memberId]
+          `INSERT INTO grudge_targets (target_id, faction_id, state, state_changed_at, added_by)
+           VALUES ($1,$2,$3,now(),$4) RETURNING id`,
+          [targetId, factionId, state, viewer.memberId]
         )
         targetRowId = Number(ins.rows[0].id)
         await audit(db, {

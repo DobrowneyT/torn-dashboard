@@ -11,7 +11,6 @@ import { parseTargetId } from '../../utils/grudgeTarget'
 
 export default function AddGrudgeForm({ severities = [], onAdded }) {
   const [target, setTarget] = useState('')
-  const [name, setName] = useState('')
   const [reason, setReason] = useState('')
   const [severity, setSeverity] = useState('')
   const [busy, setBusy] = useState(false)
@@ -30,11 +29,10 @@ export default function AddGrudgeForm({ severities = [], onAdded }) {
     try {
       const res = await apiPost('/api/grudges', {
         target,
-        target_name: name.trim() || undefined,
         reason,
         severity_id: severity || undefined,
       })
-      setTarget(''); setName(''); setReason(''); setSeverity('')
+      setTarget(''); setReason(''); setSeverity('')
       // ⚠️ Says which of the two things happened. A target held for approval
       // that reported a flat "added" would look like it had gone live.
       setDone(
@@ -72,22 +70,10 @@ export default function AddGrudgeForm({ severities = [], onAdded }) {
           </p>
         )}
         {parsedId !== null && (
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Target ID {parsedId}</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Target ID {parsedId} — their name and faction are looked up automatically.
+          </p>
         )}
-      </div>
-
-      <div>
-        <label htmlFor="grudge-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Their name <span className="font-normal text-gray-400">(optional)</span>
-        </label>
-        <input
-          id="grudge-name" value={name} onChange={(e) => setName(e.target.value)}
-          className="mt-1 w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-gray-100"
-        />
-        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Only so the list reads properly today. It is filled in automatically once
-          target lookups are switched on, and that version wins.
-        </p>
       </div>
 
       <div>

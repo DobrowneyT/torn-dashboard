@@ -317,18 +317,21 @@ describe('settings', () => {
   })
 })
 
-describe('the typed-in name', () => {
+describe('the target name', () => {
   beforeAll(reset)
 
-  it('stores a name the adder typed, so the list reads before enrichment', async () => {
+  it('⚠️ is NOT accepted from the client, even when one is sent', async () => {
+    // One source for the name — the enrichment lookup — so a rename is
+    // something we observe rather than a guess somebody typed once. Trusting
+    // the client here would also let anyone label a target whatever they liked.
     await call('POST', '/api/grudges', member, {
-      target: '4242', target_name: 'Likor', reason: 'he knows',
+      target: '4242', target_name: 'Definitely Not Me', reason: 'he knows',
     })
     const list = await get('/api/grudges', member)
-    expect(list.body.targets[0].target_name).toBe('Likor')
+    expect(list.body.targets[0].target_name).toBeNull()
   })
 
-  it('⚠️ leaves the name NULL when none was given, rather than faking one', async () => {
+  it('⚠️ leaves the name NULL rather than faking one from the id', async () => {
     // Storing the id as a stand-in would make "not looked up yet"
     // indistinguishable from somebody actually called 4243.
     await call('POST', '/api/grudges', member, { target: '4243', reason: 'anonymous grudge' })

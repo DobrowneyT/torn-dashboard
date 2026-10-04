@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.189.0] - 2026-10-04
+
+### Added
+- **Faction column on the Book of Grudges**, linked to the faction profile. Sorts
+  on the name where there is one and falls back to the id, so an unenriched faction
+  still groups with itself. ⚠️ Unfactioned sinks in both directions — absent is
+  not "last alphabetically" (#351).
+- **Every data column on that table now sorts**, including the grudge column, which
+  sorts by **count** rather than reason text: "who has upset the most of us" answers
+  something, prose sorted alphabetically answers nothing. ⚠️ Attack stays a plain
+  header — it is an action, not data, and a header that looks clickable and reorders
+  nothing is worse than one that plainly does not.
+
+### Changed
+- ⚠️ **The add form no longer asks for the target's name, and the API no longer
+  accepts one.** The enrichment lookup becomes the single source for it, so a rename
+  is something observed rather than a guess somebody typed once — and nobody can
+  label a target whatever they like. Until the lookup lands the list shows the id.
+
 ## [3.188.0] - 2026-10-04
 
 ### Added
