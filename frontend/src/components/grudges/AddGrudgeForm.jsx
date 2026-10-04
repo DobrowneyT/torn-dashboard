@@ -33,12 +33,18 @@ export default function AddGrudgeForm({ severities = [], onAdded }) {
         severity_id: severity || undefined,
       })
       setTarget(''); setReason(''); setSeverity('')
-      // ⚠️ Says which of the two things happened. A target held for approval
-      // that reported a flat "added" would look like it had gone live.
+      // ⚠️ Says which of the THREE things happened. A target held for approval
+      // that reported a flat "added" would look like it had gone live — and a
+      // target held because we could not look it up must not be described as
+      // being in a watched faction, which would be a confident claim about
+      // something we failed to find out.
       setDone(
-        res?.state === 'pending_approval'
-          ? 'Added — held for leadership approval, because this target is in a watched faction.'
-          : 'Added to the list.'
+        res?.state !== 'pending_approval'
+          ? `Added to the list${res?.target_name ? ` — ${res.target_name}` : ''}.`
+          : res?.pending_reason === 'unverified'
+            ? 'Added — held for leadership approval. We could not look this player up just now, '
+              + 'so we cannot tell whether they are in a watched faction.'
+            : 'Added — held for leadership approval, because this target is in a watched faction.'
       )
       onAdded?.(res)
     } catch (err) {

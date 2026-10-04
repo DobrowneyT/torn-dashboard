@@ -29,6 +29,7 @@ import { chainSampleJob } from './jobs/chainSample.js'
 import { activitySampleJob } from './jobs/activitySample.js'
 import { factionUpgradesSyncJob } from './jobs/factionUpgradesSync.js'
 import { memberHofSyncJob } from './jobs/memberHofSync.js'
+import { grudgeRefreshJob } from './jobs/grudgeRefresh.js'
 import { memberEventWindowsJob } from './jobs/memberEventWindows.js'
 
 export interface ScraperWiringOptions {
@@ -155,6 +156,18 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // #872 — ~1 call per member. Daily is affordable; per-page-load is not.
   // 01:35 is clear of member-stats (01:05) and member-profile (01:20).
   ['member-hof', '0 35 1 * * *', memberHofSyncJob],
+  // #889 — the Book of Grudges target list.
+  //
+  // ⚠️ Cadence is a STATED choice. The list is unbounded by design, so the
+  // cost is not "one call per member" but "one call per FACTION holding two or
+  // more targets, plus one per loner". Every 15 minutes keeps hospital timers
+  // usable for chaining without the list being able to run away with the call
+  // budget as it grows.
+  //
+  // ⚠️ Purpose-scoped: it claims only keys whose owner accepted the Target
+  // Lookups disclosure, and does nothing at all if none have. That is a
+  // legitimate state, not a failure.
+  ['grudge-refresh', '0 */15 * * * *', grudgeRefreshJob],
   // #459: each opted-in member's Torn event start hour. One string per member
   // that changes rarely, so daily is generous — and it costs one call per
   // OPTED-IN member, not per member, which is why it sits well clear of the

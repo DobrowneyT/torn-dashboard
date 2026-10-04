@@ -18,6 +18,34 @@ surface it automatically.
 
 ---
 
+## [3.192.0] - 2026-10-04
+
+### Added
+- **Book of Grudges targets are now looked up (#889, slice 4).** Adding a target
+  resolves their name, level, faction and status immediately, and a `grudge-refresh`
+  job keeps status current every 15 minutes.
+  - ⚠️ **Purpose-scoped.** Both the inline lookup and the job claim with
+    `purpose: 'target-lookup'`, so a member who has not accepted the Target Lookups
+    disclosure is skipped for these calls and for nothing else. If nobody has
+    accepted, the job does nothing — a legitimate state, not a failure, so it does
+    not raise a job-failure alert.
+  - ⚠️ **The add path FAILS CLOSED.** If the target cannot be looked up we cannot
+    rule out a watched faction, so leadership rules on it. The form says which of the
+    two reasons applies rather than claiming a watched faction it never verified.
+  - ⚠️ **A client-supplied `faction_id` is ignored.** Trusting it would let
+    anybody bypass the watched-faction gate by simply not sending one.
+  - ⚠️ **The gate is re-evaluated on every sweep.** A target's faction is only
+    known after a lookup and can change afterwards, so an active target who joins a
+    watched faction goes back to pending — but never the reverse, because
+    un-approving somebody would undo a human decision unasked.
+  - **Renames are recorded.** The refresh writes an `edited` audit row on
+    `target_name`, so the history shows "was X, now Y" with no new schema.
+    ⚠️ Identity changes only — auditing status would write a row per hospital
+    timer and bury the three events the trail exists for.
+  - ⚠️ Grouped by faction: `/faction/{id}/members` covers every target in it in
+    one call, and a faction holding exactly one target is routed to the individual
+    lookup instead, since that costs the same call and drags back far less.
+
 ## [3.191.2] - 2026-10-04
 
 ### Changed
