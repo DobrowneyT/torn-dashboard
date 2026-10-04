@@ -6,6 +6,7 @@ import { FactionConfigProvider } from './contexts/FactionConfigContext'
 import { ViewStateProvider } from './contexts/ViewStateContext'
 import LoginModal from './components/LoginModal'
 import ProtectedRoute from './components/ProtectedRoute'
+import ConsentGate from './components/ConsentGate'
 import ViewErrorBoundary from './components/ViewErrorBoundary'
 import Header from './components/Header'
 import Navigation from './components/Navigation'
@@ -134,6 +135,14 @@ function DashboardLayout() {
           </div>
         </div>
       )}
+
+      {/* ⚠️ #894 — rendered INSIDE the authenticated layout, not around it. It
+          overlays, it does not gate: a member who has not re-accepted keeps
+          working and their key keeps serving everything the disclosure they
+          DID accept covers. Locking the dashboard would punish them for our
+          change. It hides itself on a successful accept rather than waiting
+          for the next bootstrap, which is only fetched at login. */}
+      <ConsentGate user={user} />
 
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         <Navigation isLeadership={effectiveIsLeadership} />
