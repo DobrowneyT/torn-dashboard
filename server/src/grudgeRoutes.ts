@@ -455,13 +455,11 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
       // NaN (#140); the client never meets that string.
       `SELECT g.id, g.target_id, g.target_name, g.faction_id, g.faction_name, g.level, g.state,
               g.bsp_total, g.bsp_str, g.bsp_spd, g.bsp_def, g.bsp_dex, g.spy_source,
-              extract(epoch from g.bsp_fetched_at) * 1000 AS bsp_fetched_ms,
-              -- ⚠️ When the SPY was taken, not when we fetched it. A TornStats
-              -- spy can be months older than bsp_fetched_at, and the column
-              -- shows this date so nobody reads a stale figure as current.
-              -- (No backticks in here: this is inside a JS template literal,
-              -- and one would end the string mid-query.)
-              extract(epoch from g.ts_spy_at) * 1000 AS ts_spy_ms,
+              -- ⚠️ RAW timestamptz, not epoch ms, for these two alone. The
+              -- shared BattleStatsCell renders their age with fmtAgo, which
+              -- goes through parseDbTime and expects the bare "+00" string the
+              -- API serves (#140). Handing it a number would print a dash.
+              g.bsp_fetched_at, g.ts_spy_at,
               g.status_state, g.status_until, g.status_description,
               extract(epoch from g.status_fetched_at) * 1000 AS status_fetched_ms,
               g.added_by, extract(epoch from g.added_at) * 1000 AS added_ms,
