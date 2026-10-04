@@ -744,6 +744,16 @@ function PayoutsModal({ member, payouts, loading, onClose, isLeadership }) {
 }
 
 function LoanedItemsModal({ member, items, loading, onClose }) {
+  // ⚠️ Called BEFORE the early return below. A hook after a conditional
+  // return changes the hook count when the condition flips, and React throws
+  // "Rendered more hooks than during the previous render".
+  // ⚠️ Opens in category order then name — exactly as it did before it was
+  // sortable. `type` carries the category order as its sort value, so that
+  // default is reachable again after sorting by something else.
+  const { sorted, sortCol, sortDir, onSort } = useTableSort(items ?? [], LOANED_ITEM_COLUMNS, {
+    initialCol: 'type', initialDir: 'asc', tieBreak: 'item',
+  })
+
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -753,13 +763,6 @@ function LoanedItemsModal({ member, items, loading, onClose }) {
       </div>
     )
   }
-
-  // ⚠️ Opens in category order then name — exactly as it did before it was
-  // sortable. `type` carries the category order as its sort value, so that
-  // default is reachable again after sorting by something else.
-  const { sorted, sortCol, sortDir, onSort } = useTableSort(items ?? [], LOANED_ITEM_COLUMNS, {
-    initialCol: 'type', initialDir: 'asc', tieBreak: 'item',
-  })
 
   const totalValue = sorted.reduce((sum, item) => sum + ((item.market_value || 0) * (item.loaned_to_member || 1)), 0)
 

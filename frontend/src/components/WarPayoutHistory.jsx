@@ -26,6 +26,15 @@ export const PAYOUT_HISTORY_COLUMNS = [
 ]
 
 export default function WarPayoutHistory({ payouts, loading, onRefresh, onLoad, onDelete }) {
+  // ⚠️ Called BEFORE the early return below. A hook after a conditional
+  // return changes the hook count when the condition flips, and React throws
+  // "Rendered more hooks than during the previous render".
+  // ⚠️ Newest war first, which is how this list already read.
+  const { sorted: rows, sortCol, sortDir, onSort } =
+    useTableSort((payouts ?? []).map(summariseWarPayoutRow), PAYOUT_HISTORY_COLUMNS, {
+      initialCol: 'warId', initialDir: 'desc', tieBreak: 'warId',
+    })
+
   if (loading) {
     return (
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-4">
@@ -36,12 +45,6 @@ export default function WarPayoutHistory({ payouts, loading, onRefresh, onLoad, 
       </div>
     )
   }
-
-  // ⚠️ Newest war first, which is how this list already read.
-  const { sorted: rows, sortCol, sortDir, onSort } =
-    useTableSort(payouts.map(summariseWarPayoutRow), PAYOUT_HISTORY_COLUMNS, {
-      initialCol: 'warId', initialDir: 'desc', tieBreak: 'warId',
-    })
 
   return (
     <div className="bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-4">

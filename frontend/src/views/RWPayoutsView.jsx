@@ -1,12 +1,3 @@
-  const SortTh = ({ col, label, className = '' }) => (
-    <SortableTh
-      col={col} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} label={label}
-      className={`px-2 py-2 text-xs font-semibold sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700 ${className}`}
-    >
-      {label}
-    </SortableTh>
-  )
-
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getFactionId } from '../utils/factionIdentity'
@@ -50,6 +41,9 @@ export function buildMemberColumns(win) {
     { key: 'regular_hits',   kind: 'number' },
     { key: 'score',          kind: 'number' },
     { key: 'payout_amount',  kind: 'number' },
+    // ⚠️ The sheet tab renders an `Effort %` header on this key. Without the
+    // column, `sortRows` finds nothing to sort on and clicking it does nothing.
+    { key: 'effort_share',   kind: 'number' },
     // ⚠️ The pre/post breakdown lives at `race_breakdown[win][key]`, so these
     // close over the active window. Switching tab re-derives them, and a sort
     // held on one then reads the other window — which is what somebody
@@ -363,18 +357,14 @@ function WarPayoutModal({ wp, members, loading, tab, setTab, onClose }) {
     score:       members.reduce((s, m) => s + (m.score || 0), 0),
   }), [members])
 
-  function SortTh({ col, label, className = '' }) {
-    const active = sortCol === col
-    return (
-      <th
-        onClick={() => handleSort(col)}
-        className={`px-2 py-2 text-xs font-semibold cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700 ${className}`}
-      >
-        {label}
-        <span className="ml-1 text-gray-400">{active ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}</span>
-      </th>
-    )
-  }
+  const SortTh = ({ col, label, className = '' }) => (
+    <SortableTh
+      col={col} sortCol={sortCol} sortDir={sortDir} onSort={handleSort} label={label}
+      className={`px-2 py-2 text-xs font-semibold sticky top-0 z-10 bg-gray-50 dark:bg-slate-700 border-b border-gray-200 dark:border-slate-700 ${className}`}
+    >
+      {label}
+    </SortableTh>
+  )
 
   return (
     <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose() }}>

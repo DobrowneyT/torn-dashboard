@@ -329,10 +329,6 @@ export default function MemberOverview() {
   // ── Compute per-member row (identity + per-stat deltas / daily averages) ──
   const memberRows = useMemo(() => {
     const window = TIME_WINDOWS.find(w => w.id === timeWindow) ?? TIME_WINDOWS[2]
-  // ⚠️ An OBJECT, not the bare window string the call site used to pass. A
-  // string would make `ctx?.showTotals` silently undefined — the cell would
-  // render per-day rates for ever and the toggle would look broken.
-  const renderCtx = useMemo(() => ({ window: timeWindow, showTotals }), [timeWindow, showTotals])
     const rows = members.map(m =>
       buildMemberRow(m, snapshotsByMember.get(String(m.member_id)) ?? [], window.days)
     )
@@ -340,6 +336,12 @@ export default function MemberOverview() {
     // and the shared sort read one shape rather than two (#353).
     return canSeeBattleStats ? withBattleStats(rows, battleStats) : rows
   }, [members, snapshotsByMember, timeWindow, battleStats, canSeeBattleStats])
+
+  // The context every column's `render` receives.
+  // ⚠️ An OBJECT, not the bare window string the call site used to pass. A
+  // string would make `ctx?.showTotals` silently undefined — the cell would
+  // render per-day rates for ever and the toggle would look broken.
+  const renderCtx = useMemo(() => ({ window: timeWindow, showTotals }), [timeWindow, showTotals])
 
   // ── Resolve active threshold set ──
   const activeThresholds = useMemo(() => {
