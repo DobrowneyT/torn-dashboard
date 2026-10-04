@@ -40,6 +40,28 @@ const call = async (method: string, path: string, tok: string, body?: unknown) =
 }
 const get = (p: string, t: string) => call('GET', p, t)
 
+/**
+ * Make the Torn fixture answer `/user/{id}/profile` for a target.
+ *
+ * ⚠️ The add route resolves the faction ITSELF now rather than trusting a
+ * `faction_id` in the request body. It has to: the browser cannot know a
+ * target's faction, and a client-supplied one would let anybody bypass the
+ * watched-faction gate by simply not sending it.
+ */
+const givenTarget = (id: string, factionId: number | null, name = `Target${id}`) => {
+  stack.torn.setHandler(`/v2/user/${id}/profile`, () => ({
+    profile: {
+      id: Number(id), name, level: 50, faction_id: factionId ?? 0,
+      status: { state: 'Okay', until: 0, description: 'Okay' },
+    },
+  }))
+}
+
+/** No handler at all — the lookup fails and the add must fail CLOSED. */
+const givenUnresolvable = (id: string) => {
+  stack.torn.setHandler(`/v2/user/${id}/profile`, () => ({ error: { code: 6, error: 'Incorrect ID' } }))
+}
+
 beforeAll(async () => {
   stack = await startTestStack()
   await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9001, 'leadership')`)
@@ -57,7 +79,14 @@ const reset = async () => {
 }
 
 describe('adding a grudge', () => {
-  beforeAll(reset)
+  beforeAll(async () => {
+    await reset()
+    // ⚠️ The add path now LOOKS THE TARGET UP, and fails closed when it
+    // cannot. Without a fixture profile every add here would land
+    // `pending_approval` — correct behaviour, but not what this block is
+    // about.
+    givenTarget('5001', 99999, 'Likor')
+  })
 
   it('⚠️ refuses a grudge with no reason — that is the whole premise', async () => {
     const r = await call('POST', '/api/grudges', member, {
@@ -118,8 +147,9 @@ describe('⚠️ the approval gate for watched factions', () => {
   })
 
   it('holds a target in a watched faction off the public list', async () => {
+    givenTarget('6001', 10739)
     const r = await call('POST', '/api/grudges', member, {
-      target: '6001', faction_id: '10739', reason: 'he knows what he did',
+      target: '6001', reason: 'he knows what he did',
     })
     expect(r.status).toBe(201)
     expect(r.body.state).toBe('pending_approval')
@@ -146,17 +176,21 @@ describe('⚠️ the approval gate for watched factions', () => {
   it('⚠️ compares faction ids as strings, so a numeric id still trips the gate', async () => {
     // Torn sends numbers; we store text. A mixed-type compare matches nothing,
     // which would put an own-faction target straight on the public list.
+    givenTarget('6002', 10739)
     const r = await call('POST', '/api/grudges', member, {
-      target: '6002', faction_id: 10739, reason: 'numeric id',
+      target: '6002', reason: 'numeric id',
     })
     expect(r.body.state).toBe('pending_approval')
+    expect(r.body.pending_reason).toBe('watched_faction')
   })
 
   it('lets an unwatched faction straight through', async () => {
+    givenTarget('6003', 99999)
     const r = await call('POST', '/api/grudges', member, {
-      target: '6003', faction_id: '99999', reason: 'a stranger',
+      target: '6003', reason: 'a stranger',
     })
     expect(r.body.state).toBe('active')
+    expect(r.body.pending_reason).toBeNull()
   })
 
   it('publishes it once leadership approves', async () => {
@@ -177,6 +211,47 @@ describe('⚠️ the approval gate for watched factions', () => {
     expect(memberSees).not.toContain(targetId)
     const leaderSees = (await get('/api/grudges', leader)).body.targets.map((t: any) => t.target_id)
     expect(leaderSees).toContain(targetId)
+  })
+
+  it('⚠️ resolves the name inline, so the list is readable immediately', async () => {
+    givenTarget('6010', 99999, 'Likor')
+    const r = await call('POST', '/api/grudges', member, { target: '6010', reason: 'resolved' })
+    expect(r.body.target_name).toBe('Likor')
+    const list = await get('/api/grudges', member)
+    expect(list.body.targets.find((t: any) => t.target_id === '6010').target_name).toBe('Likor')
+  })
+
+  it('⚠️ FAILS CLOSED when the target cannot be looked up', async () => {
+    // We cannot rule out that they are in a watched faction, so leadership
+    // rules on it. Publishing on an unverified assumption is the one outcome
+    // worth avoiding; a queue entry is merely annoying.
+    givenUnresolvable('6011')
+    const r = await call('POST', '/api/grudges', member, { target: '6011', reason: 'mystery' })
+    expect(r.body.state).toBe('pending_approval')
+    // ⚠️ And says WHY, so the UI does not claim they are in a watched faction
+    // when the truth is we could not look them up at all.
+    expect(r.body.pending_reason).toBe('unverified')
+  })
+
+  it('⚠️ still records the grudge when the lookup fails', async () => {
+    // The grudge is the member's contribution and is worth keeping; the
+    // lookup is enrichment, and the sweep will retry it.
+    givenUnresolvable('6012')
+    const r = await call('POST', '/api/grudges', member, { target: '6012', reason: 'kept anyway' })
+    expect(r.status).toBe(201)
+    const list = await get('/api/grudges', leader)
+    const t = list.body.targets.find((x: any) => x.target_id === '6012')
+    expect(t.grudges[0].reason).toBe('kept anyway')
+  })
+
+  it('⚠️ ignores a faction_id sent by the client', async () => {
+    // Trusting it would let anybody bypass the watched-faction gate by simply
+    // not sending one, or by sending a harmless-looking faction.
+    givenTarget('6013', 10739)
+    const r = await call('POST', '/api/grudges', member, {
+      target: '6013', faction_id: '99999', reason: 'nice try',
+    })
+    expect(r.body.state).toBe('pending_approval')
   })
 
   it('⚠️ refuses a plain member trying to approve their own submission', async () => {
@@ -338,6 +413,162 @@ describe('the target name', () => {
     const list = await get('/api/grudges', member)
     const t = list.body.targets.find((x: any) => x.target_id === '4243')
     expect(t.target_name).toBeNull()
+  })
+})
+
+describe('PUT /api/grudges/settings', () => {
+  beforeAll(reset)
+
+  it('⚠️ refuses a plain member — the watched list is the approval gate', async () => {
+    // A member who could edit it could let their own faction straight onto
+    // the public list.
+    const r = await call('PUT', '/api/grudges/settings', member, { severities: [], watched_factions: [] })
+    expect(r.status).toBe(403)
+  })
+
+  it('saves severities and watched factions for leadership', async () => {
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ label: 'Petty' }, { label: 'Blood feud' }],
+      watched_factions: ['10739', 8103],
+    })
+    expect(r.status).toBe(200)
+    expect(r.body.severities).toEqual([
+      { id: 'petty', label: 'Petty' }, { id: 'blood-feud', label: 'Blood feud' },
+    ])
+    expect(r.body.watched_factions).toEqual(['10739', '8103'])
+  })
+
+  it('round-trips through the read the members use', async () => {
+    const r = await get('/api/grudges/settings', member)
+    expect(r.body.severities.map((s: any) => s.label)).toEqual(['Petty', 'Blood feud'])
+    // ⚠️ Still withheld from a plain member — leadership policy, not public.
+    expect(r.body.watched_factions).toBeUndefined()
+  })
+
+  it('rejects a malformed faction id rather than storing it', async () => {
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [], watched_factions: ['TNL'],
+    })
+    expect(r.status).toBe(400)
+  })
+
+  it('⚠️ a RENAME keeps every grudge’s severity', async () => {
+    // The id is preserved, so nothing is orphaned and the column keeps
+    // rendering a label rather than a raw slug.
+    await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ id: 'petty', label: 'Petty' }], watched_factions: [],
+    })
+    await call('POST', '/api/grudges', member, {
+      target: '8801', reason: 'petty grievance', severity_id: 'petty',
+    })
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ id: 'petty', label: 'Mildly annoying' }], watched_factions: [],
+    })
+    expect(r.body.grudges_cleared).toBe(0)
+    const list = await get('/api/grudges', leader)
+    const t = list.body.targets.find((x: any) => x.target_id === '8801')
+    expect(t.grudges[0].severity_id).toBe('petty')
+  })
+
+  it('⚠️ a REMOVAL clears the reference and says how many', async () => {
+    // Left alone, the column would render a raw slug for a severity that no
+    // longer exists.
+    const r = await call('PUT', '/api/grudges/settings', leader, {
+      severities: [], watched_factions: [],
+    })
+    expect(r.body.removed_severities).toEqual(['petty'])
+    expect(r.body.grudges_cleared).toBe(1)
+    const list = await get('/api/grudges', leader)
+    const t = list.body.targets.find((x: any) => x.target_id === '8801')
+    expect(t.grudges[0].severity_id).toBeNull()
+  })
+
+  it('⚠️ and the cleared value stays readable in the history', async () => {
+    // A soft record of what it was is the difference between a removal and a
+    // quiet data loss.
+    const r = await get('/api/grudges/audit?target_id=8801', leader)
+    const cleared = r.body.history.find((h: any) => h.field === 'severity_id')
+    expect(cleared.old_value).toBe('petty')
+    expect(cleared.new_value).toBeNull()
+  })
+
+  it('reports usage so the editor can warn before a removal', async () => {
+    await call('PUT', '/api/grudges/settings', leader, {
+      severities: [{ id: 'petty', label: 'Petty' }], watched_factions: [],
+    })
+    await call('PATCH', `/api/grudges/entries/1`, leader, { severity_id: 'petty' })
+    const r = await get('/api/grudges/settings/usage', leader)
+    expect(r.status).toBe(200)
+    expect(typeof r.body.usage).toBe('object')
+  })
+
+  it('⚠️ does not leak usage to a plain member', async () => {
+    expect((await get('/api/grudges/settings/usage', member)).status).toBe(403)
+  })
+})
+
+describe('watch mode', () => {
+  beforeAll(reset)
+
+  it('⚠️ refuses a plain member', async () => {
+    expect((await call('PUT', '/api/grudges/watch', member, { enabled: true })).status).toBe(403)
+  })
+
+  it('is off until leadership turns it on', async () => {
+    const r = await get('/api/grudges/settings', leader)
+    expect(r.body.watch.enabled).toBe(false)
+  })
+
+  it('turns on and reports the cadence it will actually achieve', async () => {
+    const r = await call('PUT', '/api/grudges/watch', leader, { enabled: true })
+    expect(r.status).toBe(200)
+    expect(r.body.enabled).toBe(true)
+    // ⚠️ The cadence is COMPUTED, never configured — a configured rate is a
+    // promise the key budget may not keep.
+    expect(typeof r.body.description).toBe('string')
+    expect(r.body).toHaveProperty('calls_per_sweep')
+    expect(r.body).toHaveProperty('seconds_per_sweep')
+  })
+
+  it('turns back off', async () => {
+    expect((await call('PUT', '/api/grudges/watch', leader, { enabled: false })).body.enabled).toBe(false)
+  })
+})
+
+describe('⚠️ our own faction is always watched', () => {
+  beforeAll(async () => {
+    await reset()
+    // Deliberately store a list that does NOT contain our own faction.
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value) VALUES ('grudge_watched_factions', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(['999999'])]
+    )
+  })
+
+  it('holds a target from our own faction even when it is not in the list', async () => {
+    // ⚠️ Read from faction_config, never written down: this stack serves five
+    // factions, and a literal id would watch the wrong roster on four of them.
+    const ours = await stack.db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')
+    const ourId = Number(ours.rows[0].torn_faction_id)
+    givenTarget('7777', ourId)
+    const r = await call('POST', '/api/grudges', member, { target: '7777', reason: 'friendly fire' })
+    expect(r.body.state).toBe('pending_approval')
+    expect(r.body.pending_reason).toBe('watched_faction')
+  })
+
+  it('tells leadership which id is the automatic one', async () => {
+    const r = await get('/api/grudges/settings', leader)
+    expect(String(r.body.own_faction_id)).toBe(String(TEST_FACTION.tornFactionId))
+    // ⚠️ NOT folded into the editable list, so nobody can delete it and
+    // wonder why it comes back.
+    expect(r.body.watched_factions).toEqual(['999999'])
+  })
+
+  it('still lets an unrelated faction through', async () => {
+    givenTarget('7778', 12345)
+    expect((await call('POST', '/api/grudges', member, { target: '7778', reason: 'stranger' })).body.state)
+      .toBe('active')
   })
 })
 

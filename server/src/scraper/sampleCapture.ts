@@ -44,12 +44,22 @@ export interface KeyRotator {
 export async function createKeyRotator(
   pool: JobDeps['pool'],
   client: JobDeps['client'],
-  maxKeys = MAX_KEYS
+  maxKeys = MAX_KEYS,
+  /**
+   * Restrict the rotation to keys whose owner accepted a disclosure covering
+   * this purpose (#894).
+   *
+   * ⚠️ Omitting it is the baseline and claims exactly what it always did, so
+   * every existing job is unaffected. Only a job for a NEWLY disclosed purpose
+   * passes one, and then a member who has not re-accepted is skipped for that
+   * job alone.
+   */
+  purpose?: string
 ): Promise<KeyRotator> {
   const active: { member_id: string; key: string }[] = []
   const seen = new Set<string>()
   for (let i = 0; i < maxKeys; i++) {
-    const k = await pool.claim()
+    const k = await pool.claim(purpose ? { purpose } : {})
     if (!k || seen.has(k.member_id)) break
     seen.add(k.member_id)
     active.push(k)

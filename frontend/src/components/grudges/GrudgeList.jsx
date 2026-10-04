@@ -9,10 +9,85 @@
 // ⚠️ Not coupled to the War Room. `fairFight.js` and `warRoomFarmSort.js` are
 // import-free leaf modules and will be imported directly when slice 4/5 land;
 // nothing here reads war-room state.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Swords, Trash2, Pencil, ShieldAlert, X, Check } from 'lucide-react'
 import SortableTh, { useTableSort } from '../SortableTh.jsx'
 import { apiDelete, apiPatch } from '../../utils/apiClient'
+// ⚠️ Imported AS-IS. `fairFight.js` is a 170-line leaf module with zero
+// imports of its own, so using it here couples nothing — this page never
+// touches war-room state. The grudge columns are named `bsp_*` precisely so
+// `targetBattleStats` reads a grudge row with no adapter in between.
+import {
+  fairFight, formatFF, ffGradientPosition, scoreIsEstimated, targetBattleStats,
+} from '../../utils/fairFight'
+import {
+  secondsUntil, formatCountdown, isAttackable, availabilityKey,
+} from '../../utils/grudgeCountdown'
+
+/**
+ * Fair Fight for the viewer against one target.
+ *
+ * ⚠️ PERSONAL BY CONSTRUCTION. `mine` is the viewer's own battle stats, so
+ * this column reads differently for every person looking at the same list —
+ * which is what was asked for: "even better, by FairFight of individual member
+ * viewing the list". FF is what YOU would earn, not a property of the target.
+ *
+ * ⚠️ Null when either side is unknown, and rendered as a dash. A fabricated
+ * FF sends somebody at a target that pays nothing.
+ *
+ * ⚠️ The dotted underline means ESTIMATE — an even split was assumed because
+ * one side has only a total. That overstates lopsided builds, and on the target
+ * side it inflates FF, so a number built on a bare total must not look as solid
+ * as one built on a real spy.
+ */
+function FairFightCell({ mine, target }) {
+  const targetStats = targetBattleStats(target)
+  const ff = fairFight(mine, targetStats)
+  if (ff === null) return <span className="text-xs text-gray-400 dark:text-gray-600">—</span>
+  const estimated = scoreIsEstimated(mine) || scoreIsEstimated(targetStats)
+  const hue = Math.round(120 * ffGradientPosition(ff))
+  return (
+    <span
+      style={{ '--grad-hue': hue }}
+      className={`hue-grad font-mono text-xs ${estimated ? 'underline decoration-dotted decoration-from-font' : ''}`}
+      title={estimated ? 'Estimated — one side has only a stat total, so an even split was assumed.' : undefined}
+    >{formatFF(ff)}</span>
+  )
+}
+
+/**
+ * State plus a live countdown.
+ *
+ * ⚠️ The countdown is the point of this column. "Hospital" alone tells you
+ * nothing you can chain off; "Hospital · 12m 04s" tells you when to come back.
+ *
+ * ⚠️ When the timer runs out the cell says ATTACKABLE even though the server
+ * still says Hospital — it refreshes every fifteen minutes, and waiting for it
+ * would mean the one moment you care about arrives up to fifteen minutes late.
+ */
+function StatusCell({ target, now }) {
+  const left = secondsUntil(target?.status_until, now)
+  const free = isAttackable(target, now)
+
+  if (free) {
+    return (
+      <span className="font-medium text-emerald-600 dark:text-emerald-400">
+        {target?.status_state === 'Okay' ? 'Okay' : 'Out now'}
+      </span>
+    )
+  }
+  if (!target?.status_state) return <span className="text-gray-400">—</span>
+  return (
+    <span className="text-gray-700 dark:text-gray-300">
+      {target.status_state}
+      {left !== null && (
+        <span className="ml-1 font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400">
+          {formatCountdown(left)}
+        </span>
+      )}
+    </span>
+  )
+}
 
 /** Torn's own attack loader. Opened in a new tab so the list survives. */
 const attackUrl = (id) => `https://www.torn.com/loader.php?sid=attack&user2ID=${id}`
@@ -36,12 +111,9 @@ const COLUMNS = [
   // sinks in both directions — unfactioned is not "last alphabetically", it is
   // absent (#351).
   { key: 'faction', accessor: (r) => r.faction_name || r.faction_id || null, kind: 'text' },
-  { key: 'battle_stats', accessor: (r) => r.battle_stats ?? null, kind: 'number' },
+  { key: 'battle_stats', accessor: (r) => r.bsp_total ?? null, kind: 'number' },
   { key: 'severity', accessor: (r) => r.severityLabel ?? null, kind: 'text' },
-  { key: 'status', accessor: (r) => r.status_state ?? null, kind: 'text' },
-  // ⚠️ Null sinks in BOTH directions: a target with no recorded hospital time
-  // is not "out soonest", they are unknown (#351).
-  { key: 'until', accessor: (r) => r.status_until ?? null, kind: 'number' },
+  { key: 'level', accessor: (r) => r.level ?? null, kind: 'number' },
   // How many people this target has annoyed. A count rather than the reason
   // text: sorting prose alphabetically answers nothing, "who has upset the most
   // of us" answers something.
@@ -50,8 +122,21 @@ const COLUMNS = [
 ]
 
 export default function GrudgeList({
-  targets = [], severities = [], viewerId, isLeadership, onChanged,
+  targets = [], severities = [], viewerId, isLeadership, onChanged, myBattleStats = null,
 }) {
+  // ⚠️ A clock, ticked locally. The countdown needs NO request to run: the
+  // server only has to say *when* they are out, once. That is how this page
+  // shows a live timer while its server-side refresh runs every 15 minutes.
+  const [now, setNow] = useState(() => Date.now())
+  const counting = targets.some((t) => secondsUntil(t.status_until, now) > 0)
+  useEffect(() => {
+    // ⚠️ Only tick when something is actually counting down. A 1 Hz re-render
+    // of an idle board is pure waste, and this page is left open.
+    if (!counting) return undefined
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [counting])
+
   const [hideHospital, setHideHospital] = useState(false)
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState(null)
@@ -76,7 +161,10 @@ export default function GrudgeList({
         // ⚠️ "Hospital" only. Someone abroad or in jail is also unattackable,
         // but the ask was specifically about hospital and conflating them would
         // silently hide targets a member may still want to see.
-        if (hideHospital && t.status_state === 'Hospital') return false
+        // ⚠️ Uses the LIVE clock, not the stored state. Somebody whose timer
+        // ran out while the page sat open is attackable, and hiding them as
+        // "in hospital" would hide exactly the target you were waiting for.
+        if (hideHospital && !isAttackable(t, now)) return false
         if (!q) return true
         const hay = [
           t.target_name, t.target_id, t.faction_name,
@@ -84,10 +172,27 @@ export default function GrudgeList({
         ].filter(Boolean).join(' ').toLowerCase()
         return hay.includes(q)
       })
-  }, [targets, query, hideHospital, severityLabel])
+  }, [targets, query, hideHospital, severityLabel, now])
 
-  const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, COLUMNS, {
-    initialCol: 'added', initialDir: 'desc', tieBreak: ['name'],
+  // ⚠️ The FF column is built HERE rather than in the module-level COLUMNS,
+  // because its accessor closes over the viewer's own stats. A module-level
+  // column would have to reach for them globally, and every viewer would sort
+  // by whoever rendered first.
+  const columns = useMemo(() => [
+    ...COLUMNS,
+    {
+      key: 'ff',
+      accessor: (r) => fairFight(myBattleStats, targetBattleStats(r)),
+      kind: 'number',
+    },
+    // ⚠️ "Who can I hit soonest" — attackable now first, then by time left.
+    // This is the column a chain actually runs off, which is why it is also
+    // the default sort.
+    { key: 'status', accessor: (r) => availabilityKey(r, now), kind: 'number' },
+  ], [myBattleStats, now])
+
+  const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, columns, {
+    initialCol: 'status', initialDir: 'asc', tieBreak: ['ff', 'name'],
   })
 
   const saveEdit = async (entryId) => {
@@ -150,9 +255,14 @@ export default function GrudgeList({
               <SortableTh col="name" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Target</SortableTh>
               <SortableTh col="faction" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Faction</SortableTh>
               <SortableTh col="battle_stats" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">Battle stats</SortableTh>
+              <SortableTh col="ff" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right" label="Fair Fight">FF</SortableTh>
               <SortableTh col="severity" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Severity</SortableTh>
+              <SortableTh col="level" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">Lvl</SortableTh>
               <SortableTh col="status" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Status</SortableTh>
               <SortableTh col="grudges" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Grudges</SortableTh>
+              {/* ⚠️ `added` is the only other column with data behind it. Without
+                  a header you could sort away from it and never get back. */}
+              <SortableTh col="added" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Added</SortableTh>
               {/* ⚠️ A PLAIN th. Attack is an action, not data — and a header that
                   looks clickable and reorders nothing is worse than one that
                   plainly does not. */}
@@ -188,13 +298,25 @@ export default function GrudgeList({
                   )}
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">
-                  {fmt(t.battle_stats)}
-                  {t.stats_source && (
-                    <div className="text-xs font-sans text-gray-500 dark:text-gray-400">{t.stats_source}</div>
+                  {fmt(t.bsp_total)}
+                  {/* ⚠️ Provenance and age, not decoration. A stale or estimated
+                      figure shown as fact is how somebody picks a fight they
+                      lose. `ts_spy_at` is when the SPY was taken, which can be
+                      months before we fetched it. */}
+                  {t.spy_source && (
+                    <div className="font-sans text-xs text-gray-500 dark:text-gray-400">
+                      {/* ts_spy_ms is epoch MILLISECONDS from SQL's
+                          extract(epoch ...) * 1000 — db-time-safe */}
+                      {t.spy_source}{t.ts_spy_ms ? ` · ${new Date(t.ts_spy_ms).toLocaleDateString()}` : ''}
+                    </div>
                   )}
                 </td>
+                <td className="px-3 py-2 text-right">
+                  <FairFightCell mine={myBattleStats} target={t} />
+                </td>
                 <td className="px-3 py-2">{t.severityLabel ?? '—'}</td>
-                <td className="px-3 py-2">{t.status_state ?? '—'}</td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums">{t.level ?? '—'}</td>
+                <td className="px-3 py-2"><StatusCell target={t} now={now} /></td>
                 <td className="px-3 py-2">
                   <ul className="space-y-1">
                     {(t.grudges ?? []).map((g) => (
@@ -237,6 +359,10 @@ export default function GrudgeList({
                     ))}
                   </ul>
                 </td>
+                <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  {/* added_ms is epoch MILLISECONDS from SQL — db-time-safe */}
+                  {t.added_ms ? new Date(t.added_ms).toLocaleDateString() : '—'}
+                </td>
                 <td className="px-3 py-2 text-right">
                   <a href={attackUrl(t.target_id)} target="_blank" rel="noopener noreferrer"
                      className="inline-flex items-center gap-1 rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700">
@@ -256,8 +382,10 @@ export default function GrudgeList({
       </div>
 
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        Battle stats and live status are not being fetched yet — that needs a change to
-        what member API keys are used for, which has to be disclosed and re-accepted first.
+        FF is <b>yours</b> — it is what you would earn, so this column reads differently
+        for everyone. A dotted underline means one side had only a stat total and an even
+        split was assumed. A dash means we cannot work it out, which is not the same as a
+        bad target.
       </p>
     </div>
   )

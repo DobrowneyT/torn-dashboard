@@ -18,6 +18,141 @@ surface it automatically.
 
 ---
 
+## [3.195.0] - 2026-10-04
+
+### Added
+- **Watch mode on the Book of Grudges (#889).** Leadership can turn continuous
+  refreshing on for a chain and off again afterwards, the way the War Room gates its
+  own polling — the same idea, its own state, nothing shared.
+  - ⚠️ **The refresh rate is COMPUTED, never configured.** It falls out of how
+    many factions are on the list and how many members have consented, and is shown
+    in plain words. A box saying "every 30 seconds" would be a promise the key budget
+    might not keep, and a cadence that silently fails to happen is worse than one
+    that is simply stated.
+  - ⚠️ **At most a quarter of each key.** The pool is shared with OC tracking,
+    the War Room and member stats; a watch that spends a key's whole minute starves
+    them, which is the shape of the 2026-09-10 incident.
+  - ⚠️ **A sweep too big for one tick is SHARDED**, cycling from the clock with
+    no stored cursor — a persisted one is a thing that can jam. Factions are taken
+    first so a tight budget buys the most coverage.
+  - Because `/faction/{id}/members` returns every member's status in one call, cost
+    scales with **factions, not targets**: 150 targets across 40 factions is 70 calls
+    a pass and still refreshes every minute on four consented keys.
+
+### Changed
+- ⚠️ **Our own faction is always watched**, read from `faction_config` at request
+  time rather than stored. This stack serves five factions from one codebase, so a
+  literal id would watch TNL's roster on forge, mayhem and capacityx. It is added on
+  read, not seeded, so it cannot be edited away — nobody should be able to switch off
+  the gate that stops a teammate appearing on a public target list.
+- `grudge-refresh` now ticks every minute and decides for itself whether to work:
+  sharded and fast with watch mode on, one pass a quarter-hour with it off. One job
+  rather than two, which would double-refresh whenever both were due.
+
+### Fixed
+- ⚠️ The refresh fetched `/faction/{id}/basic` **every sweep** for a faction name
+  it already had, doubling the cost of every grouped faction for a string that
+  almost never changes.
+
+## [3.194.0] - 2026-10-04
+
+### Added
+- **Book settings (#889, slice 6).** Severities and watched factions were SQL-only,
+  which made the approval gate unusable — it worked and nobody could tell it what to
+  watch. Leadership can now edit both from the page.
+  ⚠️ **Renaming a severity keeps its id**, so no grudge is orphaned and the column
+  keeps rendering a label rather than a raw slug.
+  ⚠️ **Removing one clears it from any grudge using it**, and the editor says how
+  many BEFORE you save. The old value stays readable in the history, so a removal is
+  recoverable rather than a quiet data loss.
+- **History view (#889, slice 7).** The audit trail has been recorded since slice 1
+  and visible nowhere. ⚠️ It shows what a value changed **from**, not just that it
+  changed, and attributes an automatic rename to the lookup rather than to a person.
+- **Live hospital timers.** The status column counts down, and says **"Out now"** the
+  moment a timer expires — without waiting for the server, which refreshes every
+  fifteen minutes and would deliver that moment up to fifteen minutes late.
+  ⚠️ The countdown ticks locally from the stored `until` and needs no request;
+  the one-minute poll is only for state the server has newly learned.
+  ⚠️ "Hide anyone in hospital" now keeps somebody whose timer already expired —
+  otherwise it hides exactly the target you were waiting for.
+- The list defaults to **"who can I hit soonest"**. ⚠️ A target with no deadline
+  sinks rather than sorting first: unknown is not "available now".
+
+### Fixed
+- ⚠️ **Two sortable columns had no header.** `until` was unreachable entirely and
+  `added` could be sorted away from but never back to. `until` is replaced by the
+  availability sort; `added` has a header.
+- The target's **level** was fetched and stored since slice 4 and never displayed.
+
+## [3.193.0] - 2026-10-04
+
+### Added
+- **Per-viewer Fair Fight on the Book of Grudges (#889, slice 5).** The FF column is
+  **personal**: it is what *you* would earn, so the same list reads differently for
+  everyone looking at it. A dotted underline marks a number built on a bare stat
+  total, where an even split was assumed.
+  ⚠️ A dash means "we cannot work it out", not "bad target", and the page says so
+  — the two read identically otherwise.
+- **Battle stats for targets**, TornStats first and BSP for the rest, via a new
+  daily `grudge-stats` job. ⚠️ Daily, not quarter-hourly like the status refresh:
+  these are third-party servers we do not own, spy stats move on the order of weeks,
+  and the job refetches only what is stale (a stated 7-day tunable).
+- The battle-stats column shows its **source and the spy's own capture date** — not
+  our fetch time, which can be months newer and would make a stale figure look current.
+
+### Internal
+- `spyProviders.ts` extracted from `spyFetch.ts`: fetch and parse with **no database
+  writes**, so the War Room and the grudge list share one "TornStats first, BSP for
+  the rest" implementation while writing to their own tables.
+  ⚠️ **The war-room suite did not cover the per-stat mapping.** Swapping
+  `defense` for `speed` in the parser left all 10 spy tests green — they assert only
+  `bsp_total`, `spy_source` and `ts_spy_at`. Since Fair Fight is a sum of square
+  roots of the four individual stats, that transposition would have produced a wrong
+  FF everywhere. 13 new tests pin each field, verified by re-running the probe.
+- Migration **0070** renames the grudge stat columns to `bsp_*` so
+  `fairFight.js#targetBattleStats` reads a grudge row with no adapter. Naming
+  convergence, not coupling — nothing here touches war-room tables.
+
+## [3.192.0] - 2026-10-04
+
+### Added
+- **Book of Grudges targets are now looked up (#889, slice 4).** Adding a target
+  resolves their name, level, faction and status immediately, and a `grudge-refresh`
+  job keeps status current every 15 minutes.
+  - ⚠️ **Purpose-scoped.** Both the inline lookup and the job claim with
+    `purpose: 'target-lookup'`, so a member who has not accepted the Target Lookups
+    disclosure is skipped for these calls and for nothing else. If nobody has
+    accepted, the job does nothing — a legitimate state, not a failure, so it does
+    not raise a job-failure alert.
+  - ⚠️ **The add path FAILS CLOSED.** If the target cannot be looked up we cannot
+    rule out a watched faction, so leadership rules on it. The form says which of the
+    two reasons applies rather than claiming a watched faction it never verified.
+  - ⚠️ **A client-supplied `faction_id` is ignored.** Trusting it would let
+    anybody bypass the watched-faction gate by simply not sending one.
+  - ⚠️ **The gate is re-evaluated on every sweep.** A target's faction is only
+    known after a lookup and can change afterwards, so an active target who joins a
+    watched faction goes back to pending — but never the reverse, because
+    un-approving somebody would undo a human decision unasked.
+  - **Renames are recorded.** The refresh writes an `edited` audit row on
+    `target_name`, so the history shows "was X, now Y" with no new schema.
+    ⚠️ Identity changes only — auditing status would write a row per hospital
+    timer and bury the three events the trail exists for.
+  - ⚠️ Grouped by faction: `/faction/{id}/members` covers every target in it in
+    one call, and a faction holding exactly one target is routed to the individual
+    lookup instead, since that costs the same call and drags back far less.
+
+## [3.191.2] - 2026-10-04
+
+### Changed
+- **CI now runs ESLint on the frontend**, with only the four rules whose failure is a
+  crash: `no-undef`, `react/jsx-no-undef`, `react/jsx-uses-vars` and
+  `react-hooks/rules-of-hooks`. ⚠️ Neither `vite build` nor vitest catches an
+  undeclared name; it is a runtime ReferenceError. Both of today's production
+  crashes were that (`raceGroupHeaders` on War Payouts, `renderCtx` on Member
+  Overview, #900), and this fails on each when they are put back. It also catches
+  the hooks-after-early-return bug fixed in 3.191.1. Zero standing failures, and it
+  should stay that way: `npm run lint -w frontend`.
+
 ## [3.191.1] - 2026-10-04
 
 ### Fixed

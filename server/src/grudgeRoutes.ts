@@ -15,6 +15,15 @@ import { rolesFromClaims } from './auth.js'
 import {
   parseTargetId, initialState, canSeeTarget, canModifyEntry, normaliseReason,
 } from './grudges.js'
+import { readProfile } from './grudgeEnrich.js'
+import {
+  normaliseSeverities, normaliseWatchedFactions, removedSeverityIds,
+} from './grudgeSettings.js'
+import { planWatchCycle, describePlan } from './grudgeWatchPlan.js'
+import { planStatusRefresh } from './grudges.js'
+import { createKeyPool } from './scraper/keyPool.js'
+import { createTornClient } from './scraper/tornClient.js'
+import { DISCLOSURE_VERSIONS, consentCovers } from './consent.js'
 
 const LEADERSHIP = new Set(['admin', 'leadership'])
 
@@ -26,13 +35,69 @@ const viewerOf = (req: any) => {
   }
 }
 
-/** Factions leadership wants held for approval. A setting, never hardcoded. */
-async function watchedFactions(db: pg.Pool): Promise<string[]> {
-  const { rows } = await db.query(
-    `SELECT value FROM faction_settings WHERE key = 'grudge_watched_factions'`
-  )
-  const v = rows[0]?.value
-  return Array.isArray(v) ? v.map((x: unknown) => String(x)) : []
+/**
+ * Factions leadership wants held for approval. A setting, never hardcoded.
+ *
+ * ⚠️ **Our own faction is ALWAYS included, and is read from
+ * `faction_config`, never written down.** This stack serves five factions from
+ * one codebase, so a literal id would watch TNL's faction on forge, mayhem and
+ * capacityx — silently approving nothing on four tenants and gating the wrong
+ * roster on three.
+ *
+ * ⚠️ It is added at READ time rather than seeded into the stored list, so it
+ * cannot be edited away by accident. Somebody tidying the settings should not
+ * be able to switch off the gate that stops a teammate appearing on a public
+ * target list.
+ */
+/**
+ * Watch mode, plus the cadence it would actually achieve.
+ *
+ * ⚠️ The cadence is COMPUTED, not configured. It falls out of the number of
+ * factions on the list and the number of members who have consented, so a
+ * configurable "refresh every N seconds" would be a number somebody picks and
+ * the system then fails to honour.
+ */
+async function watchState(db: pg.Pool) {
+  const [cfg, targets, keys] = await Promise.all([
+    db.query(`SELECT value FROM faction_settings WHERE key = 'grudge_watch'`),
+    db.query(`SELECT target_id, faction_id FROM grudge_targets WHERE removed_at IS NULL`),
+    // Only keys that may be used for THIS purpose — the cadence a member sees
+    // must reflect the keys that can actually do the work.
+    db.query(
+      `SELECT count(*)::int AS n FROM member_secrets
+        WHERE disabled = false AND cpr_api_key IS NOT NULL AND consent_at IS NOT NULL
+          AND has_faction_access IS NOT FALSE
+          AND consent_version = ANY($1::text[])`,
+      [DISCLOSURE_VERSIONS.filter((v) => consentCovers(v.id, 'target-lookup')).map((v) => v.id)]
+    ),
+  ])
+  const enabled = cfg.rows[0]?.value?.enabled === true
+  const keyCount = Number(keys.rows[0]?.n ?? 0)
+  const work = planStatusRefresh(targets.rows as any)
+  const plan = planWatchCycle(work, keyCount)
+  return {
+    enabled,
+    keys: keyCount,
+    targets: targets.rows.length,
+    calls_per_sweep: plan.callsPerSweep,
+    seconds_per_sweep: plan.secondsPerSweep,
+    shards: plan.shards,
+    description: describePlan(plan, keyCount),
+  }
+}
+
+export async function watchedFactions(db: pg.Pool): Promise<string[]> {
+  const [stored, ours] = await Promise.all([
+    db.query(`SELECT value FROM faction_settings WHERE key = 'grudge_watched_factions'`),
+    db.query('SELECT torn_faction_id FROM faction_config LIMIT 1'),
+  ])
+  const v = stored.rows[0]?.value
+  const list = Array.isArray(v) ? v.map((x: unknown) => String(x)) : []
+  const own = ours.rows[0]?.torn_faction_id
+  if (own !== null && own !== undefined && String(own) !== '' && !list.includes(String(own))) {
+    list.push(String(own))
+  }
+  return list
 }
 
 /** Append-only. This table IS the history the feature was asked for. */
@@ -53,7 +118,50 @@ async function audit(
   )
 }
 
-export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
+export interface GrudgeRouteDeps {
+  db: pg.Pool
+  tornBaseUrl: string
+  encryptionKey?: string
+}
+
+export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps) {
+  const db = deps.db
+
+  type Looked =
+    | ({ ok: true } & NonNullable<ReturnType<typeof readProfile>>)
+    | { ok: false; reason: 'no_key' | 'fetch_failed' }
+
+  /**
+   * Resolve a target inline, for the add path.
+   *
+   * ⚠️ `pool.claim({ purpose: 'target-lookup' })`. A member who has not
+   * accepted the Target Lookups disclosure is skipped for this and for nothing
+   * else (#894). If nobody has accepted, there is no key and the caller fails
+   * closed — which is a consent decision working, not an outage.
+   *
+   * ⚠️ `/user/{id}/profile`, never `/user/{id}/basic`: `basic` carries no
+   * faction, and the faction is the whole reason this call happens here.
+   */
+  async function lookupTarget(targetId: string): Promise<Looked> {
+    if (!deps.encryptionKey) return { ok: false, reason: 'no_key' }
+    try {
+      const pool = createKeyPool({ db, encryptionKey: deps.encryptionKey })
+      const claimed = await pool.claim({ purpose: 'target-lookup' })
+      if (!claimed) return { ok: false, reason: 'no_key' }
+      const client = createTornClient({
+        baseUrl: deps.tornBaseUrl,
+        budget: { requests: 60, perMs: 60_000 },
+      })
+      const data = await client.fetch(`/v2/user/${targetId}/profile`, claimed.key)
+      const p = readProfile(data)
+      return p ? { ok: true, ...p } : { ok: false, reason: 'fetch_failed' }
+    } catch {
+      // ⚠️ A Torn failure must not fail the ADD. The grudge is the member's
+      // contribution and is worth keeping; the lookup is enrichment and the
+      // sweep will retry it. Failing closed on the state is the safe half.
+      return { ok: false, reason: 'fetch_failed' }
+    }
+  }
   /* ──────────────────────────────────────────────────────────── settings ── */
   // ⚠️ Severity labels are a FACTION SETTING, never an enum in code. Factions
   // will want their own vocabulary, and a hardcoded Low/Medium/High would be
@@ -76,9 +184,129 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
       watched_factions: viewer.isLeadership
         ? ((byKey.get('grudge_watched_factions') as unknown[]) ?? [])
         : undefined,
+      watch: await watchState(db),
+      // ⚠️ Surfaced separately from the editable list: it is always watched
+      // and cannot be removed, and a UI that showed it as an ordinary row
+      // would invite somebody to delete it and wonder why it came back.
+      own_faction_id: viewer.isLeadership
+        ? (await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1'))
+            .rows[0]?.torn_faction_id ?? null
+        : undefined,
     }
   })
 
+  /**
+   * Save severities and watched factions (#889 slice 6).
+   *
+   * ⚠️ Leadership only. The watched-faction list decides which targets are held
+   * for approval, so a member who could edit it could let their own faction
+   * straight onto the public list.
+   */
+  app.put(
+    '/api/grudges/settings',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
+      const body = (req.body ?? {}) as any
+
+      const sev = normaliseSeverities(body.severities ?? [])
+      if (!sev.ok) return reply.status(400).send({ error: sev.error })
+      const watched = normaliseWatchedFactions(body.watched_factions ?? [])
+      if (!watched.ok) return reply.status(400).send({ error: watched.error })
+
+      const prior = await db.query(
+        `SELECT value FROM faction_settings WHERE key = 'grudge_severities'`
+      )
+      const before = Array.isArray(prior.rows[0]?.value) ? prior.rows[0].value : []
+      const dropped = removedSeverityIds(before, sev.severities)
+
+      // ⚠️ Removing a severity leaves grudges pointing at an id that no longer
+      // exists, and the list would render the raw slug. So the references are
+      // CLEARED and each one gets an audit row — the old value stays
+      // recoverable from the trail rather than vanishing. The editor warns
+      // with the count first, so this is never a surprise.
+      let cleared = 0
+      if (dropped.length > 0) {
+        const affected = await db.query(
+          `SELECT e.id, e.severity_id, e.target_row_id, t.target_id
+             FROM grudge_entries e JOIN grudge_targets t ON t.id = e.target_row_id
+            WHERE e.severity_id = ANY($1::text[]) AND e.removed_at IS NULL`,
+          [dropped]
+        )
+        for (const row of affected.rows) {
+          await audit(db, {
+            targetRowId: Number(row.target_row_id), targetId: row.target_id,
+            entryId: Number(row.id), actor: viewer.memberId, action: 'edited',
+            field: 'severity_id', oldValue: row.severity_id, newValue: null,
+          })
+        }
+        const upd = await db.query(
+          `UPDATE grudge_entries SET severity_id = NULL, updated_at = now()
+            WHERE severity_id = ANY($1::text[]) AND removed_at IS NULL`,
+          [dropped]
+        )
+        cleared = upd.rowCount ?? 0
+      }
+
+      for (const [key, value] of [
+        ['grudge_severities', sev.severities],
+        ['grudge_watched_factions', watched.factions],
+      ] as const) {
+        await db.query(
+          `INSERT INTO faction_settings (key, value, updated_at) VALUES ($1, $2, now())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+          [key, JSON.stringify(value)]
+        )
+      }
+
+      return {
+        severities: sev.severities,
+        watched_factions: watched.factions,
+        removed_severities: dropped,
+        grudges_cleared: cleared,
+      }
+    }
+  )
+
+  /**
+   * Turn watch mode on or off (#889).
+   *
+   * ⚠️ Only the TOGGLE is settable. The refresh rate is derived from the list
+   * and the consented keys, because a configured "every 30 seconds" is a
+   * promise the key budget may not be able to keep — and a cadence that
+   * silently fails to happen is worse than one that is simply stated.
+   */
+  app.put(
+    '/api/grudges/watch',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
+      const enabled = (req.body as any)?.enabled === true
+      await db.query(
+        `INSERT INTO faction_settings (key, value, updated_at) VALUES ('grudge_watch', $1, now())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [JSON.stringify({ enabled })]
+      )
+      return await watchState(db)
+    }
+  )
+
+  /** How many grudges use each severity, so the editor warns BEFORE a removal. */
+  app.get('/api/grudges/settings/usage', { preHandler: requireAuth() }, async (req, reply) => {
+    const viewer = viewerOf(req)
+    if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
+    const { rows } = await db.query(
+      `SELECT severity_id, count(*)::int AS n
+         FROM grudge_entries
+        WHERE removed_at IS NULL AND severity_id IS NOT NULL
+        GROUP BY severity_id`
+    )
+    const usage: Record<string, number> = {}
+    for (const r of rows) usage[String(r.severity_id)] = Number(r.n)
+    return { usage }
+  })
   /* ───────────────────────────────────────────────────────────── the list ── */
   app.get('/api/grudges', { preHandler: requireAuth() }, async (req) => {
     const viewer = viewerOf(req)
@@ -87,8 +315,14 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
       // timestamptz with a bare two-digit offset that `new Date()` reads as
       // NaN (#140); the client never meets that string.
       `SELECT id, target_id, target_name, faction_id, faction_name, level, state,
-              battle_stats, stats_source,
-              extract(epoch from stats_fetched_at) * 1000 AS stats_fetched_ms,
+              bsp_total, bsp_str, bsp_spd, bsp_def, bsp_dex, spy_source,
+              extract(epoch from bsp_fetched_at) * 1000 AS bsp_fetched_ms,
+              -- ⚠️ When the SPY was taken, not when we fetched it. A TornStats
+              -- spy can be months older than bsp_fetched_at, and the column
+              -- shows this date so nobody reads a stale figure as current.
+              -- (No backticks in here: this is inside a JS template literal,
+              -- and one would end the string mid-query.)
+              extract(epoch from ts_spy_at) * 1000 AS ts_spy_ms,
               status_state, status_until, status_description,
               extract(epoch from status_fetched_at) * 1000 AS status_fetched_ms,
               added_by, extract(epoch from added_at) * 1000 AS added_ms
@@ -139,7 +373,27 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
       }
 
       const watched = await watchedFactions(db)
-      const factionId = body.faction_id == null ? null : String(body.faction_id)
+
+      // ⚠️ Resolve the target NOW, inline, rather than leaving it to the
+      // sweep. The watched-faction gate needs a faction, and at add time we
+      // have none — so without this every target would land `active` and an
+      // own-faction target would sit on the public list with a grudge attached
+      // until the next refresh. That is precisely what the gate exists to
+      // prevent, so a window of up to fifteen minutes is not acceptable.
+      //
+      // It also means the name appears immediately, which is the difference
+      // between a readable list and a column of bare ids.
+      const looked = await lookupTarget(targetId)
+      const factionId = looked.ok ? looked.factionId : null
+
+      // ⚠️ FAILS CLOSED. If we could not look the target up — nobody has
+      // accepted the Target Lookups disclosure yet, or Torn is down — we
+      // cannot rule out that they are in a watched faction, so leadership
+      // rules on it. Publishing on an unverified assumption is the one
+      // outcome worth avoiding here; a queue entry is merely annoying.
+      const pendingReason: 'watched_faction' | 'unverified' | null = !looked.ok
+        ? 'unverified'
+        : (initialState(factionId, watched) === 'pending_approval' ? 'watched_faction' : null)
 
       const existing = await db.query(
         `SELECT id, state, removed_at FROM grudge_targets WHERE target_id = $1`, [targetId]
@@ -154,7 +408,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
         if (row.removed_at !== null) {
           // ⚠️ Revive the SAME row rather than inserting a new one, so the
           // audit trail stays attached to the target it is about.
-          state = initialState(factionId, watched)
+          state = pendingReason === null ? 'active' : 'pending_approval'
           await db.query(
             `UPDATE grudge_targets
                 SET removed_at = NULL, removed_by = NULL, state = $2, state_changed_at = now()
@@ -163,15 +417,22 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
           await audit(db, { targetRowId, targetId, actor: viewer.memberId, action: 'restored' })
         }
       } else {
-        state = initialState(factionId, watched)
-        // ⚠️ The name is NOT accepted from the client. It is resolved by the
-        // enrichment pass and nowhere else, so there is exactly one source for
-        // it and a rename is a fact we observe rather than a guess somebody
-        // typed. Until then it stays null and the list shows the id.
+        state = pendingReason === null ? 'active' : 'pending_approval'
+        // ⚠️ The name is NOT accepted from the client — it comes from the
+        // lookup above and nowhere else, so there is exactly one source for it
+        // and a rename is a fact we observe rather than a guess somebody typed.
         const ins = await db.query(
-          `INSERT INTO grudge_targets (target_id, faction_id, state, state_changed_at, added_by)
-           VALUES ($1,$2,$3,now(),$4) RETURNING id`,
-          [targetId, factionId, state, viewer.memberId]
+          `INSERT INTO grudge_targets
+             (target_id, target_name, level, faction_id, state, state_changed_at, added_by,
+              status_state, status_until, status_description, status_fetched_at)
+           VALUES ($1,$2,$3,$4,$5,now(),$6,$7,$8,$9,
+                   CASE WHEN $7::text IS NULL THEN NULL ELSE now() END)
+           RETURNING id`,
+          [targetId, looked.ok ? looked.name : null, looked.ok ? looked.level : null,
+           factionId, state, viewer.memberId,
+           looked.ok ? looked.statusState : null,
+           looked.ok ? looked.statusUntil : null,
+           looked.ok ? looked.statusDescription : null]
         )
         targetRowId = Number(ins.rows[0].id)
         await audit(db, {
@@ -191,7 +452,14 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
         action: 'added', field: 'reason', newValue: reason,
       })
 
-      return reply.status(201).send({ target_row_id: targetRowId, entry_id: entryId, state })
+      return reply.status(201).send({
+        target_row_id: targetRowId, entry_id: entryId, state,
+        // ⚠️ WHY it is pending, so the UI does not tell somebody their target
+        // is in a watched faction when the truth is that we could not look
+        // them up at all.
+        pending_reason: state === 'pending_approval' ? pendingReason : null,
+        target_name: looked.ok ? looked.name : null,
+      })
     }
   )
 

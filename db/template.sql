@@ -2140,13 +2140,27 @@ CREATE TABLE IF NOT EXISTS public.grudge_targets (
   state_changed_at timestamptz,
   state_changed_by text,
 
-  -- Battle stats, from whichever provider answered. ⚠️ `stats_source` and
-  -- `stats_fetched_at` are NOT optional metadata — a stale or estimated figure
-  -- shown as fact is how somebody picks a fight they lose. Mirrors the
-  -- spy_source / ts_spy_at convention the war room already uses.
-  battle_stats    bigint,
-  stats_source    text,
-  stats_fetched_at timestamptz,
+  -- Battle stats, from whichever provider answered. ⚠️ `spy_source` and the
+  -- two timestamps are NOT optional metadata — a stale or estimated figure
+  -- shown as fact is how somebody picks a fight they lose.
+  --
+  -- ⚠️ Named to match `fairFight.js#targetBattleStats`, which reads exactly
+  -- these keys, so the Fair Fight module reads a grudge row unchanged. That is
+  -- naming convergence, not coupling: nothing here touches war-room tables.
+  --
+  -- ⚠️ The four stats, not just a total: the BS score is a sum of square
+  -- ROOTS, so two targets with identical totals split differently score
+  -- differently. A total alone only supports an estimate.
+  bsp_total       bigint,
+  bsp_str         bigint,
+  bsp_spd         bigint,
+  bsp_def         bigint,
+  bsp_dex         bigint,
+  spy_source      text,
+  bsp_fetched_at  timestamptz,
+  -- ⚠️ When the SPY was taken — a different fact from when we fetched it. A
+  -- TornStats spy may be months old; NULL for BSP, which gives no capture time.
+  ts_spy_at       timestamptz,
 
   -- Last known Torn status. ⚠️ `status_until` is a Torn epoch in SECONDS, not
   -- a timestamptz — it is stored as given so nothing has to guess a timezone.
