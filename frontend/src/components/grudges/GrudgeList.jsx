@@ -12,6 +12,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Swords, Trash2, Pencil, ShieldAlert, X, Check, Hand } from 'lucide-react'
 import SortableTh, { useTableSort } from '../SortableTh.jsx'
+// ⚠️ The SAME cell the War Room and Member Overview use, not a lookalike.
+// It was extracted in #355 for exactly this reason, and the distinction it
+// exists to make — measured versus estimated — must not be restated a third
+// time in different words. Its props are the `bsp_*` columns, which is why
+// migration 0070 named the grudge columns to match.
+import BattleStatsCell from '../BattleStatsCell'
 import { apiDelete, apiPatch, apiPost } from '../../utils/apiClient'
 // ⚠️ Imported AS-IS. `fairFight.js` is a 170-line leaf module with zero
 // imports of its own, so using it here couples nothing — this page never
@@ -193,6 +199,11 @@ export default function GrudgeList({
   const [query, setQuery] = useState('')
   const [editing, setEditing] = useState(null)
   const [draft, setDraft] = useState('')
+  // ⚠️ Severity is edited alongside the reason. Without this a grudge added
+  // before the faction configured any severities could never be given one —
+  // the API accepted `severity_id` from the start, the form simply never
+  // sent it.
+  const [draftSeverity, setDraftSeverity] = useState('')
   const [busy, setBusy] = useState(false)
 
   const severityLabel = useMemo(() => {
@@ -254,8 +265,14 @@ export default function GrudgeList({
   const saveEdit = async (entryId) => {
     setBusy(true)
     try {
-      await apiPatch(`/api/grudges/entries/${entryId}`, { reason: draft })
-      setEditing(null); setDraft('')
+      // ⚠️ `severity_id: null` is a real value meaning "none", distinct from
+      // omitting the field, which the API reads as "leave it alone". Sending
+      // undefined here would make clearing a severity impossible.
+      await apiPatch(`/api/grudges/entries/${entryId}`, {
+        reason: draft,
+        severity_id: draftSeverity === '' ? null : draftSeverity,
+      })
+      setEditing(null); setDraft(''); setDraftSeverity('')
       onChanged?.()
     } finally { setBusy(false) }
   }
@@ -334,7 +351,38 @@ export default function GrudgeList({
               <SortableTh col="name" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Target</SortableTh>
               <SortableTh col="faction" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Faction</SortableTh>
               <SortableTh col="battle_stats" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">Battle stats</SortableTh>
-              <SortableTh col="ff" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right" label="Fair Fight">FF</SortableTh>
+              <SortableTh
+                col="ff" sortCol={sortCol} sortDir={sortDir} onSort={onSort}
+                className="px-3 py-2 text-right" label="Fair Fight"
+                // ⚠️ Copied VERBATIM from the War Room's FF header. The same
+                // number explained two different ways is how two surfaces end
+                // up disagreeing about what it means.
+                info={(
+                  <>
+                    <div>Fair Fight — the respect multiplier YOU would get hitting this target.</div>
+                    <div className="mt-1.5 font-mono text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                      <div>FF = min(3, 1 + 8/3 × (their BS score / your BS score))</div>
+                      <div>BS score = √str + √spd + √def + √dex</div>
+                    </div>
+                    <div className="mt-1.5">
+                      It saturates at the 3.00 cap, so a lot of a healthy roster sits flat there.
+                    </div>
+                    <div className="mt-1.5">
+                      A dotted underline on a value means it is an estimate: only a stat total was
+                      known for one side, so an even split was assumed and the real FF may be lower.
+                    </div>
+                    <div className="mt-1.5">
+                      This column is personal — computed from your own battle stats, so it reads
+                      differently for every viewer.
+                    </div>
+                    {!myBattleStats && (
+                      <div className="mt-1.5 text-amber-600 dark:text-amber-400">
+                        No battle stats on record for you yet — the column cannot be computed.
+                      </div>
+                    )}
+                  </>
+                )}
+              >FF</SortableTh>
               <SortableTh col="severity" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Severity</SortableTh>
               <SortableTh col="level" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">Lvl</SortableTh>
               <SortableTh col="status" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Status</SortableTh>
@@ -377,19 +425,10 @@ export default function GrudgeList({
                     <span className="text-gray-400">—</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums">
-                  {fmt(t.bsp_total)}
-                  {/* ⚠️ Provenance and age, not decoration. A stale or estimated
-                      figure shown as fact is how somebody picks a fight they
-                      lose. `ts_spy_at` is when the SPY was taken, which can be
-                      months before we fetched it. */}
-                  {t.spy_source && (
-                    <div className="font-sans text-xs text-gray-500 dark:text-gray-400">
-                      {/* ts_spy_ms is epoch MILLISECONDS from SQL's
-                          extract(epoch ...) * 1000 — db-time-safe */}
-                      {t.spy_source}{t.ts_spy_ms ? ` · ${new Date(t.ts_spy_ms).toLocaleDateString()}` : ''}
-                    </div>
-                  )}
+                <td className="px-3 py-2 text-right">
+                  {/* Hover or tap for the per-stat breakdown, the source and how
+                      old the reading is — identical to the War Room. */}
+                  <BattleStatsCell member={t} />
                 </td>
                 <td className="px-3 py-2 text-right">
                   <FairFightCell mine={myBattleStats} target={t} />
@@ -408,16 +447,30 @@ export default function GrudgeList({
                     {(t.grudges ?? []).map((g) => (
                       <li key={g.id} className="text-gray-700 dark:text-gray-300">
                         {editing === g.id ? (
-                          <span className="flex items-center gap-1">
+                          <span className="flex flex-wrap items-center gap-1">
                             <input
                               value={draft} onChange={(e) => setDraft(e.target.value)}
                               aria-label="Edit reason"
-                              className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
+                              className="min-w-[12rem] flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900"
                             />
+                            {severities.length > 0 && (
+                              <select
+                                value={draftSeverity} onChange={(e) => setDraftSeverity(e.target.value)}
+                                aria-label="Edit severity"
+                                className="rounded border border-gray-300 px-1 py-1 text-xs dark:border-slate-600 dark:bg-slate-900"
+                              >
+                                <option value="">No severity</option>
+                                {severities.map((sv) => (
+                                  <option key={sv.id} value={sv.id}>{sv.label}</option>
+                                ))}
+                              </select>
+                            )}
                             <button type="button" onClick={() => saveEdit(g.id)} disabled={busy || draft.trim() === ''} aria-label="Save">
                               <Check className="h-4 w-4 text-emerald-600" />
                             </button>
-                            <button type="button" onClick={() => { setEditing(null); setDraft('') }} aria-label="Cancel">
+                            <button type="button"
+                                    onClick={() => { setEditing(null); setDraft(''); setDraftSeverity('') }}
+                                    aria-label="Cancel">
                               <X className="h-4 w-4 text-gray-500" />
                             </button>
                           </span>
@@ -429,7 +482,11 @@ export default function GrudgeList({
                             </span>
                             {canModify(g) && (
                               <>
-                                <button type="button" onClick={() => { setEditing(g.id); setDraft(g.reason) }}
+                                <button type="button"
+                                        onClick={() => {
+                                          setEditing(g.id); setDraft(g.reason)
+                                          setDraftSeverity(g.severity_id ?? '')
+                                        }}
                                         aria-label={`Edit grudge by ${g.member_name || g.member_id}`}>
                                   <Pencil className="h-3.5 w-3.5 text-gray-400 hover:text-gray-600" />
                                 </button>

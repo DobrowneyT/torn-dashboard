@@ -16,7 +16,7 @@ vi.mock('../../../contexts/AuthContext', () => ({
   useAuth: () => ({ user: { id: 9010, name: 'Me' } }),
 }))
 
-const { apiGet, apiPut, apiPost } = await import('../../../utils/apiClient')
+const { apiGet, apiPut, apiPost, apiPatch } = await import('../../../utils/apiClient')
 const { default: GrudgeList } = await import('../GrudgeList')
 const { default: GrudgeSettings } = await import('../GrudgeSettings')
 const { default: GrudgeHistory } = await import('../GrudgeHistory')
@@ -272,5 +272,123 @@ describe('claiming (#892)', () => {
     // Presenting it as something Torn enforces would be a lie.
     render(<GrudgeList targets={[target()]} viewerId={9010} />)
     expect(screen.getByText(/not something Torn enforces/i)).toBeTruthy()
+  })
+})
+
+describe('severity on an existing grudge', () => {
+  const sevs = [{ id: 'petty', label: 'Petty' }, { id: 'blood', label: 'Blood feud' }]
+
+  it('⚠️ can be set on a grudge that was added without one', () => {
+    // The gap this closes: the API accepted severity_id from the start, the
+    // edit form simply never sent it, so anything added before the faction
+    // configured severities could never be given one.
+    render(<GrudgeList targets={[target()]} viewerId={9010} severities={sevs} />)
+    fireEvent.click(screen.getByLabelText('Edit grudge by Me'))
+    expect(screen.getByLabelText('Edit severity')).toBeTruthy()
+  })
+
+  it('sends the chosen severity alongside the reason', async () => {
+    apiPatch.mockResolvedValue({})
+    render(<GrudgeList targets={[target()]} viewerId={9010} severities={sevs} />)
+    fireEvent.click(screen.getByLabelText('Edit grudge by Me'))
+    fireEvent.change(screen.getByLabelText('Edit severity'), { target: { value: 'blood' } })
+    fireEvent.click(screen.getByLabelText('Save'))
+    await waitFor(() => expect(apiPatch).toHaveBeenCalled())
+    expect(apiPatch.mock.calls[0][1]).toMatchObject({ severity_id: 'blood' })
+  })
+
+  it('⚠️ sends NULL to clear one, not undefined', async () => {
+    // undefined means "leave it alone" to the API, so clearing would be
+    // impossible and the control would look broken.
+    apiPatch.mockResolvedValue({})
+    const withSev = target({
+      grudges: [{ id: 11, member_id: '9010', member_name: 'Me', reason: 'mugged me', severity_id: 'petty' }],
+    })
+    render(<GrudgeList targets={[withSev]} viewerId={9010} severities={sevs} />)
+    fireEvent.click(screen.getByLabelText('Edit grudge by Me'))
+    fireEvent.change(screen.getByLabelText('Edit severity'), { target: { value: '' } })
+    fireEvent.click(screen.getByLabelText('Save'))
+    await waitFor(() => expect(apiPatch).toHaveBeenCalled())
+    expect(apiPatch.mock.calls[0][1].severity_id).toBeNull()
+  })
+
+  it('pre-selects whatever the grudge already has', () => {
+    const withSev = target({
+      grudges: [{ id: 11, member_id: '9010', member_name: 'Me', reason: 'r', severity_id: 'blood' }],
+    })
+    render(<GrudgeList targets={[withSev]} viewerId={9010} severities={sevs} />)
+    fireEvent.click(screen.getByLabelText('Edit grudge by Me'))
+    expect(screen.getByLabelText('Edit severity').value).toBe('blood')
+  })
+
+  it('⚠️ shows no severity control when the faction configured none', () => {
+    render(<GrudgeList targets={[target()]} viewerId={9010} severities={[]} />)
+    fireEvent.click(screen.getByLabelText('Edit grudge by Me'))
+    expect(screen.queryByLabelText('Edit severity')).toBeNull()
+  })
+})
+
+describe('ordering severities', () => {
+  const three = [
+    { id: 'a', label: 'Alpha' }, { id: 'b', label: 'Bravo' }, { id: 'c', label: 'Charlie' },
+  ]
+  const labels = (c) => [...c.querySelectorAll('input[aria-label^="Severity"]')].map((i) => i.value)
+
+  beforeEach(() => apiGet.mockResolvedValue({ usage: {} }))
+
+  it('numbers them so the top priority is 1', async () => {
+    const { container } = render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    await screen.findByLabelText('Severity 1')
+    expect(container.textContent).toMatch(/1\./)
+    expect(screen.getByLabelText('Severity 1').value).toBe('Alpha')
+    expect(screen.getByLabelText('Severity 3').value).toBe('Charlie')
+  })
+
+  it('moves a row up', async () => {
+    const { container } = render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    fireEvent.click(await screen.findByLabelText('Move Bravo up'))
+    expect(labels(container)).toEqual(['Bravo', 'Alpha', 'Charlie'])
+  })
+
+  it('moves a row down', async () => {
+    const { container } = render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    fireEvent.click(await screen.findByLabelText('Move Bravo down'))
+    expect(labels(container)).toEqual(['Alpha', 'Charlie', 'Bravo'])
+  })
+
+  it('⚠️ cannot move the first row up or the last row down', async () => {
+    render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    expect((await screen.findByLabelText('Move Alpha up')).disabled).toBe(true)
+    expect(screen.getByLabelText('Move Charlie down').disabled).toBe(true)
+  })
+
+  it('⚠️ saves the NEW order, since position is the priority', async () => {
+    apiPut.mockResolvedValue({ severities: [], watched_factions: [], grudges_cleared: 0 })
+    render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    fireEvent.click(await screen.findByLabelText('Move Charlie up'))
+    fireEvent.click(screen.getByRole('button', { name: /save settings/i }))
+    await waitFor(() => expect(apiPut).toHaveBeenCalled())
+    expect(apiPut.mock.calls[0][1].severities.map((s) => s.label))
+      .toEqual(['Alpha', 'Charlie', 'Bravo'])
+  })
+
+  it('⚠️ reordering keeps every id, so no grudge is orphaned', async () => {
+    apiPut.mockResolvedValue({ severities: [], watched_factions: [], grudges_cleared: 0 })
+    render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    fireEvent.click(await screen.findByLabelText('Move Charlie up'))
+    fireEvent.click(screen.getByRole('button', { name: /save settings/i }))
+    await waitFor(() => expect(apiPut).toHaveBeenCalled())
+    expect(apiPut.mock.calls[0][1].severities.map((s) => s.id).sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  it('adds a new row at the bottom', async () => {
+    const { container } = render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    fireEvent.click(await screen.findByRole('button', { name: /add a severity/i }))
+    expect(labels(container)).toEqual(['Alpha', 'Bravo', 'Charlie', ''])
+  })
+
+  it('says which end is the top priority', async () => {
+    render(<GrudgeSettings severities={three} watchedFactions={[]} />)
+    expect(await screen.findByText(/1 is the top priority/i)).toBeTruthy()
   })
 })

@@ -4,8 +4,23 @@
 // made the approval gate unusable: it worked perfectly and nobody could tell
 // it what to watch.
 import { useEffect, useState } from 'react'
-import { Plus, Radio, Settings2, Trash2, TriangleAlert } from 'lucide-react'
+import { ArrowDown, ArrowUp, Plus, Radio, Settings2, Trash2, TriangleAlert } from 'lucide-react'
 import { apiGet, apiPut } from '../../utils/apiClient'
+
+/**
+ * Move one row, returning a NEW array.
+ *
+ * ⚠️ A new array, not an in-place swap: React compares by reference, and
+ * mutating `rows` then setting the same reference back renders nothing. The
+ * reorder would silently do nothing and look like a broken button.
+ */
+function swap(list, from, to) {
+  if (to < 0 || to >= list.length) return list
+  const next = [...list]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
 
 export default function GrudgeSettings({
   severities = [], watchedFactions = [], ownFactionId = null, watch = null, onSaved,
@@ -112,12 +127,20 @@ export default function GrudgeSettings({
       <div>
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Severities</h4>
         <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
-          Your faction&rsquo;s own words for how badly somebody wronged you. Leave it empty
-          and the severity control simply does not appear.
+          Your faction&rsquo;s own words for how badly somebody wronged you, most serious
+          first &mdash; <b>1 is the top priority</b>. Leave it empty and the severity control
+          simply does not appear.
         </p>
+        {/* ⚠️ The NUMBER is the priority, and it is the row's position — there
+            is no separate order field. Two sources of truth for one fact is two
+            things to drift, and a stored order that disagrees with the array is
+            the kind of bug nobody notices until the list renders backwards. */}
         <ul className="space-y-2">
           {rows.map((r, i) => (
             <li key={r.id ?? `new-${i}`} className="flex items-center gap-2">
+              <span className="w-6 shrink-0 text-right font-mono text-sm tabular-nums text-gray-500 dark:text-gray-400">
+                {i + 1}.
+              </span>
               <input
                 value={r.label}
                 aria-label={`Severity ${i + 1}`}
@@ -125,8 +148,29 @@ export default function GrudgeSettings({
                 className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-gray-100"
               />
               {usage[r.id] > 0 && (
-                <span className="text-xs text-gray-500 dark:text-gray-400">{usage[r.id]} in use</span>
+                <span className="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                  {usage[r.id]} in use
+                </span>
               )}
+              {/* ⚠️ Buttons rather than drag-and-drop: they work on a phone, with
+                  a keyboard and with a screen reader, and a chain is not the
+                  moment to discover a drag handle does not. */}
+              <button
+                type="button" aria-label={`Move ${r.label || 'severity'} up`}
+                disabled={i === 0}
+                onClick={() => setRows(swap(rows, i, i - 1))}
+                className="disabled:opacity-25"
+              >
+                <ArrowUp className="h-4 w-4 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" />
+              </button>
+              <button
+                type="button" aria-label={`Move ${r.label || 'severity'} down`}
+                disabled={i === rows.length - 1}
+                onClick={() => setRows(swap(rows, i, i + 1))}
+                className="disabled:opacity-25"
+              >
+                <ArrowDown className="h-4 w-4 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" />
+              </button>
               <button
                 type="button" aria-label={`Remove ${r.label || 'severity'}`}
                 onClick={() => setRows(rows.filter((_, j) => j !== i))}

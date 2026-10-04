@@ -27,12 +27,13 @@ import {
  */
 const REFETCH_AFTER_DAYS = 7
 
-export async function grudgeStatsJob({ db }: JobDeps): Promise<RunResult> {
-  const providers = await resolveSpyProviders(db, {
-    encryptionKey: process.env.KEY_ENCRYPTION_KEY,
-    tornStatsApiKey: process.env.TORNSTATS_API_KEY,
-    bspApiKey: process.env.BSP_API_KEY,
-  })
+export async function grudgeStatsJob({ db, spy }: JobDeps): Promise<RunResult> {
+  // ⚠️ `deps.spy` — the SAME provider config the War Room's spy fetch uses,
+  // assembled once in `buildDeps`. Rebuilding it from `process.env` here was
+  // wrong twice over: it ignored the operator's base-URL overrides, so this
+  // job could not be pointed at a test fixture, and it meant two places
+  // deciding where a faction's TornStats key comes from.
+  const providers = await resolveSpyProviders(db, spy ?? {})
   if (!providers.tsKey && !providers.bspKey) {
     // Not an error: a faction that has configured neither provider simply has
     // no battle stats on its board, and the column says so.
