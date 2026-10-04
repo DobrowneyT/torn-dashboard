@@ -18,6 +18,160 @@ surface it automatically.
 
 ---
 
+## [3.183.0] - 2026-10-04
+
+### Fixed
+- **War Payouts crashed with `raceGroupHeaders is not defined`.** Reported by
+  MonChoon. #836 (the shared-sort epic, 2026-10-01) deleted the function and
+  left both call sites, so the page had been broken for three days. Its
+  companion `raceColHeaders` survived the same commit, which is why only one of
+  the two header rows went missing and the diff looked harmless.
+
+### Added
+- A guard test: every `{name(...)}` in a `.jsx` file must be declared or
+  imported in that file.
+
+### Notes
+- ⚠️ **Nothing in the repo could have caught this.** There is no eslint config
+  at all, and `vite build` does not catch it either — an undeclared identifier
+  is a runtime `ReferenceError`, so the bundle compiles cleanly and the page
+  explodes when it renders. Build passed, every test passed, page was broken.
+- The Participation column count is now derived from the surviving
+  `raceColHeaders` instead of a bare `12 : 7`, which could drift from the
+  columns beneath it without anything noticing.
+- ⚠️ **The guard was wrong the first time it was written**, and the probe caught
+  it: re-deleting the function still passed. It stripped string literals, but
+  **JSX prose is not a string literal** — an apostrophe in ordinary text opens a
+  quote that runs until the next one, which swallowed more than half of
+  `WarPayoutManagement.jsx` (120,632 chars down to 57,351) including the call
+  sites it was looking for. It now strips comments only, and provably fails
+  when the definition is removed.
+
+## [3.182.0] - 2026-10-03
+
+### Added
+- **Faction Hall of Fame board (#872)** at Members → Hall of Fame, open to
+  everyone. Where each member sits inside the faction, with their position in
+  all of Torn beside it — *"3rd in forge, 48,000th in Torn"*.
+- Migration **0068** — `member_hof_snapshots`, one row per member per day.
+- Scraper job `member-hof`, daily at 01:35.
+
+### Notes
+- ⚠️ **Bragging rights, not analytics.** Singularity, asked whether this was
+  for screening applicants or spotting anomalies: *"no it was more so to
+  promote competition within the faction, bit of bragging rights."* So there
+  are no thresholds, no compliance colouring, and deliberately **no reuse of
+  the Member Overview's machinery** — importing it would drag the assessment
+  framing along with it.
+- ⚠️ **Battle stats are absent and must stay absent.** Torn returns that
+  category as `null` for anyone but the requester, so a roster-wide battle-stat
+  board cannot be built by anyone. It is excluded rather than rendered as an
+  empty column that would read as a scrape failure — and the tooltip says why,
+  because an unexplained gap gets reported as a bug.
+- `working_stats` leads the categories: it is the likeliest target of the
+  request, and unlike battle stats it *is* available for other players.
+- ⚠️ **One jsonb column, not fourteen typed pairs.** Torn adds HoF categories,
+  and a column-per-category schema turns every addition into a migration.
+- ⚠️ Faction position is computed **on read**, never stored — it changes
+  whenever a *different* member's value changes.
+- ⚠️ Tied members share a position (1, 2, 2, 4). Telling two people with
+  identical numbers that one is ahead is a lie the data does not support.
+- ⚠️ Members with no reading are **left out, not ranked last** — absent is not
+  "worst", the same rule the roster sort follows for unspied battle stats.
+- ~1 call per member, so daily is affordable and per-page-load is not; the
+  cadence is stated in the job rather than implied.
+
+## [3.181.0] - 2026-10-03
+
+### Changed
+- **Member Overview numbers now say what they are a rate OF (#866).** Every
+  per-day figure carries a `/d`, a **120d** window joins the list, and one
+  toggle switches the whole table between per-day rates and window totals.
+
+### Notes
+- ⚠️ **The arithmetic was never wrong and is untouched.** `perDay = delta /
+  daysCovered` divides by the days actually covered, never by the window
+  length, so a short history is not diluted. Singularity read `80 (2,400 in
+  30d)`, took the large unlabelled figure at face value, and concluded the
+  system was understating them — a legibility failure, not a maths one, and
+  worth taking seriously because the reader was competent and still misread it.
+- ⚠️ The `/d` goes on the **value**, not only the column header: the table
+  scrolls horizontally, so a header-only label is invisible exactly when a
+  reader is deep in the right-hand columns. The chain-watch grid settled the
+  same argument by spelling out `TCT` on every row.
+- ⚠️ One `RateCell` now renders every per-day column **including gym energy**.
+  They were two near-identical render paths, which is how the gym header ended
+  up with a `/d` the stat headers never got.
+- ⚠️ A member whose history is shorter than the window shows an **amber**
+  bracket on the cell being read. The signal used to be an underline on the
+  far-left name cell, which somebody studying the Xanax column never looks at.
+  No per-cell tooltip — thirty hover targets per row is worse than the problem.
+- ⚠️ Sorting follows the **displayed** figure. With totals showing, sorting by
+  the per-day rate would order the table by a number nobody can see.
+- Per-day stays the default: it is the only basis on which a 6-day member and a
+  300-day member are comparable, and it is what the thresholds check.
+- 90d is unchanged and still available.
+
+## [3.180.0] - 2026-10-03
+
+### Added
+- **A member can download their own stat history as CSV (#867).** On the
+  Dashboard: pick a range, get one row per day of your personal stats and gym
+  contributions. Prompted by Singularity, who maintains their own workstat
+  script and would rather have the raw series than read our table.
+
+### Notes
+- ⚠️ **The route takes no member parameter and no table parameter.** The id
+  comes from the verified session and nowhere else. A `?member=` that is merely
+  *checked* is one refactor away from an IDOR, so there is nothing to check.
+- ⚠️ `member_daily_stats` **stays `role: 'leadership'`**. This adds a narrower
+  door rather than widening the existing one — relaxing that registry entry
+  would hand the whole roster to anyone with a session. A test pins it.
+- Visitors are refused with a reason rather than handed an empty CSV, which
+  would read as "you have no stats".
+- ⚠️ The client **verifies the completion marker before saving**. The status
+  line goes out with the headers, so a stream that dies halfway still arrives
+  as a 200 and opens perfectly with most of its rows missing. A truncated file
+  that saves cleanly is worse than one that fails.
+- Gym columns start from the day a member joined this dashboard and can never
+  be backfilled — they come from a current-only endpoint. The tooltip says so,
+  because an unexplained blank column gets reported as a bug.
+
+## [3.179.0] - 2026-10-03
+
+### Fixed
+- **A settled OC payout week is now a static sheet (#871).** Reopening one
+  rebuilt its item breakdown from live crime data and **re-priced it at the
+  current market** — so a week settled in July, reopened in October, showed a
+  pot nobody received. It now renders exactly what it showed when it was saved.
+
+### Added
+- Migration **0067** — `oc_payout_weeks.item_breakdown` and `crime_values`,
+  holding the sheet as displayed at save time, unit prices included.
+
+### Notes
+- ⚠️ The re-pricing hid behind a comment claiming the opposite. The restore
+  path called `enrichItemBreakdown` under *"for display only … names"*; the
+  enricher returns **current market** unit values and replaced the breakdown
+  wholesale. That call is gone.
+- ⚠️ **Nothing recalculates a saved week** any more — not on open, not on a
+  payout-mode change, not on an item-price edit. A `savedWeekRef` guards the
+  calculation effect and `recalculateWithItemPrices` returns untouched. This is
+  the same path that re-split TNL week 5 by tickets on a week marked `equal`.
+- ⚠️ `min_time_for_full_tickets` / `min_time_for_any_payout` are now **written**.
+  They were allowlisted on the server from the start but never sent, so every
+  stored row silently carried the table default regardless of what the week was
+  computed under.
+- ⚠️ **Weeks saved before 0067 are not backfilled** and do not fall back to live
+  prices. They open on their stored payouts — which are correct and complete —
+  with a notice that itemised prices were never recorded. A past market price
+  cannot be recovered, and inventing one is what this change exists to prevent.
+- **RW payouts were already correct** and are unchanged. `war_payouts` stores
+  the cache prices as used, every weight, and `total_reward` — the pot itself —
+  and restores them as inputs. Tests now pin that, so RW cannot drift into the
+  OC bug.
+- Preparing a new, unsaved week is behaviourally unchanged.
+
 ## [3.178.0] - 2026-10-03
 
 ### Changed

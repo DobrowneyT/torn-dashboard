@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { apiGet } from '../utils/apiClient'
 import CompetitionPins from '../components/CompetitionPins'
 import UpcomingEvents from '../components/UpcomingEvents'
+import MyStatsExport from '../components/MyStatsExport'
 import { filterItemsForMember } from '../utils/payoutDataLoader'
 import { calculateTierProgress, getTierInfo } from '../utils/tierProgressUtils'
 import { formatCurrency } from '../utils/payoutCalculations'
@@ -175,6 +176,11 @@ export default function DashboardView() {
       {personalStats && (
         <PersonalStatsCard stats={personalStats} />
       )}
+
+      {/* #867 — your own stat history as CSV. Lives here rather than behind a
+          new nav entry: this page is already "your personal Torn dashboard",
+          and the export is a convenience on it, not a section of its own. */}
+      <MyStatsExport />
 
       {/* 2. RW Summary */}
       <RWSummaryCard wars={recentWars} payouts={warPayouts} />

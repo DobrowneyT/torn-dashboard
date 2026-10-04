@@ -32,6 +32,9 @@ const TIME_WINDOWS = [
   { id: '7d',   label: '7d',   days: 7 },
   { id: '30d',  label: '30d',  days: 30 },
   { id: '90d',  label: '90d',  days: 90 },
+  // #866 — Singularity asked for 1/7/30/120/365. 90d stays: it is in use, and
+  // the list is a stated set rather than a tier table hardcoded anywhere else.
+  { id: '120d', label: '120d', days: 120 },
   { id: '365d', label: '1y',   days: 365 },
   { id: 'all',  label: 'All',  days: null },
 ]
@@ -72,6 +75,62 @@ const BUILT_IN_VIEWS = [
 // level, tier, days, streak, battle stats, gym energy — is numeric and must not
 // be compared with localeCompare, which would order 10 before 9.
 export const TEXT_COLUMNS = new Set(['name', 'property'])
+
+/**
+ * One per-day figure, with its unit and its coverage (#866).
+ *
+ * Singularity [2573844], on 3.174.0: *"I was just sad to see such low numbers
+ * till I saw it's out of 30"*. The cell rendered `80 (2,400 in 30d)` and
+ * nothing said the 80 was per day — a bare number under a header reading
+ * `Xanax` reads as a count of Xanax. An experienced player took the large
+ * figure at face value, concluded the system was understating them, worked out
+ * the basis themselves, and wrote in.
+ *
+ * ⚠️ The `/d` goes on the VALUE, not only on the column header. The table
+ * scrolls horizontally, so a header-only label is invisible exactly when a
+ * reader is deep in the right-hand columns. This repo already settled the same
+ * argument once: the chain-watch grid spells out `TCT` on every row rather than
+ * in a heading, for this reason.
+ *
+ * ⚠️ One component for every per-day column INCLUDING gym energy. They used to
+ * be two near-identical render functions, which is how the gym header ended up
+ * with a `/d` the stat headers never got.
+ *
+ * ⚠️ The per-day rate stays primary by default. It is the only basis on which a
+ * 6-day member and a 300-day member are comparable — the page's whole purpose —
+ * and it is what thresholds are checked against. `showTotals` inverts the pair
+ * for a reader who wants the window sum; it does not change what is computed.
+ */
+export function RateCell({ perDay, delta, daysCovered, windowDays, format, showTotals }) {
+  if (perDay == null) return <span className="text-gray-400">—</span>
+
+  const primary = showTotals ? delta : perDay
+  const secondary = showTotals ? perDay : delta
+  if (primary == null) return <span className="text-gray-400">—</span>
+
+  // ⚠️ Amber when the span is shorter than the window asked for. `days_covered`
+  // was already on the cell and honest, but the only SIGNAL was an underline on
+  // the far-left name cell — and a reader studying the Xanax column never looks
+  // there. No tooltip here: thirty hover targets per row is worse than the
+  // problem, and the full reason already lives in the one name tooltip.
+  const short = windowDays != null && daysCovered > 0 && daysCovered < windowDays
+  const subClass = short
+    ? 'ml-1.5 text-xs text-amber-600 dark:text-amber-400'
+    : 'ml-1.5 text-xs text-gray-400 dark:text-gray-500'
+
+  return (
+    <span className="font-mono">
+      {format(primary)}{showTotals ? '' : <span className="text-gray-400 dark:text-gray-500">/d</span>}
+      {secondary != null && daysCovered > 0 && (
+        <span className={subClass}>
+          {showTotals
+            ? <>({format(secondary)}/d over {daysCovered}d)</>
+            : <>({format(secondary)} in {daysCovered}d)</>}
+        </span>
+      )}
+    </span>
+  )
+}
 
 export const IDENTITY_COLUMNS = {
   name: {
@@ -145,23 +204,21 @@ export const IDENTITY_COLUMNS = {
     render: r => <BattleStatsCell member={r} />,
   },
   gym_energy: {
-    label: 'Gym Energy/d',
+    // ⚠️ No `/d` in the label any more — `RateCell` puts it on the value, where
+    // a reader scrolled right can actually see it. Leaving it in both places
+    // would render "Gym Energy/d … 80/d".
+    label: 'Gym Energy',
     sortValue: r => r.gym_energy_perday ?? -1,
-    render: (r, _ctx) => {
-      if (r.gym_energy_perday == null) return <span className="text-gray-400">—</span>
-      const daily = r.gym_energy_perday
-      const total = r.gym_energy_delta
-      return (
-        <span className="font-mono">
-          {Math.round(daily).toLocaleString()}
-          {total != null && r.days_covered > 0 && (
-            <span className="ml-1.5 text-xs text-gray-400 dark:text-gray-500">
-              ({Math.round(total).toLocaleString()} in {r.days_covered}d)
-            </span>
-          )}
-        </span>
-      )
-    },
+    render: (r, ctx) => (
+      <RateCell
+        perDay={r.gym_energy_perday}
+        delta={r.gym_energy_delta}
+        daysCovered={r.days_covered}
+        windowDays={r.window_days}
+        format={(n) => Math.round(n).toLocaleString()}
+        showTotals={ctx?.showTotals}
+      />
+    ),
   },
 }
 
@@ -193,6 +250,14 @@ export default function MemberOverview() {
 
   // ── UI state ──
   const [timeWindow, setTimeWindow]           = useState('30d')
+  // #866 — show window TOTALS instead of per-day rates. One control for the
+  // whole table, not per column.
+  // ⚠️ Default stays per-day: it is the only basis on which a 6-day member and
+  // a 300-day member are comparable, which is this page's purpose, and it is
+  // what the thresholds are checked against.
+  const [showTotals, setShowTotals]           = useState(
+    () => { try { return localStorage.getItem('member_overview_totals') === '1' } catch { return false } }
+  )
   const [activeViewId, setActiveViewId]       = useState('default')
   const [activeThresholdId, setActiveThresholdId] = useState(null)
   const [search, setSearch]                   = useState('')
@@ -264,6 +329,10 @@ export default function MemberOverview() {
   // ── Compute per-member row (identity + per-stat deltas / daily averages) ──
   const memberRows = useMemo(() => {
     const window = TIME_WINDOWS.find(w => w.id === timeWindow) ?? TIME_WINDOWS[2]
+  // ⚠️ An OBJECT, not the bare window string the call site used to pass. A
+  // string would make `ctx?.showTotals` silently undefined — the cell would
+  // render per-day rates for ever and the toggle would look broken.
+  const renderCtx = useMemo(() => ({ window: timeWindow, showTotals }), [timeWindow, showTotals])
     const rows = members.map(m =>
       buildMemberRow(m, snapshotsByMember.get(String(m.member_id)) ?? [], window.days)
     )
@@ -342,9 +411,17 @@ export default function MemberOverview() {
     () => visibleColumns.map(colId => {
       const def = resolveColumn(colId)
       if (!def) return null
-      return { key: colId, kind: TEXT_COLUMNS.has(colId) ? 'text' : 'number', accessor: def.sortValue }
+      // ⚠️ `showTotals` is BOUND here, not threaded through the comparator.
+      // The shared sorter calls accessors with one argument, so a second
+      // parameter would silently be undefined and the table would keep sorting
+      // by the per-day rate while displaying totals (#866).
+      return {
+        key: colId,
+        kind: TEXT_COLUMNS.has(colId) ? 'text' : 'number',
+        accessor: (r) => def.sortValue(r, { showTotals }),
+      }
     }).filter(Boolean),
-    [visibleColumns]
+    [visibleColumns, showTotals]
   )
 
   const sortedRows = useMemo(
@@ -519,6 +596,36 @@ export default function MemberOverview() {
               </button>
             ))}
           </div>
+
+          {/* #866 — rate ⇄ total for the whole table. One control, not a
+              setting per column. */}
+          <button
+            type="button"
+            onClick={() => setShowTotals(v => {
+              const next = !v
+              try { localStorage.setItem('member_overview_totals', next ? '1' : '0') } catch { /* private mode */ }
+              return next
+            })}
+            aria-pressed={showTotals}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-slate-600 dark:text-gray-300 dark:hover:bg-slate-700"
+            title={showTotals
+              ? 'Showing the total for the window — click for the per-day rate'
+              : 'Showing the per-day rate — click for the window total'}
+          >
+            {showTotals ? 'Showing totals' : 'Showing per day'}
+          </button>
+          <InfoTooltip label={<span className="text-xs text-gray-400">?</span>}>
+            <div><b>Per day</b> — the figure divided by the days actually covered, so a
+              6-day member and a 300-day member are comparable. This is what the
+              thresholds are checked against.</div>
+            <div className="mt-1.5"><b>Totals</b> — the raw change across the window.</div>
+            {/* ⚠️ Said out loud, because this is the thing that was misread:
+                the average is over the days we HAVE, never over the window
+                length. A short history is not diluted. */}
+            <div className="mt-1.5">Either way the average is over the days we have data
+              for — shown in brackets — never over the length of the window. An
+              amber bracket means the member's history is shorter than the window.</div>
+          </InfoTooltip>
         </div>
 
         {/* Threshold row */}
@@ -699,7 +806,7 @@ export default function MemberOverview() {
                           key={colId}
                           className={`py-2.5 px-3 whitespace-nowrap text-gray-700 dark:text-gray-300 ${complianceClass(flag)}`}
                         >
-                          {col.render(r, timeWindow)}
+                          {col.render(r, renderCtx)}
                         </td>
                       )
                     })}
@@ -790,8 +897,12 @@ function resolveColumn(colId) {
   const sortKey = showDailyDivider ? colId + '_perday' : colId + '_current'
   return {
     label: def.label,
-    sortValue: r => r[sortKey] ?? -Infinity,
-    render: r => {
+    // ⚠️ Sorting follows what is on screen. With totals showing, sorting by the
+    // per-day rate orders the table by a number the reader cannot see.
+    sortValue: (r, ctx) => (ctx?.showTotals && showDailyDivider
+      ? (r[colId + '_delta'] ?? -Infinity)
+      : (r[sortKey] ?? -Infinity)),
+    render: (r, ctx) => {
       const cur    = r[colId + '_current']
       const delta  = r[colId + '_delta']
       const perDay = r[colId + '_perday']
@@ -799,16 +910,15 @@ function resolveColumn(colId) {
         if (cur == null) return <span className="text-gray-400">—</span>
         return <span className="font-mono">{formatNumber(cur, def)}</span>
       }
-      if (perDay == null) return <span className="text-gray-400">—</span>
       return (
-        <span className="font-mono">
-          {formatNumber(perDay, def)}
-          {delta != null && r.days_covered > 0 && (
-            <span className="ml-1.5 text-xs text-gray-400 dark:text-gray-500">
-              ({formatNumber(delta, def)} in {r.days_covered}d)
-            </span>
-          )}
-        </span>
+        <RateCell
+          perDay={perDay}
+          delta={delta}
+          daysCovered={r.days_covered}
+          windowDays={r.window_days}
+          format={(n) => formatNumber(n, def)}
+          showTotals={ctx?.showTotals}
+        />
       )
     },
   }

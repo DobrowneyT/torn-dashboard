@@ -95,6 +95,73 @@ export function registerExportRoutes(app: FastifyInstance, db: pg.Pool) {
     return { tables: exportableFor(rolesFromClaims(req.session!)) }
   })
 
+  /**
+   * A member's OWN stat history (#867).
+   *
+   * ⚠️ There is no table parameter and no member parameter, and that is the
+   * design rather than an omission. `member_daily_stats` is registered as
+   * `role: 'leadership'` because it holds every member's data; relaxing that
+   * would hand the whole roster to anyone with a session. This is a separate,
+   * narrower door whose row filter cannot be influenced from the request at
+   * all — a `?member=` that is merely CHECKED is an IDOR waiting to be found,
+   * so there is nothing to check.
+   *
+   * The id comes from the verified session claims and nowhere else.
+   */
+  app.get('/api/export/me/stats.csv', { preHandler: requireAuth() }, async (req, reply) => {
+    const claims = req.session!
+    // ⚠️ A visitor has no member identity to scope by, so there is nothing to
+    // export. 403 with a reason, never an empty CSV — an empty file reads as
+    // "you have no stats", which is a different and wrong statement.
+    if (claims.is_visitor) {
+      return reply.status(403).send({ error: 'Visitors have no stat history to export' })
+    }
+    const memberId = String(claims.torn_user_id ?? '')
+    if (!memberId) return reply.status(403).send({ error: 'No member identity on this session' })
+
+    const table = 'member_daily_stats'
+    const spec = lookupExportTable(table)
+    if (!spec) return reply.status(404).send({ error: 'Unknown export table' })
+
+    const q = (req.query ?? {}) as { from?: string; to?: string }
+    const from = parseTctBound(q.from)
+    const to = parseTctBound(q.to)
+    if (!from || !to) {
+      return reply.status(400).send({
+        error: 'from and to are required, as TCT YYYY-MM-DD or YYYY-MM-DDTHH:MM',
+      })
+    }
+    if (to.ms < from.ms) return reply.status(400).send({ error: 'to must not precede from' })
+
+    const cols = await introspectColumns(db, table)
+    if (cols.length === 0) return reply.status(404).send({ error: 'Unknown export table' })
+
+    const bounds = rangeBounds(spec.timeType, from, to)
+    const { sql, params, columns } = buildExportQuery(table, spec, cols, bounds, {
+      column: 'member_id',
+      memberId,
+    })
+
+    const filename = `my_stats_${q.from}_${q.to}.csv`.replace(/[^\w.\-]/g, '_')
+    reply.hijack()
+    reply.raw.writeHead(200, {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="${filename}"`,
+      'cache-control': 'no-store',
+      'x-accel-buffering': 'no',
+    })
+    try {
+      const { rows, complete } = await streamRows(db, reply, sql, params, columns)
+      // Same completion marker as the leadership export — a truncated stream
+      // still carries a 200, so this trailer is the only way to tell them apart.
+      if (complete) reply.raw.write(completionMarker(rows))
+    } catch (err) {
+      req.log.error({ err, memberId, from: q.from, to: q.to }, 'self export stream failed')
+    } finally {
+      reply.raw.end()
+    }
+  })
+
   app.get('/api/export/:table/csv', { preHandler: requireAuth() }, async (req, reply) => {
     const { table } = req.params as { table: string }
     const spec = lookupExportTable(table)

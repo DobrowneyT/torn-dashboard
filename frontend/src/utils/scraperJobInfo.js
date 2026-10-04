@@ -98,6 +98,12 @@ export const SCRAPER_JOB_INFO = {
     'actually SEEN in a crime slot, because Torn never reports a departure — ' +
     'every "left at" elsewhere is inferred. Feeds the payout page\'s observed ' +
     'time. 1 API call per minute (~1,440/day).',
+  'member-hof':
+    'Daily snapshot of each member\'s Hall of Fame standings — the value and ' +
+    'the global Torn rank per category. One call per member, so roughly one ' +
+    'per hundred members per run; daily is affordable where per-page-load ' +
+    'would not be. Battle stats are absent because Torn reports those only to ' +
+    'you about yourself, so no faction-wide battle-stat board is possible.',
   'faction-upgrades':
     'Daily snapshot of the faction\'s purchased upgrades, including the ' +
     'Steadfast gym-gain percentages and whether the war or peace branch set ' +

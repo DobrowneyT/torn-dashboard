@@ -28,6 +28,7 @@ import { competitionsResolveJob } from './jobs/competitionsResolve.js'
 import { chainSampleJob } from './jobs/chainSample.js'
 import { activitySampleJob } from './jobs/activitySample.js'
 import { factionUpgradesSyncJob } from './jobs/factionUpgradesSync.js'
+import { memberHofSyncJob } from './jobs/memberHofSync.js'
 import { memberEventWindowsJob } from './jobs/memberEventWindows.js'
 
 export interface ScraperWiringOptions {
@@ -151,6 +152,9 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // is ample resolution and costs exactly one call. 02:10 sits in a gap between
   // the 01:xx cluster and member-battle-stats at 02:45.
   ['faction-upgrades', '0 10 2 * * *', factionUpgradesSyncJob],
+  // #872 — ~1 call per member. Daily is affordable; per-page-load is not.
+  // 01:35 is clear of member-stats (01:05) and member-profile (01:20).
+  ['member-hof', '0 35 1 * * *', memberHofSyncJob],
   // #459: each opted-in member's Torn event start hour. One string per member
   // that changes rarely, so daily is generous — and it costs one call per
   // OPTED-IN member, not per member, which is why it sits well clear of the
