@@ -31,12 +31,21 @@ const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString())
  */
 const COLUMNS = [
   { key: 'name', accessor: (r) => r.target_name || r.target_id, kind: 'text' },
+  // ⚠️ Sorts on the NAME where we have one and falls back to the id, so an
+  // unenriched faction still groups with itself rather than scattering. Null
+  // sinks in both directions — unfactioned is not "last alphabetically", it is
+  // absent (#351).
+  { key: 'faction', accessor: (r) => r.faction_name || r.faction_id || null, kind: 'text' },
   { key: 'battle_stats', accessor: (r) => r.battle_stats ?? null, kind: 'number' },
   { key: 'severity', accessor: (r) => r.severityLabel ?? null, kind: 'text' },
   { key: 'status', accessor: (r) => r.status_state ?? null, kind: 'text' },
   // ⚠️ Null sinks in BOTH directions: a target with no recorded hospital time
   // is not "out soonest", they are unknown (#351).
   { key: 'until', accessor: (r) => r.status_until ?? null, kind: 'number' },
+  // How many people this target has annoyed. A count rather than the reason
+  // text: sorting prose alphabetically answers nothing, "who has upset the most
+  // of us" answers something.
+  { key: 'grudges', accessor: (r) => (r.grudges ?? []).length, kind: 'number' },
   { key: 'added', accessor: (r) => r.added_ms ?? null, kind: 'number' },
 ]
 
@@ -139,10 +148,14 @@ export default function GrudgeList({
           <thead>
             <tr className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 dark:bg-slate-800 dark:text-gray-400">
               <SortableTh col="name" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Target</SortableTh>
+              <SortableTh col="faction" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Faction</SortableTh>
               <SortableTh col="battle_stats" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">Battle stats</SortableTh>
               <SortableTh col="severity" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Severity</SortableTh>
               <SortableTh col="status" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Status</SortableTh>
-              <th className="px-3 py-2 font-medium">Grudges</th>
+              <SortableTh col="grudges" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Grudges</SortableTh>
+              {/* ⚠️ A PLAIN th. Attack is an action, not data — and a header that
+                  looks clickable and reorders nothing is worse than one that
+                  plainly does not. */}
               <th className="px-3 py-2 font-medium text-right">Attack</th>
             </tr>
           </thead>
@@ -154,13 +167,24 @@ export default function GrudgeList({
                      className="font-medium text-blue-600 hover:underline dark:text-blue-400">
                     {t.target_name || t.target_id}
                   </a>
-                  {t.faction_name && (
-                    <div className="text-xs text-gray-500 dark:text-gray-400">{t.faction_name}</div>
-                  )}
                   {t.state === 'pending_approval' && (
                     <div className="mt-1 inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                       <ShieldAlert className="h-3 w-3" aria-hidden="true" /> Awaiting approval
                     </div>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {t.faction_id ? (
+                    <a href={`https://www.torn.com/factions.php?step=profile&ID=${t.faction_id}`}
+                       target="_blank" rel="noopener noreferrer"
+                       className="text-blue-600 hover:underline dark:text-blue-400">
+                      {t.faction_name || t.faction_id}
+                    </a>
+                  ) : (
+                    // ⚠️ An em dash means "not looked up yet" today and
+                    // "genuinely unfactioned" after enrichment. Both are honest;
+                    // neither is a zero.
+                    <span className="text-gray-400">—</span>
                   )}
                 </td>
                 <td className="px-3 py-2 text-right font-mono tabular-nums">

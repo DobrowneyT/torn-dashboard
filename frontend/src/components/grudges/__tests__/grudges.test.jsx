@@ -102,6 +102,13 @@ describe('AddGrudgeForm', () => {
     expect(screen.queryByLabelText(/severity/i)).toBeNull()
   })
 
+  it('⚠️ does not ask for a name — the lookup is the only source for it', () => {
+    // One source for the name means a rename is something we OBSERVE rather
+    // than a guess somebody typed months ago and never revisited.
+    render(<AddGrudgeForm />)
+    expect(screen.queryByLabelText(/their name/i)).toBeNull()
+  })
+
   it('renders the severities the faction did configure', () => {
     render(<AddGrudgeForm severities={[{ id: 'petty', label: 'Petty' }, { id: 'blood', label: 'Blood feud' }]} />)
     expect(screen.getByLabelText(/severity/i)).toBeTruthy()
@@ -120,9 +127,69 @@ describe('GrudgeList', () => {
     // 10,000,000 before 2,000,000 — the Hall of Fame shipped this bug and the
     // `sortColumnKinds` guard exists because of it.
     const { container } = render(<GrudgeList targets={many} viewerId={9010} />)
-    fireEvent.click(container.querySelectorAll('thead th')[1].querySelector('button'))
+    fireEvent.click(container.querySelectorAll('thead th')[2].querySelector('button'))
     const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
     expect(names).toEqual(['Gamma', 'Alpha', 'Beta'])
+  })
+
+  it('sorts by faction, with the unfactioned sinking', () => {
+    const rows = [
+      target({ id: 1, target_id: '1', target_name: 'Alpha', faction_id: '2', faction_name: 'Zulu' }),
+      target({ id: 2, target_id: '2', target_name: 'Beta', faction_id: null, faction_name: null }),
+      target({ id: 3, target_id: '3', target_name: 'Gamma', faction_id: '1', faction_name: 'Alpha Co' }),
+    ]
+    const { container } = render(<GrudgeList targets={rows} viewerId={9010} />)
+    fireEvent.click(container.querySelectorAll('thead th')[1].querySelector('button'))
+    const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
+    // ⚠️ #351: unfactioned is ABSENT, not "last alphabetically", so it sinks.
+    expect(names).toEqual(['Gamma', 'Alpha', 'Beta'])
+  })
+
+  it('links the faction, and shows an em dash when there is none', () => {
+    const rows = [
+      target({ id: 1, target_id: '1', faction_id: '10739', faction_name: 'TNL' }),
+      target({ id: 2, target_id: '2', target_name: 'Loner', faction_id: null }),
+    ]
+    render(<GrudgeList targets={rows} viewerId={9010} />)
+    const link = screen.getByRole('link', { name: 'TNL' })
+    expect(link.getAttribute('href')).toContain('factions.php?step=profile&ID=10739')
+    expect(link.getAttribute('rel')).toContain('noopener')
+  })
+
+  it('⚠️ sorts the grudge column by COUNT, not by reason text', () => {
+    // "Who has upset the most of us" answers something; prose sorted
+    // alphabetically answers nothing.
+    const rows = [
+      target({ id: 1, target_id: '1', target_name: 'One', grudges: [{ id: 1, member_id: '1', reason: 'a' }] }),
+      target({ id: 2, target_id: '2', target_name: 'Three', grudges: [
+        { id: 2, member_id: '1', reason: 'b' }, { id: 3, member_id: '2', reason: 'c' }, { id: 4, member_id: '3', reason: 'd' },
+      ] }),
+      target({ id: 3, target_id: '3', target_name: 'Two', grudges: [
+        { id: 5, member_id: '1', reason: 'e' }, { id: 6, member_id: '2', reason: 'f' },
+      ] }),
+    ]
+    const { container } = render(<GrudgeList targets={rows} viewerId={9010} />)
+    const grudgeTh = container.querySelectorAll('thead th')[5]
+    expect(grudgeTh.textContent).toContain('Grudges')
+    fireEvent.click(grudgeTh.querySelector('button'))   // ascending
+    const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
+    expect(names).toEqual(['One', 'Two', 'Three'])
+  })
+
+  it('⚠️ leaves Attack as a plain header — it is an action, not data', () => {
+    // A header that looks clickable and reorders nothing is worse than one
+    // that plainly does not.
+    const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} />)
+    const attackTh = container.querySelectorAll('thead th')[6]
+    expect(attackTh.textContent).toContain('Attack')
+    expect(attackTh.querySelector('button')).toBeNull()
+  })
+
+  it('every other column IS sortable', () => {
+    const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} />)
+    const ths = [...container.querySelectorAll('thead th')]
+    // All but the last (Attack) offer a sort control.
+    expect(ths.slice(0, -1).every((th) => th.querySelector('button') !== null)).toBe(true)
   })
 
   it('hides anyone in hospital when asked', () => {
