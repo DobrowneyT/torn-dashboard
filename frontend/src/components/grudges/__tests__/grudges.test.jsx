@@ -95,6 +95,27 @@ describe('AddGrudgeForm', () => {
     expect(await screen.findByText(/held for leadership approval/i)).toBeTruthy()
   })
 
+  it('⚠️ does not claim a watched faction when the lookup simply failed', async () => {
+    // Two different reasons to be held, and saying the wrong one is a
+    // confident claim about something we failed to find out.
+    apiPost.mockResolvedValue({ state: 'pending_approval', pending_reason: 'unverified' })
+    render(<AddGrudgeForm />)
+    fireEvent.change(screen.getByLabelText(/profile link or ID/i), { target: { value: '5001' } })
+    fireEvent.change(screen.getByLabelText(/what did they do/i), { target: { value: 'mystery' } })
+    fireEvent.click(screen.getByRole('button', { name: /add to the book/i }))
+    expect(await screen.findByText(/could not look this player up/i)).toBeTruthy()
+    expect(screen.queryByText(/is in a watched faction/i)).toBeNull()
+  })
+
+  it('names the target it just resolved', async () => {
+    apiPost.mockResolvedValue({ state: 'active', target_name: 'Likor' })
+    render(<AddGrudgeForm />)
+    fireEvent.change(screen.getByLabelText(/profile link or ID/i), { target: { value: '5001' } })
+    fireEvent.change(screen.getByLabelText(/what did they do/i), { target: { value: 'mugged me' } })
+    fireEvent.click(screen.getByRole('button', { name: /add to the book/i }))
+    expect(await screen.findByText(/Added to the list — Likor/)).toBeTruthy()
+  })
+
   it('⚠️ renders no severity control when the faction configured none', () => {
     // No hardcoded Low/Medium/High. An absent control is honest; three
     // invented tiers are not.

@@ -98,6 +98,14 @@ export const SCRAPER_JOB_INFO = {
     'actually SEEN in a crime slot, because Torn never reports a departure — ' +
     'every "left at" elsewhere is inferred. Feeds the payout page\'s observed ' +
     'time. 1 API call per minute (~1,440/day).',
+  'grudge-refresh':
+    'Keeps the Book of Grudges current every 15 minutes — each target\u2019s name, ' +
+    'faction and live status, so the list can say who is attackable right now. ' +
+    'Grouped by faction: one call covers every target in a faction, and only a ' +
+    'target who is alone in theirs (or in none) costs a call of their own, so ' +
+    'the cost grows with the number of FACTIONS on the list rather than the ' +
+    'number of targets. Uses only the keys of members who accepted the Target ' +
+    'Lookups disclosure; if nobody has, it does nothing rather than failing.',
   'member-hof':
     'Daily snapshot of each member\'s Hall of Fame standings — the value and ' +
     'the global Torn rank per category. One call per member, so roughly one ' +

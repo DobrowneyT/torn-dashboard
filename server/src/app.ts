@@ -490,7 +490,9 @@ export async function buildServer(
     registerWarRoutes(app, opts.db)
     registerFactionUpgradeRoutes(app, opts.db)
     registerMemberHofRoutes(app, opts.db)
-    registerGrudgeRoutes(app, opts.db)
+    registerGrudgeRoutes(app, {
+      db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey,
+    })
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     app.warRoomHub = await registerWarRoomRoutes(app, {
