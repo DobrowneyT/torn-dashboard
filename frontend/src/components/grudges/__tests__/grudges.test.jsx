@@ -190,7 +190,7 @@ describe('GrudgeList', () => {
       ] }),
     ]
     const { container } = render(<GrudgeList targets={rows} viewerId={9010} />)
-    const grudgeTh = container.querySelectorAll('thead th')[6]
+    const grudgeTh = container.querySelectorAll('thead th')[7]
     expect(grudgeTh.textContent).toContain('Grudges')
     fireEvent.click(grudgeTh.querySelector('button'))   // ascending
     const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
@@ -201,7 +201,7 @@ describe('GrudgeList', () => {
     // A header that looks clickable and reorders nothing is worse than one
     // that plainly does not.
     const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} />)
-    const attackTh = container.querySelectorAll('thead th')[7]
+    const attackTh = container.querySelectorAll('thead th')[9]
     expect(attackTh.textContent).toContain('Attack')
     expect(attackTh.querySelector('button')).toBeNull()
   })
