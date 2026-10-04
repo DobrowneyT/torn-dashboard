@@ -73,7 +73,15 @@ const valueOf = (row, col) => (col.accessor ? col.accessor(row) : row?.[col.key]
  * a bespoke comparator and wins over `kind` — availability has a semantic order
  * that alphabetical would scramble.
  *
- * `tieBreak` names a column used to settle equal rows, **always ascending**.
+ * `tieBreak` names a column used to settle equal rows, **always ascending**. It
+ * takes a key or a LIST of keys applied in order, so a board where many rows
+ * genuinely share a value can settle on something meaningful before falling
+ * back to a name. The Hall of Fame is the case that wanted it: every member at
+ * level 100 shares faction rank 1, and "who is highest placed in Torn" is a far
+ * more interesting second question than "whose name starts with A".
+ *
+ * ⚠️ A tie column that IS the sorted column is skipped, not treated as the
+ * end of the list — sorting BY global rank must still fall through to the name.
  *
  * ⚠️ Returns a NEW array. `Array.prototype.sort` mutates, and a React view
  * sorting its own props in place is a bug waiting for a re-render.
@@ -83,7 +91,10 @@ export function sortRows(rows, columns, sortCol, sortDir, { tieBreak } = {}) {
   const col = columns?.find((c) => c.key === sortCol)
   if (!col) return list
 
-  const tie = tieBreak ? columns.find((c) => c.key === tieBreak) : null
+  const tieKeys = tieBreak == null ? [] : [].concat(tieBreak)
+  const ties = tieKeys
+    .map((k) => columns?.find((c) => c.key === k))
+    .filter((c) => c && c.key !== col.key)
   const dir = sortDir === 'desc' ? -1 : 1
 
   const one = (a, b, c, d) => {
@@ -106,11 +117,15 @@ export function sortRows(rows, columns, sortCol, sortDir, { tieBreak } = {}) {
 
   return list.sort((a, b) => {
     const primary = one(a, b, col, dir)
-    if (primary !== 0 || !tie || tie.key === col.key) return primary
+    if (primary !== 0) return primary
     // ⚠️ The tie-break runs in a FIXED direction, never the sort's. Lifted
     // verbatim in spirit from RollCallResultsTable: without it the order within
     // a group depends on whatever order the rows arrived in, so a live table
     // reshuffles under somebody as data comes in.
-    return one(a, b, tie, 1)
+    for (const t of ties) {
+      const settled = one(a, b, t, 1)
+      if (settled !== 0) return settled
+    }
+    return 0
   })
 }

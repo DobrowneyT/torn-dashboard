@@ -18,6 +18,22 @@ surface it automatically.
 
 ---
 
+## [3.186.0] - 2026-10-04
+
+### Changed
+- **Hall of Fame ties now order by Torn rank, not alphabetically.** Positions are
+  shared, so an entire faction at level 100 sits at rank 1 together — ties are the
+  norm on this board, not an edge case, and ordering them by name said nothing.
+  280th in Torn now sits above 3,089th.
+
+### Added
+- `sortRows` accepts a LIST of tie-break columns, applied in order. A tie column
+  that is also the sorted column is skipped rather than ending the list, so sorting
+  *by* global rank still falls through to the name.
+  ⚠️ A member Torn gave no global rank for still sinks within their tie group
+  (#351: absent is not "worst placed"), with the name settling the unplaced among
+  themselves. All 18 existing callers pass a single key and are unaffected.
+
 ## [3.185.0] - 2026-10-04
 
 ### Changed
