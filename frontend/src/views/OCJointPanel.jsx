@@ -23,6 +23,29 @@ const REASONS = {
 }
 
 export function JointPanel({ plan, onSolve, solving, crimeCount }) {
+  // ⚠️ Called BEFORE the early return below. A hook after a conditional
+  // return changes the hook count when the condition flips, and React throws
+  // "Rendered more hooks than during the previous render".
+  const names = Object.keys(plan?.chosen ?? {})
+
+  // ⚠️ The ROWS are crime names; their data lives in `plan.chosen[name]` and
+  // `plan.concessions[name]`, so every accessor is a lookup.
+  //
+  // ⚠️ `thresholds` renders a joined vector ("45 / 50 / 55") and sorts on its
+  // MINIMUM — the binding constraint, and the number somebody is comparing
+  // crimes by. Sorting the rendered string would be lexical on a composite.
+  const jointColumns = [
+    { key: 'crime',      kind: 'text',   accessor: (n) => n },
+    { key: 'thresholds', kind: 'number', accessor: (n) => Math.min(...Object.values(plan.chosen[n]?.vector ?? { x: 0 })) },
+    { key: 'crews',      kind: 'number', accessor: (n) => plan.chosen[n]?.crews },
+    { key: 'gaveUp',     kind: 'number', accessor: (n) => plan.concessions[n]?.pointsGivenUp },
+  ]
+
+  // ⚠️ Opens alphabetically, which is what `Object.keys(...).sort()` did before
+  // — the order people already know this list in.
+  const { sorted: sortedNames, sortCol, sortDir, onSort } =
+    useTableSort(names, jointColumns, { initialCol: 'crime', initialDir: 'asc', tieBreak: 'crime' })
+
   if (!plan) {
     return (
       <div className="card">
@@ -47,25 +70,6 @@ export function JointPanel({ plan, onSolve, solving, crimeCount }) {
     )
   }
 
-  const names = Object.keys(plan.chosen)
-
-  // ⚠️ The ROWS are crime names; their data lives in `plan.chosen[name]` and
-  // `plan.concessions[name]`, so every accessor is a lookup.
-  //
-  // ⚠️ `thresholds` renders a joined vector ("45 / 50 / 55") and sorts on its
-  // MINIMUM — the binding constraint, and the number somebody is comparing
-  // crimes by. Sorting the rendered string would be lexical on a composite.
-  const jointColumns = [
-    { key: 'crime',      kind: 'text',   accessor: (n) => n },
-    { key: 'thresholds', kind: 'number', accessor: (n) => Math.min(...Object.values(plan.chosen[n]?.vector ?? { x: 0 })) },
-    { key: 'crews',      kind: 'number', accessor: (n) => plan.chosen[n]?.crews },
-    { key: 'gaveUp',     kind: 'number', accessor: (n) => plan.concessions[n]?.pointsGivenUp },
-  ]
-
-  // ⚠️ Opens alphabetically, which is what `Object.keys(...).sort()` did before
-  // — the order people already know this list in.
-  const { sorted: sortedNames, sortCol, sortDir, onSort } =
-    useTableSort(names, jointColumns, { initialCol: 'crime', initialDir: 'asc', tieBreak: 'crime' })
   const skipped = Object.entries(plan.skipped ?? {})
 
   return (
