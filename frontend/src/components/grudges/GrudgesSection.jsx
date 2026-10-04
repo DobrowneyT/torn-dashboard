@@ -18,6 +18,19 @@ export default function GrudgesSection({ isLeadership = false }) {
   const [settings, setSettings] = useState({ severities: [] })
   const [pending, setPending] = useState([])
   const [error, setError] = useState(null)
+  // ⚠️ The viewer's OWN battle stats, for the personal FF column. Fetched
+  // once, not with the list: it moves twice a week, and the list reloads on
+  // every edit. A failure here is not a page failure — FF simply shows a dash,
+  // which is the honest outcome for "we cannot work it out".
+  const [myBattleStats, setMyBattleStats] = useState(null)
+
+  useEffect(() => {
+    let on = true
+    apiGet('/api/members/me/battle-stats')
+      .then((r) => { if (on) setMyBattleStats(r?.battle_stats ?? null) })
+      .catch(() => { if (on) setMyBattleStats(null) })
+    return () => { on = false }
+  }, [])
 
   const { user } = useAuth()
   const viewerId = user?.id ?? null
@@ -105,6 +118,7 @@ export default function GrudgesSection({ isLeadership = false }) {
         severities={settings.severities}
         viewerId={viewerId}
         isLeadership={isLeadership}
+        myBattleStats={myBattleStats}
         onChanged={load}
       />
     </div>

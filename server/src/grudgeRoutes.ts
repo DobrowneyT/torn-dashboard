@@ -133,8 +133,14 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
       // timestamptz with a bare two-digit offset that `new Date()` reads as
       // NaN (#140); the client never meets that string.
       `SELECT id, target_id, target_name, faction_id, faction_name, level, state,
-              battle_stats, stats_source,
-              extract(epoch from stats_fetched_at) * 1000 AS stats_fetched_ms,
+              bsp_total, bsp_str, bsp_spd, bsp_def, bsp_dex, spy_source,
+              extract(epoch from bsp_fetched_at) * 1000 AS bsp_fetched_ms,
+              -- ⚠️ When the SPY was taken, not when we fetched it. A TornStats
+              -- spy can be months older than bsp_fetched_at, and the column
+              -- shows this date so nobody reads a stale figure as current.
+              -- (No backticks in here: this is inside a JS template literal,
+              -- and one would end the string mid-query.)
+              extract(epoch from ts_spy_at) * 1000 AS ts_spy_ms,
               status_state, status_until, status_description,
               extract(epoch from status_fetched_at) * 1000 AS status_fetched_ms,
               added_by, extract(epoch from added_at) * 1000 AS added_ms
