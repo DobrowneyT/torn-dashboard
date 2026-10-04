@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.183.0] - 2026-10-04
+
+### Fixed
+- **War Payouts crashed with `raceGroupHeaders is not defined`.** Reported by
+  MonChoon. #836 (the shared-sort epic, 2026-10-01) deleted the function and
+  left both call sites, so the page had been broken for three days. Its
+  companion `raceColHeaders` survived the same commit, which is why only one of
+  the two header rows went missing and the diff looked harmless.
+
+### Added
+- A guard test: every `{name(...)}` in a `.jsx` file must be declared or
+  imported in that file.
+
+### Notes
+- ⚠️ **Nothing in the repo could have caught this.** There is no eslint config
+  at all, and `vite build` does not catch it either — an undeclared identifier
+  is a runtime `ReferenceError`, so the bundle compiles cleanly and the page
+  explodes when it renders. Build passed, every test passed, page was broken.
+- The Participation column count is now derived from the surviving
+  `raceColHeaders` instead of a bare `12 : 7`, which could drift from the
+  columns beneath it without anything noticing.
+- ⚠️ **The guard was wrong the first time it was written**, and the probe caught
+  it: re-deleting the function still passed. It stripped string literals, but
+  **JSX prose is not a string literal** — an apostrophe in ordinary text opens a
+  quote that runs until the next one, which swallowed more than half of
+  `WarPayoutManagement.jsx` (120,632 chars down to 57,351) including the call
+  sites it was looking for. It now strips comments only, and provably fails
+  when the definition is removed.
+
 ## [3.182.0] - 2026-10-03
 
 ### Added

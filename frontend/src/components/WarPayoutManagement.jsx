@@ -1201,6 +1201,51 @@ export default function WarPayoutManagement() {
     )
   }
 
+  /**
+   * Width of the Participation group in the race table's top header row.
+   *
+   * ⚠️ Must track `raceColHeaders`'s non-flat branch exactly, or the group
+   * banner and the columns under it drift apart and every header after it
+   * lands over the wrong data. That branch emits seven sortable columns
+   * (war hit, assist, loss, war mug, outside, total, part%) plus one `×`
+   * multiplier column after each of the first five — and those five only
+   * exist in leader view.
+   */
+  const RACE_PART_COLS = 7
+  const RACE_PART_MULT_COLS = 5
+  const racePartColSpan = RACE_PART_COLS + (viewMode === 'leader' ? RACE_PART_MULT_COLS : 0)
+
+  /**
+   * Row 1 of the race table: the group banners spanning each window's columns.
+   *
+   * ⚠️ Restored after #836 (the shared-sort epic) deleted the definition and
+   * left both call sites, which crashed the page with "raceGroupHeaders is not
+   * defined" the moment a leader opened War Payouts. Its companion
+   * `raceColHeaders` survived the same commit, which is why the second header
+   * row was fine and only the banner row was missing.
+   */
+  function raceGroupHeaders(label, flat = false) {
+    const th = (cls, span, text) => (
+      <th className={`px-2 py-2 font-semibold border-b border-l border-gray-200 dark:border-slate-700 sticky top-0 z-20 text-center ${cls}`} colSpan={span}>{text}</th>
+    )
+    const hitReport = th('bg-blue-50 dark:bg-slate-800 text-blue-800 dark:text-blue-300', 8, `${label} · Hit Report`)
+    if (flat) {
+      return (
+        <>
+          {hitReport}
+          {th('bg-purple-50 dark:bg-slate-800 text-purple-800 dark:text-purple-300', 2, `${label} · Flat Shares`)}
+        </>
+      )
+    }
+    return (
+      <>
+        {hitReport}
+        {th('bg-emerald-50 dark:bg-slate-800 text-emerald-800 dark:text-emerald-300', racePartColSpan, `${label} · Participation`)}
+        {th('bg-amber-50 dark:bg-slate-800 text-amber-800 dark:text-amber-300', 4, `${label} · Contribution`)}
+      </>
+    )
+  }
+
   function raceColHeaders(winKey, flat = false) {
     const c = (k) => `${winKey}.${k}`
     const mh = () => viewMode === 'leader'
