@@ -24,6 +24,15 @@ export const ROWS = [
   // is off unless you switch it on. Listing it alongside the rest without that
   // distinction would read as something already happening.
   ['Event Start Time (opt-in)', 'Off unless you turn it on, from Members → Calendar. When on, your key is used once a day for one extra call that returns only your chosen Torn event start hour ("11:30 TCT"), so the faction can see where everyone\'s 48-hour event window sits. Visible to your faction. Turning it off deletes the stored time rather than hiding it, and no other member can turn it on for you.'],
+  // #889 slice 0: a NEW PURPOSE, so it gets its own row — the same way Live
+  // War Stats (#336), Battle Stats (#348) and Event Start Time (#459) each did,
+  // even though all of their endpoints were already in the "Torn API Calls"
+  // line below. The endpoint list is a technical appendix; THIS is the consent.
+  //
+  // ⚠️ It is disclosed BEFORE the lookups begin, so members have time to
+  // accept before anything uses it. "may be used" is accurate for a permission
+  // that is granted but not yet exercised.
+  ['Target Lookups', 'When a member adds somebody to the faction\u2019s shared target list (Members → Book of Grudges), your key may be used — as part of the rotating pool described above — to read that person\u2019s public profile (name, level, faction and current status), and the public member list of the faction they belong to. Unlike everything else on this page, these are people OUTSIDE your faction, chosen by whichever member added them, rather than your own teammates. Nothing about you is read by these calls. If you do not accept this, your key is simply skipped for them — everything else it already does carries on unchanged.'],
   ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns, battlestats) · GET /v2/user/calendar (opt-in only) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
   ['Access Level', 'Limited Access'],
 ]

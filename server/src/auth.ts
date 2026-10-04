@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose'
 import type pg from 'pg'
 import { createKeyPool } from './scraper/keyPool.js'
+import { CURRENT_DISCLOSURE_VERSION } from './consent.js'
 
 export const ROLES = ['admin', 'leadership', 'warlead', 'ocmanager', 'visitor'] as const
 export type Role = (typeof ROLES)[number]
@@ -223,7 +224,16 @@ export async function loginWithTornKey(
       const meta = {
         keyLevel: verified.accessLevel,
         hasFactionAccess: verified.hasFactionAccess,
-        consentVersion: 'login-v1',
+        // ⚠️ The CURRENT disclosure, not a literal. The login modal refuses to
+        // submit until the member ticks the disclosure shown beside it, so a
+        // login IS an acceptance of what it currently says — which is the
+        // "login and re-authenticate" half of the rule.
+        //
+        // ⚠️ Hardcoding 'login-v1' here was a latent trap: `keyPool.store`
+        // overwrites `consent_version` on every login, so a member who accepted
+        // a newer disclosure and then logged in again would be silently reset
+        // and prompted forever.
+        consentVersion: CURRENT_DISCLOSURE_VERSION,
       }
       try {
         await pool.store(verified.userId, apiKey, meta)

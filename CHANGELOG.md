@@ -18,6 +18,144 @@ surface it automatically.
 
 ---
 
+## [3.191.0] - 2026-10-04
+
+### Added
+- **API Key Usage now discloses target lookups (#889, slice 0), and every member is
+  asked to re-accept.** A new *Target Lookups* row explains that a key may be used to
+  read the public profile of somebody a teammate added to the shared target list, and
+  that person's faction member list.
+  ⚠️ **These are people outside your faction**, chosen by whichever member added
+  them, rather than your own teammates — which is the part the existing wording did
+  not cover, and the reason this needs saying rather than relying on the endpoint list.
+  ⚠️ **Disclosed before the lookups ship.** Slice 4 is not built yet; members get
+  time to accept before anything uses it.
+  ⚠️ **Declining costs nothing else.** A key whose owner has not accepted is
+  skipped for these calls and for nothing else; every other scraper is unaffected.
+
+### Fixed
+- ⚠️ **Logging in would have reset a member's consent and re-prompted them
+  forever.** `auth.ts` stored a hardcoded `'login-v1'` and `keyPool.store` overwrites
+  `consent_version` on every login, so accepting the new disclosure and then logging
+  in again would silently undo it. Login now records the current version — which is
+  correct in its own right, since the login modal will not submit until the member
+  ticks the disclosure beside it.
+
+## [3.190.0] - 2026-10-04
+
+### Fixed
+- **The API Key Usage re-prompt now exists (#894).** It previously did nothing:
+  `config.js` declared `consentVersion` with the comment "bump to re-prompt the
+  disclosure", **nothing read it**, the server stored a hardcoded `'login-v1'`
+  instead, and no comparison happened anywhere. The page could be rewritten and no
+  member was ever asked again.
+- ⚠️ A second, separate correction: `calendar.ts` claimed bumping the version
+  "gates every scraper". It does not — the key pool filters on `consent_at IS NOT
+  NULL` in four places and never on the version. That comment was repeated as fact
+  when advising on timing, which is why this was checked.
+
+### Added
+- **Purpose-scoped consent.** `pool.claim({ purpose })` restricts a claim to keys
+  whose owner accepted a disclosure covering that purpose. ⚠️ **Omitting it is the
+  baseline and changes nothing**, so every existing scraper is untouched — a member
+  who has not re-accepted keeps serving everything the disclosure they DID accept
+  covered. A re-prompt never halts the faction's data collection.
+- **A guard that makes the rule structural.** Each entry in `DISCLOSURE_VERSIONS`
+  carries a fingerprint of `ApiKeyDisclosure.jsx`'s rows. Editing the disclosure
+  without adding a version **fails CI**, and adding a version is what re-prompts
+  everybody — so *"anytime we adjust the API Key Usage page, force a re-approval"*
+  is enforced rather than remembered. Verified by probe.
+- `/api/health` reports `consent_version`; bootstrap reports what the member
+  accepted and whether it is stale. ⚠️ The app build version and the disclosure
+  version are **separate fields**: shipping a release must not re-prompt anybody, and
+  bumping the disclosure must not force a reload.
+- `POST /api/auth/consent` records acceptance. ⚠️ It takes **no version from the
+  client** — a stale tab must not be able to accept wording that has since been
+  replaced.
+- `ConsentGate` overlays the dashboard when the disclosure has moved on. ⚠️ It does
+  not block the app and does not reload the tab; it says plainly that nothing stops
+  working, and can be deferred.
+
+### Internal
+- ⚠️ **Shipping this changes nothing for anybody.** The version list contains only
+  `login-v1`, which is what every enrolled key already stores, so no member is
+  prompted until a disclosure actually changes. There is a test asserting exactly
+  that.
+
+## [3.189.0] - 2026-10-04
+
+### Added
+- **Faction column on the Book of Grudges**, linked to the faction profile. Sorts
+  on the name where there is one and falls back to the id, so an unenriched faction
+  still groups with itself. ⚠️ Unfactioned sinks in both directions — absent is
+  not "last alphabetically" (#351).
+- **Every data column on that table now sorts**, including the grudge column, which
+  sorts by **count** rather than reason text: "who has upset the most of us" answers
+  something, prose sorted alphabetically answers nothing. ⚠️ Attack stays a plain
+  header — it is an action, not data, and a header that looks clickable and reorders
+  nothing is worse than one that plainly does not.
+
+### Changed
+- ⚠️ **The add form no longer asks for the target's name, and the API no longer
+  accepts one.** The enrichment lookup becomes the single source for it, so a rename
+  is something observed rather than a guess somebody typed once — and nobody can
+  label a target whatever they like. Until the lookup lands the list shows the id.
+
+## [3.188.0] - 2026-10-04
+
+### Added
+- **The Book of Grudges — the page (#889, slices 2 and 3).** Members → Book of
+  Grudges: add a target by profile link with a required reason, and a filterable,
+  sortable list with a one-click attack button.
+  - ⚠️ **The reason is required in the form as well as the API**, and the
+    button asserts it by not posting rather than only by looking disabled.
+  - ⚠️ **Severity renders only where a faction has configured one.** No
+    hardcoded Low/Medium/High — an absent control is honest, three invented tiers
+    are not.
+  - ⚠️ **A watched-faction target reports that it was HELD**, not simply
+    added. "Added to the list" for something nobody can see would be a lie.
+  - Leadership see the approval queue above the list, because a notification
+    nobody sees is not a notification. A failure fetching it leaves the list
+    intact.
+  - Filters by name, faction or reason text; a hospital toggle; attack opens
+    Torn's loader in a new tab with `rel="noopener"`.
+
+### Internal
+- ⚠️ **Battle stats, status and Fair Fight columns are deliberately empty**,
+  and the page says why. Each needs a Torn call, and every Torn call in this epic
+  waits on #894. An unexplained blank column reads as a broken scrape and gets
+  reported as a bug.
+- Every sort column on the new table declares its `kind`. Verified by probe: the
+  `sortColumnKinds` guard added in 3.184.0 fails when one is removed.
+
+## [3.187.0] - 2026-10-04
+
+### Added
+- **The Book of Grudges — schema and API (#889, slice 1).** A perpetual,
+  faction-wide shared target list where a target earns its place by a stated
+  grudge. Migration **0069** adds `grudge_targets`, `grudge_entries` and
+  `grudge_audit`.
+  - ⚠️ **One target, many grudges.** Two members can independently hold one
+    against the same person, and the list shows that person once with both
+    reasons rather than twice.
+  - ⚠️ **A reason is mandatory at three layers** — route, core module and a
+    `CHECK (btrim(reason) <> '')` constraint. A target on the list for no stated
+    reason is the one thing this feature exists to prevent.
+  - ⚠️ **Targets in a watched faction land `pending_approval`**, visible only
+    to leadership and their author until ruled on. The watched list is a faction
+    setting, not a hardcoded own-faction check, so the faction family and allies
+    go through the same gate.
+  - ⚠️ **Nothing is hard-deleted.** `grudge_audit` is append-only and keeps the
+    removed text readable; re-adding a removed target revives the same row so its
+    history stays attached.
+
+### Internal
+- ⚠️ **Slice 1 makes no Torn API calls, deliberately.** Every call this epic
+  needs is gated behind the API Key Usage disclosure update and the forced
+  re-accept, because pointing an already-disclosed endpoint at arbitrary players
+  and factions is a change of USE even though it is not a new endpoint.
+  `target_name` is nullable for the same reason — resolving it needs a call.
+
 ## [3.186.0] - 2026-10-04
 
 ### Changed

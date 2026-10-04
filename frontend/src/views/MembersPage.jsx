@@ -7,6 +7,7 @@ import CalendarSection from '../components/calendar/CalendarSection'
 import ChainWatchSection from '../components/chainWatch/ChainWatchSection'
 import UpgradesSection from '../components/upgrades/UpgradesSection'
 import HofSection from '../components/hof/HofSection'
+import GrudgesSection from '../components/grudges/GrudgesSection'
 
 const tabClass = ({ isActive }) =>
   `px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
@@ -27,6 +28,10 @@ export default function MembersPage({ isLeadership }) {
     { to: '/members/upgrades', label: 'Upgrades' },
     // #872 — a bragging-rights board, open to everyone.
     { to: '/members/hall-of-fame', label: 'Hall of Fame' },
+    // #889 — a perpetual shared target list for chaining. Sits here rather
+    // than under an event page because the list deliberately outlives any one
+    // chain, and this group already holds the faction-wide surfaces.
+    { to: '/members/grudges', label: 'Book of Grudges' },
   ]
 
   return (
@@ -45,6 +50,7 @@ export default function MembersPage({ isLeadership }) {
         <Route path="chain-watch" element={<ChainWatchSection isLeadership={isLeadership} />} />
         <Route path="upgrades" element={<UpgradesSection />} />
         <Route path="hall-of-fame" element={<HofSection />} />
+        <Route path="grudges" element={<GrudgesSection isLeadership={isLeadership} />} />
         <Route path="*" element={<Navigate to="/members/overview" replace />} />
       </Routes>
     </div>

@@ -3,6 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { jwtVerify } from 'jose'
 import { startTestStack, TEST_FACTION, TEST_JWT_SECRET, type TestStack } from './harness.js'
+import { CURRENT_DISCLOSURE_VERSION } from '../src/consent.js'
 
 let stack: TestStack
 
@@ -178,7 +179,12 @@ describe('key-pool enrollment on login', () => {
     expect(row.rows[0].disabled).toBe(false)
     expect(row.rows[0].has_faction_access).toBe(true)
     expect(row.rows[0].consent_at).toBeTruthy()
-    expect(row.rows[0].consent_version).toBe('login-v1')
+    // ⚠️ Asserts the CURRENT disclosure, not a literal. Login records
+    // whatever the disclosure says today — the login modal will not submit
+    // until the member ticks it — so pinning a string here would break on
+    // every future bump and tempt somebody to 'fix' it by hardcoding the
+    // old value, which is the trap this replaced (#889 slice 0).
+    expect(row.rows[0].consent_version).toBe(CURRENT_DISCLOSURE_VERSION)
     // Never the plaintext key at rest.
     expect((row.rows[0].cpr_api_key as Buffer).toString('utf8')).not.toContain('POOLERKEY2222222')
   })
@@ -216,7 +222,7 @@ describe('key-pool enrollment on login', () => {
       `SELECT consent_version FROM member_secrets WHERE member_id = '556'`
     )
     expect(row.rows).toHaveLength(1)
-    expect(row.rows[0].consent_version).toBe('login-v1')
+    expect(row.rows[0].consent_version).toBe(CURRENT_DISCLOSURE_VERSION)
   })
 
   it('a member missing from the roster gets a stub row and still enrolls — fresh-faction bootstrap', async () => {
@@ -232,7 +238,7 @@ describe('key-pool enrollment on login', () => {
       `SELECT consent_version FROM member_secrets WHERE member_id = '444'`
     )
     expect(secret.rows).toHaveLength(1)
-    expect(secret.rows[0].consent_version).toBe('login-v1')
+    expect(secret.rows[0].consent_version).toBe(CURRENT_DISCLOSURE_VERSION)
 
     // The stub is a real roster row with the member's real Torn name (fetched
     // with their own in-flight login key); members-sync refreshes it later.

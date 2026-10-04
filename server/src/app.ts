@@ -28,6 +28,7 @@ import { registerCompetitionRoutes, resolveCompetition } from './competitions.js
 import { registerCalendarRoutes } from './calendar.js'
 import { registerFactionUpgradeRoutes } from './factionUpgradeRoutes.js'
 import { registerMemberHofRoutes } from './memberHofRoutes.js'
+import { registerGrudgeRoutes } from './grudgeRoutes.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
 import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
@@ -45,6 +46,8 @@ import { registerPushRoutes, type PushService, type VapidConfig } from './push.j
 import { createJobRunner } from './scraper/registerJobs.js'
 import { createSecretStore } from './secrets.js'
 import { APP_VERSION } from './version.js'
+import { CURRENT_DISCLOSURE_VERSION, consentIsCurrent } from './consent.js'
+import { requireAuth } from './authz.js'
 
 /** Mutable readiness flags (#76). main.ts flips these true after arming the
  *  background scheduler + war-room ticker; /api/health/ready reports them. */
@@ -200,7 +203,18 @@ export async function buildServer(
   // Liveness: the process is up. Cheap, dependency-free — Docker's HEALTHCHECK
   // and the cheap ping hit this. Must stay 200 even when the DB is down or the
   // key-at-rest secret is malformed (see boot-degrade.test.ts).
-  app.get('/api/health', async () => ({ status: 'ok', faction: opts.factionSlug, version: APP_VERSION }))
+  // ⚠️ `version` is the APP BUILD; `consent_version` is the API Key Usage
+  // disclosure. They are independent and must stay that way — shipping a
+  // release must not re-prompt anybody, and bumping the disclosure must not
+  // force a reload. `useVersionGate` already polls this endpoint every five
+  // minutes with no session, which is why the consent check rides along here
+  // rather than growing a second poller (#894).
+  app.get('/api/health', async () => ({
+    status: 'ok',
+    faction: opts.factionSlug,
+    version: APP_VERSION,
+    consent_version: CURRENT_DISCLOSURE_VERSION,
+  }))
 
   // Readiness: what an uptime monitor and an operator need per faction — live
   // DB connectivity plus whether background work is armed. DB down ⇒ 503.
@@ -378,6 +392,36 @@ export async function buildServer(
     // Silent session renewal (#119). Reads the raw header itself: the
     // onRequest hook above deliberately drops STALE tokens (that's the 24h
     // gate), but a stale-yet-unexpired token is exactly what refresh is for.
+    /**
+     * Accept the API Key Usage disclosure as it stands today (#894).
+     *
+     * ⚠️ Records consent for the CURRENT version as the server knows it — the
+     * client does not send a version. Letting it would mean a stale tab could
+     * accept a disclosure that has since been replaced, and record agreement to
+     * wording nobody ever showed that member.
+     *
+     * ⚠️ Only ever moves consent FORWARD, and only for a member who already
+     * has a key enrolled. It never creates a row: consent without a key is a
+     * record of agreeing to nothing.
+     */
+    app.post('/api/auth/consent', { preHandler: requireAuth() }, async (req, reply) => {
+      if (req.session!.is_visitor) {
+        // A visitor's login persists no key material, so there is nothing here
+        // to consent to.
+        return reply.status(400).send({ error: 'Visitors have no key to consent for' })
+      }
+      const memberId = String(req.session!.torn_user_id)
+      const res = await deps.db.query(
+        `UPDATE member_secrets
+            SET consent_at = now(), consent_version = $2
+          WHERE member_id = $1
+          RETURNING consent_version`,
+        [memberId, CURRENT_DISCLOSURE_VERSION]
+      )
+      if (res.rowCount === 0) return reply.status(404).send({ error: 'No key enrolled' })
+      return { consent_version: res.rows[0].consent_version, consent_required: false }
+    })
+
     app.post('/api/auth/refresh', { config: { rateLimit: authRateLimit } }, async (req, reply) => {
       const header = req.headers.authorization
       if (!header?.startsWith('Bearer ')) {
@@ -412,7 +456,10 @@ export async function buildServer(
       // 4 chars — scoped to req.session, never anyone else's; null when no key.
       const [named, secret] = await Promise.all([
         deps.db.query('SELECT member_name FROM members WHERE member_id = $1', [req.session.torn_user_id]),
-        deps.db.query('SELECT key_hint FROM member_secrets WHERE member_id = $1', [req.session.torn_user_id]),
+        deps.db.query(
+          'SELECT key_hint, consent_version FROM member_secrets WHERE member_id = $1',
+          [req.session.torn_user_id]
+        ),
       ])
       return {
         ...publicView,
@@ -421,6 +468,15 @@ export async function buildServer(
           roles: rolesFromClaims(req.session),
           member_name: named.rows[0]?.member_name ?? null,
           api_key_hint: secret.rows[0]?.key_hint ?? null,
+          // ⚠️ What this member last ACCEPTED, not what is current. The client
+          // compares the two; sending a boolean instead would make the server
+          // the only place that could ever explain WHY somebody was prompted.
+          consent_version: secret.rows[0]?.consent_version ?? null,
+          // A visitor stores no key material at all, so there is nothing to
+          // consent to and nothing to prompt about.
+          consent_required: !req.session.is_visitor
+            && secret.rows.length > 0
+            && !consentIsCurrent(secret.rows[0]?.consent_version),
         },
       }
     })
@@ -434,6 +490,7 @@ export async function buildServer(
     registerWarRoutes(app, opts.db)
     registerFactionUpgradeRoutes(app, opts.db)
     registerMemberHofRoutes(app, opts.db)
+    registerGrudgeRoutes(app, opts.db)
     registerLeadershipRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     registerSyncRoutes(app, { db: opts.db, tornBaseUrl: opts.tornBaseUrl, encryptionKey: opts.keyEncryptionKey })
     app.warRoomHub = await registerWarRoomRoutes(app, {
