@@ -18,6 +18,53 @@ surface it automatically.
 
 ---
 
+## [3.199.0] - 2026-10-04
+
+### Changed
+- **Battle stats on the Book of Grudges now use the SAME cell as the War Room**, not a
+  lookalike. Hover or tap for the per-stat breakdown, the source and how old the
+  reading is. ⚠️ `BattleStatsCell` was extracted in #355 precisely so the
+  measured-versus-estimated distinction is made in one place; restating it a third
+  time in different words is how two surfaces end up disagreeing about a player.
+  A solid underline means measured, dotted means estimated, and no reading shows
+  **???** rather than a zero that would read as a free hit.
+  ⚠️ The API now returns `ts_spy_at` / `bsp_fetched_at` as **raw timestamptz**
+  rather than epoch ms, because that cell ages them with `fmtAgo` → `parseDbTime`,
+  which expects the bare "+00" string (#140). A number would have printed a dash.
+- **The FF column header carries the War Room's explanation, verbatim** — the
+  formula, the 3.00 saturation, what a dotted underline means, and that the column is
+  personal. ⚠️ Copied word for word on purpose: the same number explained two
+  different ways is how two surfaces drift apart.
+
+### Added
+- `SortableTh` takes an optional `info` panel, rendered as an **InfoDot beside** the
+  sort button. ⚠️ Outside the button, never inside: the header is already an
+  enabled control, so wrapping it would force one tap to choose between sorting and
+  opening the panel — and a button inside a button is invalid markup.
+
+## [3.198.0] - 2026-10-04
+
+### Added
+- **Severity can be set on a grudge that already exists.** ⚠️ The API accepted
+  `severity_id` from the start — the edit form simply never sent it — so anything
+  added before a faction configured its severities could never be given one.
+  ⚠️ Clearing sends `null`, not `undefined`: the API reads an omitted field as
+  "leave it alone", so undefined would make clearing impossible.
+- **Severities are numbered and re-orderable**, most serious first — **1 is the top
+  priority**. ⚠️ The number IS the row's position; there is no separate order
+  field, because two sources of truth for one fact is two things to drift.
+  ⚠️ Up/down buttons rather than drag-and-drop: they work on a phone, with a
+  keyboard and with a screen reader, and a chain is not the moment to find out a
+  drag handle does not.
+  ⚠️ Reordering preserves every id, so no grudge is orphaned by a shuffle.
+
+### Fixed
+- ⚠️ **`grudge-stats` rebuilt its provider config from `process.env`** instead of
+  using `deps.spy` — the same object the War Room's spy fetch uses, assembled once
+  in `buildDeps`. That ignored the operator's base-URL overrides, so the job could
+  not be pointed at a test fixture, and it meant two places deciding where a
+  faction's TornStats key comes from. It now shares one source.
+
 ## [3.197.0] - 2026-10-04
 
 ### Changed

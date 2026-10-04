@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { sortRows, nextDirection } from '../utils/tableSort.js'
+import { InfoDot } from './InfoTooltip'
 
 /**
  * A sortable table header, and the hook that drives it (#834, epic #803).
@@ -16,7 +17,7 @@ import { sortRows, nextDirection } from '../utils/tableSort.js'
  * qualifier on the original request.
  */
 export default function SortableTh({
-  col, sortCol, sortDir, onSort, className = '', label, style, children,
+  col, sortCol, sortDir, onSort, className = '', label, style, children, info,
 }) {
   const key = typeof col === 'string' ? col : col?.key
   const sortable = typeof col === 'string' ? true : col?.sortable !== false
@@ -54,6 +55,11 @@ export default function SortableTh({
           {sortDir === 'asc' ? '▲' : '▼'}
         </span>
       </button>
+      {/* ⚠️ OUTSIDE the button, as an InfoDot. The header is already an
+          enabled control, and wrapping it would force one tap to choose
+          between sorting and opening the panel; nesting a button inside a
+          button is also invalid markup. */}
+      {info && <InfoDot>{info}</InfoDot>}
     </th>
   )
 }
