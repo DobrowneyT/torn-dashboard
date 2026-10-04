@@ -1,6 +1,6 @@
 {
   "name": "@tnl/db",
-  "version": "3.187.0",
+  "version": "3.188.0",
   "private": true,
   "type": "module",
   "scripts": {

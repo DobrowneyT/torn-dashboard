@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.188.0] - 2026-10-04
+
+### Added
+- **The Book of Grudges — the page (#889, slices 2 and 3).** Members → Book of
+  Grudges: add a target by profile link with a required reason, and a filterable,
+  sortable list with a one-click attack button.
+  - ⚠️ **The reason is required in the form as well as the API**, and the
+    button asserts it by not posting rather than only by looking disabled.
+  - ⚠️ **Severity renders only where a faction has configured one.** No
+    hardcoded Low/Medium/High — an absent control is honest, three invented tiers
+    are not.
+  - ⚠️ **A watched-faction target reports that it was HELD**, not simply
+    added. "Added to the list" for something nobody can see would be a lie.
+  - Leadership see the approval queue above the list, because a notification
+    nobody sees is not a notification. A failure fetching it leaves the list
+    intact.
+  - Filters by name, faction or reason text; a hospital toggle; attack opens
+    Torn's loader in a new tab with `rel="noopener"`.
+
+### Internal
+- ⚠️ **Battle stats, status and Fair Fight columns are deliberately empty**,
+  and the page says why. Each needs a Torn call, and every Torn call in this epic
+  waits on #894. An unexplained blank column reads as a broken scrape and gets
+  reported as a bug.
+- Every sort column on the new table declares its `kind`. Verified by probe: the
+  `sortColumnKinds` guard added in 3.184.0 fails when one is removed.
+
 ## [3.187.0] - 2026-10-04
 
 ### Added

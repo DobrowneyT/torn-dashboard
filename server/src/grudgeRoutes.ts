@@ -54,6 +54,31 @@ async function audit(
 }
 
 export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
+  /* ──────────────────────────────────────────────────────────── settings ── */
+  // ⚠️ Severity labels are a FACTION SETTING, never an enum in code. Factions
+  // will want their own vocabulary, and a hardcoded Low/Medium/High would be
+  // both wrong for them and considerably less fun. An unconfigured faction gets
+  // an empty list and the control simply does not render — which is the honest
+  // outcome, rather than inventing three tiers nobody chose.
+  app.get('/api/grudges/settings', { preHandler: requireAuth() }, async (req) => {
+    const viewer = viewerOf(req)
+    const { rows } = await db.query(
+      `SELECT key, value FROM faction_settings
+        WHERE key IN ('grudge_severities', 'grudge_watched_factions')`
+    )
+    const byKey = new Map(rows.map((r: any) => [r.key, r.value]))
+    const severities = byKey.get('grudge_severities')
+    return {
+      severities: Array.isArray(severities) ? severities : [],
+      // Only leadership needs to know which factions trip the gate; a plain
+      // member seeing the list learns nothing useful and it is a leadership
+      // policy, not public information.
+      watched_factions: viewer.isLeadership
+        ? ((byKey.get('grudge_watched_factions') as unknown[]) ?? [])
+        : undefined,
+    }
+  })
+
   /* ───────────────────────────────────────────────────────────── the list ── */
   app.get('/api/grudges', { preHandler: requireAuth() }, async (req) => {
     const viewer = viewerOf(req)
@@ -139,10 +164,15 @@ export function registerGrudgeRoutes(app: FastifyInstance, db: pg.Pool) {
         }
       } else {
         state = initialState(factionId, watched)
+        // ⚠️ `target_name` is whatever the adder typed, and is explicitly NOT
+        // authoritative — the enrichment pass overwrites it once Torn lookups
+        // are permitted. It exists so the list is readable before then: a
+        // column of bare ids is technically honest and practically useless.
+        const typedName = String(body.target_name ?? '').trim() || null
         const ins = await db.query(
-          `INSERT INTO grudge_targets (target_id, faction_id, state, state_changed_at, added_by)
-           VALUES ($1,$2,$3,now(),$4) RETURNING id`,
-          [targetId, factionId, state, viewer.memberId]
+          `INSERT INTO grudge_targets (target_id, target_name, faction_id, state, state_changed_at, added_by)
+           VALUES ($1,$2,$3,$4,now(),$5) RETURNING id`,
+          [targetId, typedName, factionId, state, viewer.memberId]
         )
         targetRowId = Number(ins.rows[0].id)
         await audit(db, {
