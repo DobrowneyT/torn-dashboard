@@ -4,16 +4,32 @@
 // made the approval gate unusable: it worked perfectly and nobody could tell
 // it what to watch.
 import { useEffect, useState } from 'react'
-import { Plus, Settings2, Trash2, TriangleAlert } from 'lucide-react'
+import { Plus, Radio, Settings2, Trash2, TriangleAlert } from 'lucide-react'
 import { apiGet, apiPut } from '../../utils/apiClient'
 
-export default function GrudgeSettings({ severities = [], watchedFactions = [], onSaved }) {
+export default function GrudgeSettings({
+  severities = [], watchedFactions = [], ownFactionId = null, watch = null, onSaved,
+}) {
   const [rows, setRows] = useState(severities)
   const [factions, setFactions] = useState(watchedFactions.join(', '))
   const [usage, setUsage] = useState({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [done, setDone] = useState(null)
+  const [watchState, setWatchState] = useState(watch)
+  const [watchBusy, setWatchBusy] = useState(false)
+
+  useEffect(() => { setWatchState(watch) }, [watch])
+
+  const toggleWatch = async () => {
+    setWatchBusy(true)
+    try {
+      setWatchState(await apiPut('/api/grudges/watch', { enabled: !watchState?.enabled }))
+      onSaved?.()
+    } finally {
+      setWatchBusy(false)
+    }
+  }
 
   useEffect(() => { setRows(severities) }, [severities])
   useEffect(() => { setFactions(watchedFactions.join(', ')) }, [watchedFactions])
@@ -60,6 +76,38 @@ export default function GrudgeSettings({ severities = [], watchedFactions = [], 
       <h3 className="flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100">
         <Settings2 className="h-4 w-4" aria-hidden="true" /> Book settings
       </h3>
+
+      {/* ⚠️ The cadence is SHOWN, never set. It falls out of how many factions
+          are on the list and how many members have consented, so a box saying
+          "refresh every 30s" would be a promise the key budget might not keep. */}
+      <div className="rounded border border-gray-200 p-3 dark:border-slate-700">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+            <Radio className="h-4 w-4" aria-hidden="true" /> Watch mode
+          </h4>
+          <button
+            type="button" onClick={toggleWatch} disabled={watchBusy}
+            className={`rounded px-3 py-1 text-sm font-medium text-white disabled:opacity-50 ${
+              watchState?.enabled ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-gray-500 hover:bg-gray-600'
+            }`}
+          >
+            {watchState?.enabled ? 'On' : 'Off'}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+          {watchState?.enabled
+            ? 'Targets refresh continuously. Turn it off between chains so the API budget goes to everything else.'
+            : 'Targets refresh once every 15 minutes. Turn it on during a chain.'}
+        </p>
+        {watchState?.description && (
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{watchState.description}</p>
+        )}
+        {watchState?.keys === 0 && (
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            Turning it on will do nothing until somebody accepts the API Key Usage update.
+          </p>
+        )}
+      </div>
 
       <div>
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Severities</h4>
@@ -113,9 +161,18 @@ export default function GrudgeSettings({ severities = [], watchedFactions = [], 
         </p>
         <input
           id="grudge-watched" value={factions} onChange={(e) => setFactions(e.target.value)}
-          placeholder="10739, 8103"
+          placeholder="8103, 9999"
           className="w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-gray-100"
         />
+        {/* ⚠️ Shown as a fixed entry rather than a row in the box. It is always
+            watched and cannot be removed — listing it as editable would invite
+            somebody to delete it and wonder why it came back. */}
+        {ownFactionId && (
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Your own faction (<span className="font-mono">{ownFactionId}</span>) is always
+            watched and does not need adding.
+          </p>
+        )}
       </div>
 
       {removedInUse.length > 0 && (

@@ -18,6 +18,42 @@ surface it automatically.
 
 ---
 
+## [3.195.0] - 2026-10-04
+
+### Added
+- **Watch mode on the Book of Grudges (#889).** Leadership can turn continuous
+  refreshing on for a chain and off again afterwards, the way the War Room gates its
+  own polling — the same idea, its own state, nothing shared.
+  - ⚠️ **The refresh rate is COMPUTED, never configured.** It falls out of how
+    many factions are on the list and how many members have consented, and is shown
+    in plain words. A box saying "every 30 seconds" would be a promise the key budget
+    might not keep, and a cadence that silently fails to happen is worse than one
+    that is simply stated.
+  - ⚠️ **At most a quarter of each key.** The pool is shared with OC tracking,
+    the War Room and member stats; a watch that spends a key's whole minute starves
+    them, which is the shape of the 2026-09-10 incident.
+  - ⚠️ **A sweep too big for one tick is SHARDED**, cycling from the clock with
+    no stored cursor — a persisted one is a thing that can jam. Factions are taken
+    first so a tight budget buys the most coverage.
+  - Because `/faction/{id}/members` returns every member's status in one call, cost
+    scales with **factions, not targets**: 150 targets across 40 factions is 70 calls
+    a pass and still refreshes every minute on four consented keys.
+
+### Changed
+- ⚠️ **Our own faction is always watched**, read from `faction_config` at request
+  time rather than stored. This stack serves five factions from one codebase, so a
+  literal id would watch TNL's roster on forge, mayhem and capacityx. It is added on
+  read, not seeded, so it cannot be edited away — nobody should be able to switch off
+  the gate that stops a teammate appearing on a public target list.
+- `grudge-refresh` now ticks every minute and decides for itself whether to work:
+  sharded and fast with watch mode on, one pass a quarter-hour with it off. One job
+  rather than two, which would double-refresh whenever both were due.
+
+### Fixed
+- ⚠️ The refresh fetched `/faction/{id}/basic` **every sweep** for a faction name
+  it already had, doubling the cost of every grouped faction for a string that
+  almost never changes.
+
 ## [3.194.0] - 2026-10-04
 
 ### Added

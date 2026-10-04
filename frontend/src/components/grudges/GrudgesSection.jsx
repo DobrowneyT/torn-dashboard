@@ -76,9 +76,14 @@ export default function GrudgesSection({ isLeadership = false }) {
    * learned — somebody discharged early, a target who changed faction.
    */
   useEffect(() => {
-    const id = setInterval(() => { load() }, 60_000)
+    // ⚠️ Follows the server's own cadence rather than guessing. With watch mode
+    // on the job writes every minute, so polling slower than that would show a
+    // board older than the one the server already has; with it off the server
+    // only writes every 15 minutes and a fast poll would be pure noise.
+    const ms = settings.watch?.enabled ? 30_000 : 120_000
+    const id = setInterval(() => { load() }, ms)
     return () => clearInterval(id)
-  }, [load])
+  }, [load, settings.watch?.enabled])
 
   const rule = async (id, verb) => {
     await apiPost(`/api/grudges/targets/${id}/${verb}`, {})
@@ -166,6 +171,8 @@ export default function GrudgesSection({ isLeadership = false }) {
         <GrudgeSettings
           severities={settings.severities}
           watchedFactions={settings.watched_factions ?? []}
+          ownFactionId={settings.own_faction_id ?? null}
+          watch={settings.watch ?? null}
           onSaved={load}
         />
       )}

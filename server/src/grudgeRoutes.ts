@@ -19,8 +19,11 @@ import { readProfile } from './grudgeEnrich.js'
 import {
   normaliseSeverities, normaliseWatchedFactions, removedSeverityIds,
 } from './grudgeSettings.js'
+import { planWatchCycle, describePlan } from './grudgeWatchPlan.js'
+import { planStatusRefresh } from './grudges.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
+import { DISCLOSURE_VERSIONS, consentCovers } from './consent.js'
 
 const LEADERSHIP = new Set(['admin', 'leadership'])
 
@@ -32,13 +35,69 @@ const viewerOf = (req: any) => {
   }
 }
 
-/** Factions leadership wants held for approval. A setting, never hardcoded. */
-async function watchedFactions(db: pg.Pool): Promise<string[]> {
-  const { rows } = await db.query(
-    `SELECT value FROM faction_settings WHERE key = 'grudge_watched_factions'`
-  )
-  const v = rows[0]?.value
-  return Array.isArray(v) ? v.map((x: unknown) => String(x)) : []
+/**
+ * Factions leadership wants held for approval. A setting, never hardcoded.
+ *
+ * ⚠️ **Our own faction is ALWAYS included, and is read from
+ * `faction_config`, never written down.** This stack serves five factions from
+ * one codebase, so a literal id would watch TNL's faction on forge, mayhem and
+ * capacityx — silently approving nothing on four tenants and gating the wrong
+ * roster on three.
+ *
+ * ⚠️ It is added at READ time rather than seeded into the stored list, so it
+ * cannot be edited away by accident. Somebody tidying the settings should not
+ * be able to switch off the gate that stops a teammate appearing on a public
+ * target list.
+ */
+/**
+ * Watch mode, plus the cadence it would actually achieve.
+ *
+ * ⚠️ The cadence is COMPUTED, not configured. It falls out of the number of
+ * factions on the list and the number of members who have consented, so a
+ * configurable "refresh every N seconds" would be a number somebody picks and
+ * the system then fails to honour.
+ */
+async function watchState(db: pg.Pool) {
+  const [cfg, targets, keys] = await Promise.all([
+    db.query(`SELECT value FROM faction_settings WHERE key = 'grudge_watch'`),
+    db.query(`SELECT target_id, faction_id FROM grudge_targets WHERE removed_at IS NULL`),
+    // Only keys that may be used for THIS purpose — the cadence a member sees
+    // must reflect the keys that can actually do the work.
+    db.query(
+      `SELECT count(*)::int AS n FROM member_secrets
+        WHERE disabled = false AND cpr_api_key IS NOT NULL AND consent_at IS NOT NULL
+          AND has_faction_access IS NOT FALSE
+          AND consent_version = ANY($1::text[])`,
+      [DISCLOSURE_VERSIONS.filter((v) => consentCovers(v.id, 'target-lookup')).map((v) => v.id)]
+    ),
+  ])
+  const enabled = cfg.rows[0]?.value?.enabled === true
+  const keyCount = Number(keys.rows[0]?.n ?? 0)
+  const work = planStatusRefresh(targets.rows as any)
+  const plan = planWatchCycle(work, keyCount)
+  return {
+    enabled,
+    keys: keyCount,
+    targets: targets.rows.length,
+    calls_per_sweep: plan.callsPerSweep,
+    seconds_per_sweep: plan.secondsPerSweep,
+    shards: plan.shards,
+    description: describePlan(plan, keyCount),
+  }
+}
+
+export async function watchedFactions(db: pg.Pool): Promise<string[]> {
+  const [stored, ours] = await Promise.all([
+    db.query(`SELECT value FROM faction_settings WHERE key = 'grudge_watched_factions'`),
+    db.query('SELECT torn_faction_id FROM faction_config LIMIT 1'),
+  ])
+  const v = stored.rows[0]?.value
+  const list = Array.isArray(v) ? v.map((x: unknown) => String(x)) : []
+  const own = ours.rows[0]?.torn_faction_id
+  if (own !== null && own !== undefined && String(own) !== '' && !list.includes(String(own))) {
+    list.push(String(own))
+  }
+  return list
 }
 
 /** Append-only. This table IS the history the feature was asked for. */
@@ -125,6 +184,14 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
       watched_factions: viewer.isLeadership
         ? ((byKey.get('grudge_watched_factions') as unknown[]) ?? [])
         : undefined,
+      watch: await watchState(db),
+      // ⚠️ Surfaced separately from the editable list: it is always watched
+      // and cannot be removed, and a UI that showed it as an ordinary row
+      // would invite somebody to delete it and wonder why it came back.
+      own_faction_id: viewer.isLeadership
+        ? (await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1'))
+            .rows[0]?.torn_faction_id ?? null
+        : undefined,
     }
   })
 
@@ -199,6 +266,30 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
         removed_severities: dropped,
         grudges_cleared: cleared,
       }
+    }
+  )
+
+  /**
+   * Turn watch mode on or off (#889).
+   *
+   * ⚠️ Only the TOGGLE is settable. The refresh rate is derived from the list
+   * and the consented keys, because a configured "every 30 seconds" is a
+   * promise the key budget may not be able to keep — and a cadence that
+   * silently fails to happen is worse than one that is simply stated.
+   */
+  app.put(
+    '/api/grudges/watch',
+    { preHandler: [requireAuth(), requireNotVisitor()] },
+    async (req, reply) => {
+      const viewer = viewerOf(req)
+      if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
+      const enabled = (req.body as any)?.enabled === true
+      await db.query(
+        `INSERT INTO faction_settings (key, value, updated_at) VALUES ('grudge_watch', $1, now())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+        [JSON.stringify({ enabled })]
+      )
+      return await watchState(db)
     }
   )
 
