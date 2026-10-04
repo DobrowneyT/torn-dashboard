@@ -108,4 +108,148 @@ describe('HofSection', () => {
     fireEvent.click(await screen.findByText('how to read it'))
     expect(await screen.findByText(/left out rather than ranked last/i)).toBeTruthy()
   })
+
+  // =========================================================================
+  // ⚠️ NUMERIC SORTING
+  // =========================================================================
+  //
+  // The board shipped sorting every numeric column as TEXT, because
+  // `compareValues` falls through to `localeCompare` when a column declares no
+  // `kind` and BOARD_COLUMNS declared none. Real boards came out
+  //
+  //     #            1, 10, 11, 12 … 19, 2, 20 … 29, 3
+  //     Racing skill 9.77, 9.32, 8.94, 8.77, 77.35, 75.33, 7.91
+  //     Racing wins  97, 94, 933, 93, 89, 8,775, 86, 83, 808
+  //
+  // ⚠️ **The fixture above cannot catch this and never could.** It has three
+  // rows ranked 1, 2, 3 — single digits, which sort identically as text and as
+  // numbers. Every one of these tests passed while all four columns were
+  // broken. A sorting fixture needs a value whose text order and numeric order
+  // DISAGREE, so these use two-digit ranks and decimals.
+  const ranked = (container) =>
+    [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td').textContent)
+
+  // Racing skill, as captured from the live board.
+  const bigBoard = () => ({
+    memberCount: 12,
+    snapshotDate: '2026-10-04',
+    fetchedMs: Date.UTC(2026, 9, 4),
+    categories: [{
+      category: 'racing_skill',
+      rows: [77.35, 75.33, 68.95, 68.38, 9.77, 9.32, 8.94, 8.77, 7.91, 7.79, 7.49, 1.05]
+        .map((value, i) => ({
+          memberId: String(i + 1),
+          memberName: `Racer${i + 1}`,
+          value,
+          globalRank: (i + 1) * 1000,
+          factionRank: i + 1,
+        })),
+    }],
+  })
+
+  it('⚠️ ranks the # column numerically, not as text', async () => {
+    apiGet.mockResolvedValue(bigBoard())
+    const { container } = render(<HofSection />)
+    await screen.findByText('Racer1')
+    // Lexically this is 1, 10, 11, 12, 2, 3, … — which is what shipped.
+    expect(ranked(container)).toEqual(['1','2','3','4','5','6','7','8','9','10','11','12'])
+  })
+
+  it('⚠️ sorts the value column numerically, not as text', async () => {
+    apiGet.mockResolvedValue(bigBoard())
+    const { container } = render(<HofSection />)
+    await screen.findByText('Racer1')
+
+    // The third header is the value column; its label is the category's.
+    // ⚠️ The click target is the BUTTON inside the <th>, not the cell.
+    // SortableTh puts onClick on the button, and events bubble up rather than
+    // down, so clicking the <th> reorders nothing and the assertion below
+    // silently compares the board to its own unsorted self.
+    const valueTh = container.querySelectorAll('thead th')[2]
+    expect(valueTh.textContent).toContain('Racing skill')
+    fireEvent.click(valueTh.querySelector('button'))   // first click is ascending
+
+    // Ascending by value is descending by rank. Sorted as TEXT it would be
+    // 1.05, 68.38, 68.95, 7.49 … — ranks 12, 4, 3, 11 …
+    expect(ranked(container)).toEqual(['12','11','10','9','8','7','6','5','4','3','2','1'])
+  })
+
+  const travelBoard = (rows) => ({
+    memberCount: rows.length,
+    snapshotDate: '2026-10-04',
+    fetchedMs: Date.UTC(2026, 9, 4),
+    categories: [{
+      category: 'travel_time',
+      rows: rows.map(([memberName, value], i) => ({
+        memberId: String(i + 1), memberName, value, globalRank: i + 1, factionRank: i + 1,
+      })),
+    }],
+  })
+
+  it('⚠️ renders travel time as a duration, at a scale chosen per value', async () => {
+    // Torn's own spec: "Traveltime is shown in seconds." 9,849,600 is accurate
+    // and unreadable, and every live figure is an exact multiple of 86,400 so
+    // the raw column reads like a day count.
+    apiGet.mockResolvedValue(travelBoard([
+      ['Nomad', 72_489_600],
+      ['Wanderer', 9_849_600],
+      ['Tourist', 950_400],
+    ]))
+    const { container } = render(<HofSection />)
+    await screen.findByText('Nomad')
+    const cells = [...container.querySelectorAll('tbody tr')]
+      .map((tr) => tr.querySelectorAll('td')[2].textContent)
+    expect(cells).toEqual(['2y 109d', '114d', '11d'])
+  })
+
+  it('keeps the exact seconds on hover, and states no unit in the header', async () => {
+    apiGet.mockResolvedValue(travelBoard([['Wanderer', 9_849_600]]))
+    const { container } = render(<HofSection />)
+    await screen.findByText('Wanderer')
+    const cell = container.querySelectorAll('tbody td')[2]
+    expect(cell.getAttribute('title')).toBe('9,849,600 seconds')
+    // ⚠️ "(seconds)" above a cell reading "114d" is a contradiction. The
+    // value states its own unit now.
+    expect(container.querySelectorAll('thead th')[2].textContent).not.toMatch(/second/i)
+  })
+
+  it('⚠️ sorts travel time on the raw seconds, not the formatted text', async () => {
+    // "2y 109d" against "114d" is exactly the lexical trap this board was just
+    // fixed for. The accessor must keep reading the number.
+    apiGet.mockResolvedValue(travelBoard([
+      ['Nomad', 72_489_600],
+      ['Wanderer', 9_849_600],
+      ['Tourist', 950_400],
+    ]))
+    const { container } = render(<HofSection />)
+    await screen.findByText('Nomad')
+    fireEvent.click(container.querySelectorAll('thead th')[2].querySelector('button'))
+    const cells = [...container.querySelectorAll('tbody tr')]
+      .map((tr) => tr.querySelectorAll('td')[2].textContent)
+    expect(cells).toEqual(['11d', '114d', '2y 109d'])
+  })
+
+  it('leaves every other category as a plain number', async () => {
+    apiGet.mockResolvedValue(payload())
+    const { container } = render(<HofSection />)
+    await screen.findByText('Alice')
+    const cell = container.querySelectorAll('tbody td')[2]
+    expect(cell.textContent).toBe('12,000,000')
+    expect(cell.getAttribute('title')).toBeNull()
+  })
+
+  it('⚠️ sorts the global rank numerically, and still sinks the unplaced', async () => {
+    const board = bigBoard()
+    board.categories[0].rows[3].globalRank = null
+    apiGet.mockResolvedValue(board)
+    const { container } = render(<HofSection />)
+    await screen.findByText('Racer1')
+
+    fireEvent.click(container.querySelectorAll('thead th')[3].querySelector('button'))
+    const order = ranked(container)
+    // 1000, 2000, 3000 … sorts as text to 1000, 10000, 11000, 12000, 2000 …
+    expect(order.slice(0, 3)).toEqual(['1','2','3'])
+    // #351: no global rank means UNPLACED, so it sinks even ascending.
+    expect(order[order.length - 1]).toBe('4')
+  })
 })
