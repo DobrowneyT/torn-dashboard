@@ -46,6 +46,18 @@ surface it automatically.
     one call, and a faction holding exactly one target is routed to the individual
     lookup instead, since that costs the same call and drags back far less.
 
+## [3.191.2] - 2026-10-04
+
+### Changed
+- **CI now runs ESLint on the frontend**, with only the four rules whose failure is a
+  crash: `no-undef`, `react/jsx-no-undef`, `react/jsx-uses-vars` and
+  `react-hooks/rules-of-hooks`. ⚠️ Neither `vite build` nor vitest catches an
+  undeclared name; it is a runtime ReferenceError. Both of today's production
+  crashes were that (`raceGroupHeaders` on War Payouts, `renderCtx` on Member
+  Overview, #900), and this fails on each when they are put back. It also catches
+  the hooks-after-early-return bug fixed in 3.191.1. Zero standing failures, and it
+  should stay that way: `npm run lint -w frontend`.
+
 ## [3.191.1] - 2026-10-04
 
 ### Fixed
