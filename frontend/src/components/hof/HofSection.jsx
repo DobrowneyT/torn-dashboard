@@ -131,7 +131,12 @@ export default function HofSection() {
     [data, category]
   )
   const { sorted, sortCol, sortDir, onSort } = useTableSort(board, BOARD_COLUMNS, {
-    initialCol: 'factionRank', tieBreak: 'memberName',
+    // ⚠️ Ties are the NORM on this board, not the exception: positions are
+    // shared, so an entire faction at level 100 sits at rank 1 together. Global
+    // rank settles them on something people actually care about — 280th in
+    // Torn ahead of 3,089th — with the name only breaking a remaining tie
+    // between members Torn gave no global rank for.
+    initialCol: 'factionRank', tieBreak: ['globalRank', 'memberName'],
   })
 
   if (error) return <p className="text-sm text-red-600 dark:text-red-400">{error}</p>

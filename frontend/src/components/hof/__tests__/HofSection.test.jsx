@@ -147,6 +147,32 @@ describe('HofSection', () => {
     }],
   })
 
+  it('⚠️ orders a shared position by Torn rank, not alphabetically', async () => {
+    // Positions are SHARED, so a whole faction at level 100 sits at rank 1
+    // together and ties are the norm on this board rather than an edge case.
+    // Ordering those by name told you nothing; global rank answers "who is
+    // highest placed in Torn", which is the question people actually ask.
+    apiGet.mockResolvedValue({
+      memberCount: 4,
+      snapshotDate: '2026-10-04',
+      fetchedMs: Date.UTC(2026, 9, 4),
+      categories: [{
+        category: 'level',
+        rows: [
+          { memberId: '1', memberName: 'Albatra', value: 100, globalRank: 3_089, factionRank: 1 },
+          { memberId: '2', memberName: 'AlleyCat_616', value: 100, globalRank: 280, factionRank: 1 },
+          { memberId: '3', memberName: 'Goosey', value: 100, globalRank: 1_452, factionRank: 1 },
+          { memberId: '4', memberName: 'Zeta', value: 99, globalRank: 9, factionRank: 4 },
+        ],
+      }],
+    })
+    const { container } = render(<HofSection />)
+    await screen.findByText('Albatra')
+    const names = [...container.querySelectorAll('tbody tr')]
+      .map((tr) => tr.querySelectorAll('td')[1].textContent)
+    expect(names).toEqual(['AlleyCat_616', 'Goosey', 'Albatra', 'Zeta'])
+  })
+
   it('⚠️ ranks the # column numerically, not as text', async () => {
     apiGet.mockResolvedValue(bigBoard())
     const { container } = render(<HofSection />)
