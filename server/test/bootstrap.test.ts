@@ -62,8 +62,18 @@ describe('GET /api/bootstrap', () => {
     expect(body.faction.slug).toBe(TEST_FACTION.slug)
     // member_name comes from the roster; api_key_hint (#264) is this caller's own
     // key's last 4 (WARLEADKEY123456 → 3456), stored at login enrolment.
+    //
+    // ⚠️ Kept as a STRICT toEqual rather than a toMatchObject. The payload is
+    // what the SPA trusts to decide what this member may see, and a field
+    // arriving here unnoticed is how that goes wrong — so a new one is meant
+    // to fail this test and be added deliberately, as `consent_*` was (#894).
     expect(body.user).toEqual({
       torn_user_id: '222', roles: ['warlead'], member_name: 'Warleader', api_key_hint: '3456',
+      // #894 — what this member last accepted, and whether it is behind the
+      // current disclosure. `false` here is the important half: shipping the
+      // consent mechanism must not prompt anybody who was already up to date.
+      consent_version: 'login-v1',
+      consent_required: false,
     })
   })
 

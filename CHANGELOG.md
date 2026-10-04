@@ -18,6 +18,47 @@ surface it automatically.
 
 ---
 
+## [3.190.0] - 2026-10-04
+
+### Fixed
+- **The API Key Usage re-prompt now exists (#894).** It previously did nothing:
+  `config.js` declared `consentVersion` with the comment "bump to re-prompt the
+  disclosure", **nothing read it**, the server stored a hardcoded `'login-v1'`
+  instead, and no comparison happened anywhere. The page could be rewritten and no
+  member was ever asked again.
+- ⚠️ A second, separate correction: `calendar.ts` claimed bumping the version
+  "gates every scraper". It does not — the key pool filters on `consent_at IS NOT
+  NULL` in four places and never on the version. That comment was repeated as fact
+  when advising on timing, which is why this was checked.
+
+### Added
+- **Purpose-scoped consent.** `pool.claim({ purpose })` restricts a claim to keys
+  whose owner accepted a disclosure covering that purpose. ⚠️ **Omitting it is the
+  baseline and changes nothing**, so every existing scraper is untouched — a member
+  who has not re-accepted keeps serving everything the disclosure they DID accept
+  covered. A re-prompt never halts the faction's data collection.
+- **A guard that makes the rule structural.** Each entry in `DISCLOSURE_VERSIONS`
+  carries a fingerprint of `ApiKeyDisclosure.jsx`'s rows. Editing the disclosure
+  without adding a version **fails CI**, and adding a version is what re-prompts
+  everybody — so *"anytime we adjust the API Key Usage page, force a re-approval"*
+  is enforced rather than remembered. Verified by probe.
+- `/api/health` reports `consent_version`; bootstrap reports what the member
+  accepted and whether it is stale. ⚠️ The app build version and the disclosure
+  version are **separate fields**: shipping a release must not re-prompt anybody, and
+  bumping the disclosure must not force a reload.
+- `POST /api/auth/consent` records acceptance. ⚠️ It takes **no version from the
+  client** — a stale tab must not be able to accept wording that has since been
+  replaced.
+- `ConsentGate` overlays the dashboard when the disclosure has moved on. ⚠️ It does
+  not block the app and does not reload the tab; it says plainly that nothing stops
+  working, and can be deferred.
+
+### Internal
+- ⚠️ **Shipping this changes nothing for anybody.** The version list contains only
+  `login-v1`, which is what every enrolled key already stores, so no member is
+  prompted until a disclosure actually changes. There is a test asserting exactly
+  that.
+
 ## [3.189.0] - 2026-10-04
 
 ### Added

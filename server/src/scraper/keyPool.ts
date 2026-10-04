@@ -4,6 +4,7 @@
 // (it is constructed with that DB's pool and nothing else).
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 import type pg from 'pg'
+import { DISCLOSURE_VERSIONS, PURPOSE_VERSIONS, consentCovers } from '../consent.js'
 
 export interface KeyPoolOptions {
   db: pg.Pool
@@ -97,19 +98,44 @@ export function createKeyPool({ db, encryptionKey }: KeyPoolOptions) {
      * without faction API access are skipped (they'd fail faction calls with
      * Torn error 7). Safe under parallel claimers (SKIP LOCKED); returns null
      * when the pool is empty.
+     *
+     * `purpose` restricts the claim to keys whose owner has accepted a
+     * disclosure covering it (#894).
+     *
+     * ⚠️ **Omitting it is the baseline and changes nothing.** Every existing
+     * caller passes no purpose and claims exactly the keys it always did —
+     * which is the point: a re-prompt must never stop the faction's data
+     * collection while people get round to accepting it.
      */
-    async claim(): Promise<ClaimedKey | null> {
+    async claim(opts: { purpose?: string } = {}): Promise<ClaimedKey | null> {
+      const required = opts.purpose ? PURPOSE_VERSIONS[opts.purpose] : null
+      // ⚠️ The SQL cannot rank versions — the ordering lives in an array in
+      // `consent.ts`, deliberately, because these ids do not compare as
+      // strings. So the set of acceptable versions is computed here and passed
+      // as a bound parameter.
+      const acceptable = required === null || required === undefined
+        ? null
+        : DISCLOSURE_VERSIONS
+            .filter((v) => consentCovers(v.id, opts.purpose))
+            .map((v) => v.id)
+
+      // A gated purpose no stored version can satisfy must claim NOTHING,
+      // rather than falling through to an unfiltered claim.
+      if (acceptable !== null && acceptable.length === 0) return null
+
       const res = await db.query(
         `UPDATE member_secrets SET last_claimed_at = clock_timestamp()
          WHERE member_id = (
            SELECT member_id FROM member_secrets
            WHERE disabled = false AND consent_at IS NOT NULL AND cpr_api_key IS NOT NULL
              AND has_faction_access IS NOT FALSE
+             AND ($1::text[] IS NULL OR consent_version = ANY($1::text[]))
            ORDER BY last_claimed_at ASC NULLS FIRST
            LIMIT 1
            FOR UPDATE SKIP LOCKED
          )
-         RETURNING member_id, cpr_api_key`
+         RETURNING member_id, cpr_api_key`,
+        [acceptable]
       )
       if (res.rows.length === 0) return null
       return { member_id: res.rows[0].member_id, key: decrypt(res.rows[0].cpr_api_key) }

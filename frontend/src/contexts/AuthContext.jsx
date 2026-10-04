@@ -48,6 +48,12 @@ async function loginViaApi(apiKey) {
     // Last 4 chars of this user's own pooled key (#264) — shown masked in the
     // hamburger menu; null when no key is on file (e.g. visitors).
     apiKeyHint: boot.user.api_key_hint ?? null,
+    // #894 — the API Key Usage disclosure this member last accepted, and
+    // whether it is behind the current one. ⚠️ Both, not just the boolean:
+    // without the version the client can show that somebody must re-accept but
+    // never what changed.
+    consentVersion: boot.user.consent_version ?? null,
+    consentRequired: boot.user.consent_required === true,
     apiMode: true,
     lastLogin: new Date().toISOString(),
   }
