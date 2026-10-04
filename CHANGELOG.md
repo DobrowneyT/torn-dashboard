@@ -18,6 +18,29 @@ surface it automatically.
 
 ---
 
+## [3.197.0] - 2026-10-04
+
+### Changed
+- **A target is fully resolved the moment it is added (#889).** The profile lookup
+  already happened inline; the **faction name** and **battle stats** now do too, so
+  the row is useful the instant it exists instead of showing a bare faction id and an
+  empty FF column until the next sweep.
+  - ⚠️ The three sources are fetched **in parallel and fail independently**. A
+    TornStats outage must not cost us the faction name, which comes from Torn, and
+    neither may fail the add — the grudge is the member's contribution and is kept
+    regardless.
+  - ⚠️ **No faction call at all for an unfactioned target.** There is nothing to
+    name, and asking about faction 0 is a wasted call that would 404.
+  - ⚠️ Stats use the same TornStats-then-BSP precedence as everywhere else,
+    through the shared `spyProviders`, so a target added by hand and one filled by
+    the nightly job are read identically.
+  - One extra pair of calls on a deliberate human action is affordable where the same
+    calls on a sweep would not be — which is why the nightly job still exists and
+    still refetches only what is stale.
+- ⚠️ **Re-adding a removed target now re-enriches it.** A target off the list for
+  a month may have changed faction, name or stats entirely, and reviving the old row
+  would have presented stale facts as current.
+
 ## [3.196.0] - 2026-10-04
 
 ### Added
