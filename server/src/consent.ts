@@ -39,6 +39,21 @@ export const DISCLOSURE_VERSIONS = [
     // (MonChoon, 2026-10-04) made structural instead of remembered.
     rowsHash: '26fba5b54a067745',
   },
+  {
+    // #889 slice 0. Adds the Target Lookups row: a member's key may be used to
+    // read the public profile of somebody a TEAMMATE added to the shared target
+    // list, and that person's faction member list.
+    //
+    // ⚠️ Adding this entry is what re-prompts the whole faction. It was added
+    // in the same change that edited `ApiKeyDisclosure.jsx`, which is the only
+    // way the guard permits — and deliberately BEFORE the lookups themselves
+    // ship, so members have time to accept before anything uses it.
+    id: 'target-lookup-v1',
+    summary:
+      'Everything in login-v1, plus looking up players and factions that a ' +
+      'member has added to the faction\u2019s shared target list.',
+    rowsHash: 'd44d2274a0c49254',
+  },
 ] as const
 
 export type DisclosureVersion = (typeof DISCLOSURE_VERSIONS)[number]['id']
@@ -52,7 +67,12 @@ export const CURRENT_DISCLOSURE_VERSION: string =
  * each. A purpose absent from here needs no minimum — which is every existing
  * scraper, and why none of them change behaviour.
  */
-export const PURPOSE_VERSIONS: Record<string, string> = {}
+export const PURPOSE_VERSIONS: Record<string, string> = {
+  // ⚠️ The Book of Grudges target lookups (#889). A key whose owner has not
+  // accepted `target-lookup-v1` is SKIPPED for these calls and for nothing
+  // else — every other scraper claims without a purpose and is unaffected.
+  'target-lookup': 'target-lookup-v1',
+}
 
 /**
  * Position in the ordered list, or `null` for a version we do not recognise.

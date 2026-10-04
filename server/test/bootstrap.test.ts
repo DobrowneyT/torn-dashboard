@@ -2,6 +2,7 @@
 // caller's roles only with a valid session token.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
+import { CURRENT_DISCLOSURE_VERSION } from '../src/consent.js'
 
 let stack: TestStack
 
@@ -70,9 +71,10 @@ describe('GET /api/bootstrap', () => {
     expect(body.user).toEqual({
       torn_user_id: '222', roles: ['warlead'], member_name: 'Warleader', api_key_hint: '3456',
       // #894 — what this member last accepted, and whether it is behind the
-      // current disclosure. `false` here is the important half: shipping the
-      // consent mechanism must not prompt anybody who was already up to date.
-      consent_version: 'login-v1',
+      // current disclosure. ⚠️ A fresh login records the CURRENT version: the
+      // login modal refuses to submit until the member ticks the disclosure
+      // shown beside it, so logging in IS an acceptance of what it then said.
+      consent_version: CURRENT_DISCLOSURE_VERSION,
       consent_required: false,
     })
   })

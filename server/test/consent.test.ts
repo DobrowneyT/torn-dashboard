@@ -18,9 +18,24 @@ describe('the version list', () => {
     )
   })
 
-  it('⚠️ still contains login-v1, which is what every enrolled key stores today', () => {
-    // Dropping it would mark the whole faction unrecognised at once.
+  it('⚠️ still contains login-v1, which is what enrolled keys stored before slice 0', () => {
+    // Dropping it would make every un-re-consented key UNRECOGNISED rather
+    // than merely out of date — and an unplaceable version is refused for
+    // gated purposes, so they would silently lose more than they should.
     expect(DISCLOSURE_VERSIONS.map((v) => v.id)).toContain('login-v1')
+  })
+
+  it('⚠️ gates target lookups on the version that disclosed them', () => {
+    // The Book of Grudges reads players outside the faction. A member who has
+    // not accepted that row is skipped for those calls and nothing else.
+    expect(PURPOSE_VERSIONS['target-lookup']).toBe('target-lookup-v1')
+    expect(consentCovers('login-v1', 'target-lookup')).toBe(false)
+    expect(consentCovers('target-lookup-v1', 'target-lookup')).toBe(true)
+  })
+
+  it('⚠️ an un-re-consented key still covers everything ungated', () => {
+    // The assertion the whole purpose-scoped design exists for.
+    expect(consentCovers('login-v1')).toBe(true)
   })
 
   it('⚠️ every entry carries a disclosure fingerprint', () => {
@@ -96,10 +111,16 @@ describe('consentCovers', () => {
 })
 
 describe('consentIsCurrent', () => {
-  it('is true for the version everybody has stored right now', () => {
-    // ⚠️ Nobody should be prompted by the mere existence of this mechanism.
-    // Shipping #894 must be invisible until a disclosure actually changes.
-    expect(consentIsCurrent('login-v1')).toBe(true)
+  it('⚠️ is FALSE for login-v1, because the disclosure has since changed', () => {
+    // This assertion was the opposite when #894 shipped, and the flip is the
+    // point: #894 landed inert, and #889 slice 0 added the Target Lookups row,
+    // which is what re-prompts the faction. If this ever reads true again with
+    // a newer version in the list, the gate has stopped working.
+    expect(consentIsCurrent('login-v1')).toBe(false)
+  })
+
+  it('is true for the newest version in the list', () => {
+    expect(consentIsCurrent(CURRENT_DISCLOSURE_VERSION)).toBe(true)
   })
 
   it('is false for a member with no recorded consent', () => {

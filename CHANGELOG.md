@@ -18,6 +18,29 @@ surface it automatically.
 
 ---
 
+## [3.191.0] - 2026-10-04
+
+### Added
+- **API Key Usage now discloses target lookups (#889, slice 0), and every member is
+  asked to re-accept.** A new *Target Lookups* row explains that a key may be used to
+  read the public profile of somebody a teammate added to the shared target list, and
+  that person's faction member list.
+  ⚠️ **These are people outside your faction**, chosen by whichever member added
+  them, rather than your own teammates — which is the part the existing wording did
+  not cover, and the reason this needs saying rather than relying on the endpoint list.
+  ⚠️ **Disclosed before the lookups ship.** Slice 4 is not built yet; members get
+  time to accept before anything uses it.
+  ⚠️ **Declining costs nothing else.** A key whose owner has not accepted is
+  skipped for these calls and for nothing else; every other scraper is unaffected.
+
+### Fixed
+- ⚠️ **Logging in would have reset a member's consent and re-prompted them
+  forever.** `auth.ts` stored a hardcoded `'login-v1'` and `keyPool.store` overwrites
+  `consent_version` on every login, so accepting the new disclosure and then logging
+  in again would silently undo it. Login now records the current version — which is
+  correct in its own right, since the login modal will not submit until the member
+  ticks the disclosure beside it.
+
 ## [3.190.0] - 2026-10-04
 
 ### Fixed
