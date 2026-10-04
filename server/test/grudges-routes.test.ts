@@ -57,6 +57,11 @@ const givenTarget = (id: string, factionId: number | null, name = `Target${id}`)
   }))
 }
 
+/** Name a faction, so the add path can resolve it inline. */
+const givenFactionName = (id: number, name: string) => {
+  stack.torn.setHandler(`/v2/faction/${id}/basic`, () => ({ basic: { id, name } }))
+}
+
 /** No handler at all — the lookup fails and the add must fail CLOSED. */
 const givenUnresolvable = (id: string) => {
   stack.torn.setHandler(`/v2/user/${id}/profile`, () => ({ error: { code: 6, error: 'Incorrect ID' } }))
@@ -569,6 +574,88 @@ describe('⚠️ our own faction is always watched', () => {
     givenTarget('7778', 12345)
     expect((await call('POST', '/api/grudges', member, { target: '7778', reason: 'stranger' })).body.state)
       .toBe('active')
+  })
+})
+
+describe('⚠️ enrichment on the very first insert', () => {
+  beforeAll(reset)
+
+  it('resolves name, level, faction id AND faction name in one go', async () => {
+    // The point of doing it inline: the row is useful the moment it exists,
+    // rather than showing a bare id until the next sweep.
+    givenTarget('9601', 4321, 'Likor')
+    givenFactionName(4321, 'Some Other Faction')
+    const r = await call('POST', '/api/grudges', member, { target: '9601', reason: 'enriched' })
+    expect(r.body.target_name).toBe('Likor')
+    expect(r.body.faction_name).toBe('Some Other Faction')
+
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9601')
+    expect(t.faction_id).toBe('4321')
+    expect(t.faction_name).toBe('Some Other Faction')
+    expect(t.level).toBe(50)
+    expect(t.status_state).toBe('Okay')
+  })
+
+  it('⚠️ a missing faction NAME does not cost us the faction id', async () => {
+    // The two come from different calls, and one failing must not take the
+    // other with it.
+    givenTarget('9602', 5555)
+    const r = await call('POST', '/api/grudges', member, { target: '9602', reason: 'no name' })
+    expect(r.status).toBe(201)
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9602')
+    expect(t.faction_id).toBe('5555')
+    expect(t.faction_name).toBeNull()
+  })
+
+  it('⚠️ makes no faction call at all for an unfactioned target', async () => {
+    // There is no faction to name, and asking for faction 0 is a wasted call
+    // that would 404.
+    givenTarget('9603', null)
+    const r = await call('POST', '/api/grudges', member, { target: '9603', reason: 'loner' })
+    expect(r.status).toBe(201)
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9603')
+    expect(t.faction_id).toBeNull()
+    expect(t.faction_name).toBeNull()
+  })
+
+  it('⚠️ records no spy source when no provider is configured', async () => {
+    // Not an error: a faction with neither TornStats nor BSP key simply has no
+    // battle stats, and the column says so rather than showing a zero.
+    const list = await get('/api/grudges', member)
+    const t = list.body.targets.find((x: any) => x.target_id === '9601')
+    expect(t.bsp_total).toBeNull()
+    expect(t.spy_source).toBeNull()
+  })
+
+  it('⚠️ re-enriches a target that is re-added after removal', async () => {
+    // A target off the list for a month may have changed faction or name
+    // entirely; reviving the old row would present stale facts as current.
+    const list = await get('/api/grudges', member)
+    const row = list.body.targets.find((x: any) => x.target_id === '9601')
+    await call('DELETE', `/api/grudges/targets/${row.id}`, leader)
+
+    givenTarget('9601', 7777, 'LikorRenamed')
+    givenFactionName(7777, 'A Different Faction')
+    const again = await call('POST', '/api/grudges', member2, { target: '9601', reason: 'back again' })
+    expect(again.body.target_row_id).toBe(row.id)   // same row, history intact
+
+    const after = await get('/api/grudges', member)
+    const t = after.body.targets.find((x: any) => x.target_id === '9601')
+    expect(t.target_name).toBe('LikorRenamed')
+    expect(t.faction_id).toBe('7777')
+    expect(t.faction_name).toBe('A Different Faction')
+  })
+
+  it('⚠️ still records the grudge when every lookup fails', async () => {
+    // The grudge is the member's contribution; enrichment is not.
+    givenUnresolvable('9604')
+    const r = await call('POST', '/api/grudges', member, { target: '9604', reason: 'kept regardless' })
+    expect(r.status).toBe(201)
+    expect(r.body.state).toBe('pending_approval')
+    expect(r.body.pending_reason).toBe('unverified')
   })
 })
 
