@@ -36,6 +36,12 @@ jobs:
     - name: Install dependencies
       run: npm install
 
+    # ⚠️ Undeclared identifiers and misplaced hooks. Neither the build nor the
+    # tests catch these — see frontend/eslint.config.js for the crashes that
+    # shipped before this step existed.
+    - name: Lint frontend (ESLint)
+      run: npm run lint -w frontend
+
     - name: Run Vitest across workspaces
       # The db workspace runs against an embedded Postgres — no service container needed.
       run: npm run test:run
