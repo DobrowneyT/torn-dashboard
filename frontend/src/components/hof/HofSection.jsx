@@ -22,6 +22,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { LoaderCircle, Trophy } from 'lucide-react'
 import { apiGet } from '../../utils/apiClient'
+import { formatDuration } from '../../utils/duration.js'
 import InfoTooltip from '../InfoTooltip'
 import SortableTh, { useTableSort } from '../SortableTh.jsx'
 
@@ -46,21 +47,39 @@ const LABELS = {
 const label = (c) => LABELS[c] ?? c.replace(/_/g, ' ')
 
 /**
- * Units, where the bare number does not say what it is.
+ * Categories whose value is a number of SECONDS rather than a count.
  *
- * ⚠️ Travel time is SECONDS, straight from Torn's own spec rather than
- * inferred: `/swagger/openapi.json` documents the hall-of-fame value as
- * *"Value representing the chosen category. Traveltime is shown in seconds."*
- * Worth stating, because the live figures are all exact multiples of 86,400
- * — whole days — which reads much more like a day count than a second count
- * and would be a very easy thing to label wrongly from the data alone.
+ * ⚠️ Travel time is seconds straight from Torn's own spec, not inferred:
+ * `/swagger/openapi.json` documents the hall-of-fame value as *"Value
+ * representing the chosen category. Traveltime is shown in seconds."* Worth
+ * citing, because the data argues the other way — every live figure is an
+ * exact multiple of 86,400, so the column reads like a day count and would be
+ * very easy to label wrongly from the numbers alone.
  *
- * Only on the column header. The category picker stays unadorned; a unit in a
- * chip is noise when you are choosing a board, not reading one.
+ * `9,849,600` is accurate and unreadable, so these render as a duration and
+ * carry the exact seconds in a tooltip. The header says no unit: the value now
+ * states its own, and a header reading "(seconds)" above a cell reading "114d"
+ * is a contradiction.
  */
-const UNITS = { travel_time: 'seconds' }
-const unitSuffix = (c) => (UNITS[c] ? ` (${UNITS[c]})` : '')
+const DURATION_CATEGORIES = new Set(['travel_time'])
+
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString())
+
+/** What a value cell shows, and what it reveals on hover. */
+function displayValue(category, value) {
+  if (value == null) return { text: '—', title: undefined }
+  if (!DURATION_CATEGORIES.has(category)) return { text: fmt(value), title: undefined }
+  // ⚠️ The SORT still runs on the raw number — `accessor: r => r.value` is
+  // untouched. Formatting here would otherwise reintroduce the lexical sort
+  // this board was just fixed for, with "2y 109d" against "114d".
+  return { text: formatDuration(value), title: `${fmt(value)} seconds` }
+}
+
+/** The value cell. Its own component so the formatting runs once per row. */
+function ValueCell({ category, value }) {
+  const { text, title } = displayValue(category, value)
+  return <td className="px-3 py-1.5 text-right font-mono tabular-nums" title={title}>{text}</td>
+}
 
 /** "3rd", "48,000th" — an ordinal reads as a position where a bare number does not. */
 function ordinal(n) {
@@ -187,7 +206,7 @@ export default function HofSection() {
               <tr className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500 dark:bg-slate-800 dark:text-gray-400">
                 <SortableTh col="factionRank" sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 w-16">#</SortableTh>
                 <SortableTh col="memberName"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2">Member</SortableTh>
-                <SortableTh col="value"       sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right" label={label(category)}>{label(category)}{unitSuffix(category)}</SortableTh>
+                <SortableTh col="value"       sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">{label(category)}</SortableTh>
                 <SortableTh col="globalRank"  sortCol={sortCol} sortDir={sortDir} onSort={onSort} className="px-3 py-2 text-right">In Torn</SortableTh>
               </tr>
             </thead>
@@ -210,7 +229,7 @@ export default function HofSection() {
                       className="font-medium text-blue-600 hover:underline dark:text-blue-400"
                     >{r.memberName}</a>
                   </td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{fmt(r.value)}</td>
+                  <ValueCell category={category} value={r.value} />
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums text-gray-500 dark:text-gray-400">
                     {/* ⚠️ "—" when Torn gave no global rank, never a 0 or a
                         guess. A fabricated position on a board people quote at

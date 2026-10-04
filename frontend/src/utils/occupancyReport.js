@@ -187,20 +187,14 @@ export function occupancySummary(members) {
   }
 }
 
-/** "1h 12m of a 7d window", for gap and drift copy. */
-export function formatDuration(seconds) {
-  const s = Math.max(0, Math.round(seconds ?? 0))
-  if (s < 60) return `${s}s`
-  if (s < 3600) return `${Math.round(s / 60)}m`
-  if (s < 86400) {
-    const h = Math.floor(s / 3600)
-    const m = Math.round((s % 3600) / 60)
-    return m === 0 ? `${h}h` : `${h}h ${m}m`
-  }
-  const d = Math.floor(s / 86400)
-  const h = Math.round((s % 86400) / 3600)
-  return h === 0 ? `${d}d` : `${d}d ${h}h`
-}
+/**
+ * "1h 12m of a 7d window", for gap and drift copy.
+ *
+ * ⚠️ Moved to `utils/duration.js` and re-exported here, so this module's
+ * callers are untouched. It grew a year branch for the Hall of Fame, which a
+ * coverage window never reaches.
+ */
+export { formatDuration } from './duration.js'
 
 /** Signed hours, so a divergence reads as a direction and not just a size. */
 export function formatDelta(seconds) {
