@@ -23,7 +23,7 @@ const { default: GrudgeList } = await import('../GrudgeList')
 
 const target = (over = {}) => ({
   id: 1, target_id: '5001', target_name: 'Likor', faction_id: null, faction_name: null,
-  state: 'active', battle_stats: null, stats_source: null,
+  state: 'active', bsp_total: null, spy_source: null,
   status_state: null, status_until: null, added_ms: Date.UTC(2026, 9, 4),
   added_by: '9010',
   grudges: [{ id: 11, member_id: '9010', member_name: 'Me', reason: 'mugged me', severity_id: null }],
@@ -139,9 +139,9 @@ describe('AddGrudgeForm', () => {
 
 describe('GrudgeList', () => {
   const many = [
-    target({ id: 1, target_id: '1', target_name: 'Alpha', battle_stats: 9_000_000, status_state: 'Okay' }),
-    target({ id: 2, target_id: '2', target_name: 'Beta', battle_stats: 10_000_000, status_state: 'Hospital' }),
-    target({ id: 3, target_id: '3', target_name: 'Gamma', battle_stats: 2_000_000, status_state: 'Okay' }),
+    target({ id: 1, target_id: '1', target_name: 'Alpha', bsp_total: 9_000_000, status_state: 'Okay' }),
+    target({ id: 2, target_id: '2', target_name: 'Beta', bsp_total: 10_000_000, status_state: 'Hospital' }),
+    target({ id: 3, target_id: '3', target_name: 'Gamma', bsp_total: 2_000_000, status_state: 'Okay' }),
   ]
 
   it('⚠️ sorts battle stats numerically, not as text', () => {
@@ -190,7 +190,7 @@ describe('GrudgeList', () => {
       ] }),
     ]
     const { container } = render(<GrudgeList targets={rows} viewerId={9010} />)
-    const grudgeTh = container.querySelectorAll('thead th')[5]
+    const grudgeTh = container.querySelectorAll('thead th')[6]
     expect(grudgeTh.textContent).toContain('Grudges')
     fireEvent.click(grudgeTh.querySelector('button'))   // ascending
     const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
@@ -201,7 +201,7 @@ describe('GrudgeList', () => {
     // A header that looks clickable and reorders nothing is worse than one
     // that plainly does not.
     const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} />)
-    const attackTh = container.querySelectorAll('thead th')[6]
+    const attackTh = container.querySelectorAll('thead th')[7]
     expect(attackTh.textContent).toContain('Attack')
     expect(attackTh.querySelector('button')).toBeNull()
   })
@@ -271,11 +271,92 @@ describe('GrudgeList', () => {
     expect(screen.getByText(/awaiting approval/i)).toBeTruthy()
   })
 
-  it('⚠️ says WHY battle stats and status are empty', () => {
-    // An unexplained blank column reads as a broken scrape and gets reported
-    // as a bug. It is switched off on purpose, pending #894.
+  it('⚠️ explains that FF is personal, and what a dash means', () => {
+    // A dash is "we cannot work it out", NOT "bad target", and the two read
+    // identically unless the page says so.
     render(<GrudgeList targets={[target()]} viewerId={9010} />)
-    expect(screen.getByText(/not being fetched yet/i)).toBeTruthy()
+    expect(screen.getByText(/it is what you would earn/i)).toBeTruthy()
+    expect(screen.getByText(/A dash means we cannot work it out/i)).toBeTruthy()
+  })
+
+  // =========================================================================
+  // ⚠️ FAIR FIGHT — personal to the viewer
+  // =========================================================================
+  const spied = (over = {}) => target({
+    bsp_total: 4_000_000, bsp_str: 1_000_000, bsp_spd: 1_000_000,
+    bsp_def: 1_000_000, bsp_dex: 1_000_000, spy_source: 'tornstats', ...over,
+  })
+  const mine = { strength: 1_000_000, speed: 1_000_000, defense: 1_000_000, dexterity: 1_000_000 }
+
+  it('⚠️ shows a dash when the viewer has no stats of their own', () => {
+    // FF is what YOU would earn. Without your own stats there is no answer,
+    // and inventing one sends somebody at a target that pays nothing.
+    const { container } = render(<GrudgeList targets={[spied()]} viewerId={9010} myBattleStats={null} />)
+    const ffCell = container.querySelectorAll('tbody td')[3]
+    expect(ffCell.textContent).toBe('—')
+  })
+
+  it('shows a dash when the TARGET has no stats', () => {
+    const { container } = render(<GrudgeList targets={[target()]} viewerId={9010} myBattleStats={mine} />)
+    expect(container.querySelectorAll('tbody td')[3].textContent).toBe('—')
+  })
+
+  it('computes FF from the viewer’s own stats', () => {
+    // Equal scores → ratio 1, which is past the 0.75 saturation point, so 3.00.
+    const { container } = render(<GrudgeList targets={[spied()]} viewerId={9010} myBattleStats={mine} />)
+    expect(container.querySelectorAll('tbody td')[3].textContent).toBe('3.00')
+  })
+
+  it('⚠️ the SAME target reads differently for a stronger viewer', () => {
+    // The whole point of a per-viewer column: this is not a property of the
+    // target, and a shared value would be wrong for everybody but one person.
+    const weakTarget = spied({
+      bsp_total: 40_000, bsp_str: 10_000, bsp_spd: 10_000, bsp_def: 10_000, bsp_dex: 10_000,
+    })
+    const { container } = render(<GrudgeList targets={[weakTarget]} viewerId={9010} myBattleStats={mine} />)
+    const ff = container.querySelectorAll('tbody td')[3].textContent
+    expect(ff).not.toBe('3.00')
+    expect(Number(ff)).toBeGreaterThan(1)
+  })
+
+  it('⚠️ marks an estimate when one side has only a total', () => {
+    // An even split was assumed, which inflates FF on the target side. A
+    // number built on a bare total must not look as solid as a real spy.
+    const totalOnly = target({ bsp_total: 4_000_000, spy_source: 'bsp' })
+    const { container } = render(<GrudgeList targets={[totalOnly]} viewerId={9010} myBattleStats={mine} />)
+    const span = container.querySelectorAll('tbody td')[3].querySelector('span')
+    expect(span.className).toMatch(/decoration-dotted/)
+    expect(span.getAttribute('title')).toMatch(/even split was assumed/i)
+  })
+
+  it('does not mark a reading built on a real spy', () => {
+    const { container } = render(<GrudgeList targets={[spied()]} viewerId={9010} myBattleStats={mine} />)
+    const span = container.querySelectorAll('tbody td')[3].querySelector('span')
+    expect(span.className).not.toMatch(/decoration-dotted/)
+  })
+
+  it('⚠️ shows the spy source and when the SPY was taken', () => {
+    // Not when we fetched it — a TornStats spy can be months older, and the
+    // fetch time would make a stale figure look current.
+    const old = Date.UTC(2026, 0, 15)
+    render(<GrudgeList targets={[spied({ ts_spy_ms: old })]} viewerId={9010} myBattleStats={mine} />)
+    expect(screen.getByText(new RegExp(`tornstats.*${new Date(old).toLocaleDateString()}`))).toBeTruthy()
+  })
+
+  it('⚠️ sorts FF, and sinks the targets it cannot compute', () => {
+    const rows = [
+      target({ id: 1, target_id: '1', target_name: 'Unknown' }),
+      spied({ id: 2, target_id: '2', target_name: 'Strong' }),
+      spied({
+        id: 3, target_id: '3', target_name: 'Weak',
+        bsp_total: 40_000, bsp_str: 10_000, bsp_spd: 10_000, bsp_def: 10_000, bsp_dex: 10_000,
+      }),
+    ]
+    const { container } = render(<GrudgeList targets={rows} viewerId={9010} myBattleStats={mine} />)
+    fireEvent.click(container.querySelectorAll('thead th')[3].querySelector('button'))
+    const names = [...container.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('a').textContent)
+    // Ascending FF: Weak (low) then Strong (3.00); Unknown sinks (#351).
+    expect(names).toEqual(['Weak', 'Strong', 'Unknown'])
   })
 
   it('renders an empty book without looking broken', () => {

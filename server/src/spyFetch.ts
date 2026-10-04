@@ -5,6 +5,9 @@
 // bsp_* holds whichever source's values, spy_source records the provenance.
 import type pg from 'pg'
 import { createSecretStore } from './secrets.js'
+import {
+  fetchTornStatsFaction, readTornStatsFaction, fetchBspStats, BSP_SPACING_MS,
+} from './spyProviders.js'
 
 export interface SpyProviderDeps {
   encryptionKey?: string
@@ -83,66 +86,45 @@ export async function fetchSpiesForMembers(args: {
       ? Math.floor((Date.now() - maxAgeDays * 86_400_000) / 1000)
       : 0
 
-    let spies: any = null
-    try {
-      const base = providers.tornStatsBaseUrl ?? 'https://www.tornstats.com'
-      const resp = await fetch(`${base}/api/v2/${tsKey}/spy/faction/${enemyFactionId}`)
-      if (resp.ok) spies = await resp.json()
-    } catch {
-      // TornStats down — BSP covers everyone below.
-    }
+    // ⚠️ Fetch and parse live in `spyProviders.ts` so the Book of Grudges can
+    // use the same "TornStats first, BSP for the rest" logic against its own
+    // table (#889 slice 5). Only the WRITE below is war-room-specific.
+    const spies = await fetchTornStatsFaction(
+      tsKey, enemyFactionId, providers.tornStatsBaseUrl
+    )
+    const readings = readTornStatsFaction(spies, new Set(ids), minTimestamp)
 
-    const idSet = new Set(ids)
-    const filled = new Set<number>()
-    const entries = spies?.faction?.members
-    if (entries && typeof entries === 'object') {
-      for (const key of Object.keys(entries)) {
-        const entry = entries[key]
-        const id = Number(entry?.id ?? key)
-        if (!idSet.has(id)) continue
-        const spy = entry?.spy
-        if (!spy || typeof spy.total !== 'number' || spy.total <= 0) continue
-        if (typeof spy.timestamp !== 'number' || spy.timestamp < minTimestamp) continue
-        await db.query(
-          `UPDATE war_room_state_v2 SET
-             bsp_total = $2, bsp_str = $3, bsp_spd = $4, bsp_def = $5, bsp_dex = $6,
-             bsp_fetched_at = $7, spy_source = 'tornstats', ts_spy_at = $8, updated_at = now()
-           WHERE member_id = $1`,
-          [id, spy.total, spy.strength ?? null, spy.speed ?? null, spy.defense ?? null,
-           spy.dexterity ?? null, nowIso, new Date(spy.timestamp * 1000).toISOString()]
-        )
-        filled.add(id)
-      }
+    for (const [id, r] of readings) {
+      await db.query(
+        `UPDATE war_room_state_v2 SET
+           bsp_total = $2, bsp_str = $3, bsp_spd = $4, bsp_def = $5, bsp_dex = $6,
+           bsp_fetched_at = $7, spy_source = 'tornstats', ts_spy_at = $8, updated_at = now()
+         WHERE member_id = $1`,
+        [id, r.total, r.str, r.spd, r.def, r.dex, nowIso, r.spiedAt?.toISOString() ?? null]
+      )
     }
-    tornstatsFilled = filled.size
-    needBsp = ids.filter((id) => !filled.has(id))
+    tornstatsFilled = readings.size
+    needBsp = ids.filter((id) => !readings.has(id))
   }
 
   // ── Pass 2: BSP for the rest ──────────────────────────────────────────
   let bspFilled = 0
   if (bspKey) {
-    const base = providers.bspBaseUrl ?? 'http://www.lol-manager.com'
     for (let i = 0; i < needBsp.length; i++) {
       const id = needBsp[i]
-      try {
-        const resp = await fetch(`${base}/api/battlestats/${bspKey}/${id}/TornForge`)
-        const data: any = await resp.json()
-        if (data && (data.Result === 1 || data.Result === 6) && data.TBS) {
-          await db.query(
-            `UPDATE war_room_state_v2 SET
-               bsp_total = $2, bsp_str = $3, bsp_spd = $4, bsp_def = $5, bsp_dex = $6,
-               bsp_fetched_at = $7, spy_source = 'bsp', ts_spy_at = NULL, updated_at = now()
-             WHERE member_id = $1`,
-            [id, data.TBS, data.Strength ?? null, data.Speed ?? null,
-             data.Defense ?? null, data.Dexterity ?? null, nowIso]
-          )
-          bspFilled += 1
-        }
-      } catch {
-        // Per-member best-effort — a dead BSP row just stays unspied.
+      // Per-member best-effort — a dead BSP row just stays unspied.
+      const r = await fetchBspStats(bspKey, id, providers.bspBaseUrl)
+      if (r) {
+        await db.query(
+          `UPDATE war_room_state_v2 SET
+             bsp_total = $2, bsp_str = $3, bsp_spd = $4, bsp_def = $5, bsp_dex = $6,
+             bsp_fetched_at = $7, spy_source = 'bsp', ts_spy_at = NULL, updated_at = now()
+           WHERE member_id = $1`,
+          [id, r.total, r.str, r.spd, r.def, r.dex, nowIso]
+        )
+        bspFilled += 1
       }
-      // BSP rate courtesy (matches the legacy 30ms spacing).
-      if (i < needBsp.length - 1) await new Promise((r) => setTimeout(r, 30))
+      if (i < needBsp.length - 1) await new Promise((res) => setTimeout(res, BSP_SPACING_MS))
     }
   }
 

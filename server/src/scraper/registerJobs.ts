@@ -30,6 +30,7 @@ import { activitySampleJob } from './jobs/activitySample.js'
 import { factionUpgradesSyncJob } from './jobs/factionUpgradesSync.js'
 import { memberHofSyncJob } from './jobs/memberHofSync.js'
 import { grudgeRefreshJob } from './jobs/grudgeRefresh.js'
+import { grudgeStatsJob } from './jobs/grudgeStats.js'
 import { memberEventWindowsJob } from './jobs/memberEventWindows.js'
 
 export interface ScraperWiringOptions {
@@ -168,6 +169,13 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // Lookups disclosure, and does nothing at all if none have. That is a
   // legitimate state, not a failure.
   ['grudge-refresh', '0 */15 * * * *', grudgeRefreshJob],
+  // #889 slice 5 — battle stats for grudge targets.
+  //
+  // ⚠️ DAILY, not quarter-hourly like the refresh beside it, and the gap is
+  // deliberate. These come from THIRD-PARTY servers we do not own, and spy
+  // stats move on the order of weeks. It also refetches only what is stale, so
+  // most runs do nothing at all. 03:20 is clear of the 01:xx–02:xx cluster.
+  ['grudge-stats', '0 20 3 * * *', grudgeStatsJob],
   // #459: each opted-in member's Torn event start hour. One string per member
   // that changes rarely, so daily is generous — and it costs one call per
   // OPTED-IN member, not per member, which is why it sits well clear of the

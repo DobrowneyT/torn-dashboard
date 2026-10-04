@@ -98,6 +98,15 @@ export const SCRAPER_JOB_INFO = {
     'actually SEEN in a crime slot, because Torn never reports a departure — ' +
     'every "left at" elsewhere is inferred. Feeds the payout page\'s observed ' +
     'time. 1 API call per minute (~1,440/day).',
+  'grudge-stats':
+    'Daily battle-stat lookup for Book of Grudges targets — TornStats first ' +
+    '(one call covers a whole faction), then Battle Stats Predictor for anyone ' +
+    'it did not cover (one call each). ⚠️ Daily rather than quarter-hourly ' +
+    'like the status refresh beside it: these are third-party servers we do ' +
+    'not own, and spy stats move on the order of weeks. It refetches only ' +
+    'readings older than seven days, so most runs do nothing. The column shows ' +
+    'which source answered and when the SPY was taken — not when we fetched ' +
+    'it, which can be months newer.',
   'grudge-refresh':
     'Keeps the Book of Grudges current every 15 minutes — each target\u2019s name, ' +
     'faction and live status, so the list can say who is attackable right now. ' +

@@ -18,6 +18,35 @@ surface it automatically.
 
 ---
 
+## [3.193.0] - 2026-10-04
+
+### Added
+- **Per-viewer Fair Fight on the Book of Grudges (#889, slice 5).** The FF column is
+  **personal**: it is what *you* would earn, so the same list reads differently for
+  everyone looking at it. A dotted underline marks a number built on a bare stat
+  total, where an even split was assumed.
+  ⚠️ A dash means "we cannot work it out", not "bad target", and the page says so
+  — the two read identically otherwise.
+- **Battle stats for targets**, TornStats first and BSP for the rest, via a new
+  daily `grudge-stats` job. ⚠️ Daily, not quarter-hourly like the status refresh:
+  these are third-party servers we do not own, spy stats move on the order of weeks,
+  and the job refetches only what is stale (a stated 7-day tunable).
+- The battle-stats column shows its **source and the spy's own capture date** — not
+  our fetch time, which can be months newer and would make a stale figure look current.
+
+### Internal
+- `spyProviders.ts` extracted from `spyFetch.ts`: fetch and parse with **no database
+  writes**, so the War Room and the grudge list share one "TornStats first, BSP for
+  the rest" implementation while writing to their own tables.
+  ⚠️ **The war-room suite did not cover the per-stat mapping.** Swapping
+  `defense` for `speed` in the parser left all 10 spy tests green — they assert only
+  `bsp_total`, `spy_source` and `ts_spy_at`. Since Fair Fight is a sum of square
+  roots of the four individual stats, that transposition would have produced a wrong
+  FF everywhere. 13 new tests pin each field, verified by re-running the probe.
+- Migration **0070** renames the grudge stat columns to `bsp_*` so
+  `fairFight.js#targetBattleStats` reads a grudge row with no adapter. Naming
+  convergence, not coupling — nothing here touches war-room tables.
+
 ## [3.192.0] - 2026-10-04
 
 ### Added
