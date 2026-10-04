@@ -34,6 +34,16 @@ describe('the column config', () => {
     for (const [key] of BREAKDOWN_KEYS) expect(keys).toContain(`bd_${key}`)
   })
 
+  it('has a column for every header the sheet renders', () => {
+    // ⚠️ A header whose key is not a column sorts nothing when clicked.
+    // `effort_share` was missing, so `Effort %` was a dead header.
+    const keys = buildMemberColumns('pre').map(c => c.key)
+    for (const k of ['member_name', 'war_hits', 'assist_attacks', 'losses', 'mugs',
+      'regular_hits', 'score', 'payout_amount', 'effort_share']) {
+      expect(keys).toContain(k)
+    }
+  })
+
   it('reads the window it was built for', () => {
     const m = member({ race_breakdown: { pre: { mugs: 3 }, post: { mugs: 9 } } })
     const pre = buildMemberColumns('pre').find(c => c.key === 'bd_mugs')

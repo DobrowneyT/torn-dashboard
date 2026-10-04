@@ -18,6 +18,23 @@ surface it automatically.
 
 ---
 
+## [3.191.1] - 2026-10-04
+
+### Fixed
+- **Member Overview crashed on open (#900)** with `renderCtx is not defined`. The
+  cell-render context had been pasted inside the `memberRows` memo's callback, out of
+  scope of the table that reads it (and a hook inside a callback besides). Moved to
+  component scope.
+- ⚠️ **Four tables from the sort epic called `useTableSort` after an early return**
+  — Saved RW Payouts (`WarPayoutHistory`), Competition leaderboards, the Loaned
+  Items modal and the OC Joint plan. Each would throw *"Rendered more hooks than
+  during the previous render"* the moment its loading/empty branch flipped to the
+  table (for example, Saved RW Payouts finishing its load). The hook now runs first.
+- **RW Payouts → `Effort %` header sorted nothing.** It had no `effort_share`
+  column. Also removes a stray, never-used `SortTh` the epic left above the imports
+  of `RWPayoutsView.jsx`, and puts the modal's headers on the shared `SortableTh`
+  as that block intended (real `aria-sort`, keyboard-operable).
+
 ## [3.191.0] - 2026-10-04
 
 ### Added
