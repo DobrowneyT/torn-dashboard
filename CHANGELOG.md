@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.200.1] - 2026-10-04
+
+### Fixed
+- ⚠️ **Migration 0070 aborted the deploy for every tenant.** A new tenant database
+  is provisioned from `template.sql` — which already carries the final shape — and is
+  then run through the whole migration history, so every migration must be a no-op
+  against a database that already looks finished. `CREATE TABLE IF NOT EXISTS` and
+  `ADD COLUMN IF NOT EXISTS` do that for free, which is why this held for sixty-nine
+  migrations. **`RENAME COLUMN` has no `IF EXISTS`**, and 0070 used the bare form:
+  it threw `column "battle_stats" does not exist` and stopped the run — and because
+  one database failing aborts the whole deploy, **production sat three versions
+  behind** while `dev` fell five behind. The renames are now guarded by an explicit
+  existence check.
+- ⚠️ **Nothing caught it.** The suite applied `template.sql`, and separately
+  applied migrations to an empty database; neither models provisioning. A new
+  `migrations-over-template` test applies the entire history **on top of the
+  template**, twice, which reproduces the exact production error when the guard is
+  removed.
+
 ## [3.200.0] - 2026-10-04
 
 ### Fixed
