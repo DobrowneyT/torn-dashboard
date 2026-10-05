@@ -20,9 +20,34 @@
 -- renames move no data. They are renames rather than drop-and-add so a future
 -- reader can see the shape changed rather than finding columns that silently
 -- appeared.
-ALTER TABLE public.grudge_targets RENAME COLUMN battle_stats TO bsp_total;
-ALTER TABLE public.grudge_targets RENAME COLUMN stats_source TO spy_source;
-ALTER TABLE public.grudge_targets RENAME COLUMN stats_fetched_at TO bsp_fetched_at;
+-- ⚠️ **GUARDED RENAMES, and this is not optional.** A NEW tenant database is
+-- provisioned from `template.sql` — which already carries the final shape — and
+-- then run through the WHOLE migration history. Every migration therefore has
+-- to be a no-op against a database that already looks finished.
+--
+-- `CREATE TABLE IF NOT EXISTS` and `ADD COLUMN IF NOT EXISTS` handle that for
+-- free. **`RENAME COLUMN` has no `IF EXISTS`**, so the bare form below threw
+-- `column "battle_stats" does not exist` on every freshly provisioned database
+-- and aborted the deploy — for ALL tenants, because one database failing stops
+-- the run. Production sat three versions behind until this was found.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'grudge_targets'
+                AND column_name = 'battle_stats') THEN
+    ALTER TABLE public.grudge_targets RENAME COLUMN battle_stats TO bsp_total;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'grudge_targets'
+                AND column_name = 'stats_source') THEN
+    ALTER TABLE public.grudge_targets RENAME COLUMN stats_source TO spy_source;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'grudge_targets'
+                AND column_name = 'stats_fetched_at') THEN
+    ALTER TABLE public.grudge_targets RENAME COLUMN stats_fetched_at TO bsp_fetched_at;
+  END IF;
+END $$;
 
 ALTER TABLE public.grudge_targets ADD COLUMN IF NOT EXISTS bsp_str bigint;
 ALTER TABLE public.grudge_targets ADD COLUMN IF NOT EXISTS bsp_spd bigint;
