@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.202.0] - 2026-10-06
+
+### Changed
+- ⚠️ **The War Overview's Member dropdown is one alphabetical list again, with the
+  quiet names greyed** — the two groups 3.201.0 introduced are gone. MonChoon:
+  *"I'm still not sure that I like the setup currently with two split lists. Can we
+  interleave it since we are sorting alphabetically? You mentioned about greying the
+  names of people who had a score of 0. Can we do that instead?"* Splitting the list
+  costs the one thing an alphabetical dropdown is good for — going straight to a name
+  you already have in mind, without first working out which half it is in.
+- ⚠️ **The grey is not load-bearing.** `option { color }` is honoured by Chrome and
+  Firefox on desktop and ignored outright by native select menus on macOS Safari and
+  on mobile, where the OS draws the list. So each quiet entry still carries a text
+  marker: `— no events` or `— revives only`. The grey is the fast signal for the
+  people whose browser renders it; the words are what everybody gets.
+- The caveat the group label used to carry now lives on the selected member instead:
+  a zero-activity name comes from TODAY'S roster, `members` records no join date, and
+  so it means *no events in this war* and never *was here and did nothing*.
+
 ## [3.201.0] - 2026-10-06
 
 ### Fixed
