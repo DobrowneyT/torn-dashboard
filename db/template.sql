@@ -756,7 +756,11 @@ CREATE TABLE public.war_room_dibs_v2 (
   war_id bigint,
   deleted_at timestamp with time zone,
   updated_at timestamp with time zone DEFAULT now() NOT NULL,
-  auto_expire_at timestamp with time zone
+  auto_expire_at timestamp with time zone,
+  -- #530: why the claim ended — see server/src/warDibsReasons.ts for the
+  -- vocabulary. ⚠️ NULL on every row released before 0072, which the summary
+  -- reads as "unknown" rather than as a zero.
+  release_reason text
 );
 
 -- #523: attacker-set, live "raise a hand" markers — smoke/tear/help, one click

@@ -4,6 +4,7 @@
 // leadership/admin, never visitors. The lifecycle job reuses
 // clearWarRoomState so manual and automated setups behave identically.
 import type { FastifyInstance } from 'fastify'
+import { DIBS_RELEASE_REASONS } from './warDibsReasons.js'
 import type pg from 'pg'
 import { requireNotVisitor, requireRole } from './authz.js'
 import { createKeyPool } from './scraper/keyPool.js'
@@ -63,7 +64,12 @@ export async function clearWarRoomState(db: pg.Pool) {
     'UPDATE war_room_state_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL RETURNING *'
   )
   const dibs = await db.query(
-    'UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now() WHERE deleted_at IS NULL RETURNING *'
+    // ⚠️ #530 — `reset` is BLAMELESS. The board being wiped at war setup is not
+    // a holder failing to convert, and a report that counts it as one would
+    // penalise whoever happened to be holding a claim when a lead hit setup.
+    `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now(),
+       release_reason = '${DIBS_RELEASE_REASONS.reset}'
+     WHERE deleted_at IS NULL RETURNING *`
   )
   // #523: a new matchup must not inherit the prior war's raised hands either.
   const assist = await db.query(

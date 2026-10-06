@@ -1,0 +1,21 @@
+-- #530 — why a dibs claim ended.
+--
+-- ⚠️ **Recorded rather than inferred.** `war_room_dibs_v2` tombstones with a
+-- bare `deleted_at`, and "the claim went away" cannot distinguish a holder who
+-- converted from one who sat on it from one whose target was sniped. The newer
+-- `grudge_claims` table already carries exactly this column for exactly this
+-- reason; dibs predates that lesson.
+--
+-- ⚠️ **This is the half that cannot be backfilled.** Everything else #530 needs
+-- is already in `war_room_dibs_v2` and `faction_attacks`, so the report can be
+-- computed retroactively — but the holder's INTENT (did they release it, did
+-- they let the window lapse, did they hop to another target) is only knowable
+-- at the moment of release. Every war that passes without this column is a war
+-- whose intent data is gone for good, which is why it ships ahead of the
+-- report it feeds.
+--
+-- Deliberately free text with no CHECK: the vocabulary is owned by
+-- `server/src/warDibsReasons.ts` and a new reason must not need a migration.
+-- Old rows stay NULL, which the summary reads as "unknown", never as a zero.
+ALTER TABLE public.war_room_dibs_v2
+  ADD COLUMN IF NOT EXISTS release_reason text;

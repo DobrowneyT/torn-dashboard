@@ -132,6 +132,72 @@ describe('dibs', () => {
     )
     expect(row.rows[0].claimed_by).toBe(1402)
   })
+
+  /**
+   * #530 — why a claim ended, recorded at the moment it ends.
+   *
+   * ⚠️ These are the cases that CANNOT be reconstructed later. Everything about
+   * whether a claim converted lives in `faction_attacks` and can be joined
+   * retroactively; the holder's intent — gave it back, hopped to another
+   * target, was overridden by a lead — exists only here, at release time. A war
+   * that runs without this is a war whose intent data is gone.
+   */
+  describe('release reasons', () => {
+    const reasonFor = async (targetId: number) => {
+      const r = await stack.db.query(
+        `SELECT release_reason FROM war_room_dibs_v2
+         WHERE target_id = $1 ORDER BY id DESC LIMIT 1`,
+        [targetId]
+      )
+      return r.rows[0]?.release_reason ?? null
+    }
+
+    it('a live claim carries no reason until it ends', async () => {
+      await call('POST', '/api/war-room/dibs', { target_id: 90210 })
+      // ⚠️ NULL, not a placeholder: "still held" and "released for an unknown
+      // reason" must stay distinguishable, because pre-0072 rows are the latter.
+      expect(await reasonFor(90210)).toBeNull()
+    })
+
+    it('hopping to another target is superseded, not manual', async () => {
+      // The holder did not give 90210 back — the single-dibs rule took it when
+      // they claimed 90211. Counting that as a deliberate release would read
+      // target-hopping as conscientiousness.
+      await call('POST', '/api/war-room/dibs', { target_id: 90211 })
+      expect(await reasonFor(90210)).toBe('superseded')
+    })
+
+    it('a holder releasing their own claim is manual', async () => {
+      await call('DELETE', '/api/war-room/dibs/90211')
+      expect(await reasonFor(90211)).toBe('manual')
+    })
+
+    it('a lead releasing someone ELSE\'s claim is admin', async () => {
+      await call('POST', '/api/war-room/dibs', { target_id: 90212 }, 'rival')
+      await call('DELETE', '/api/war-room/dibs/90212', undefined, 'admin')
+      expect(await reasonFor(90212)).toBe('admin')
+    })
+
+    /**
+     * ⚠️ The case that is easy to get backwards. The admin branch is the only
+     * one that can touch another member's row, so the reason has to be decided
+     * per row by WHO HELD IT — not by which branch ran. Deciding it by branch
+     * files every lead's own release under moderation, and a lead who uses the
+     * board normally then looks like they are overriding people all day.
+     */
+    it('a lead releasing their OWN claim is manual, not admin', async () => {
+      await call('POST', '/api/war-room/dibs', { target_id: 90213 }, 'admin')
+      await call('DELETE', '/api/war-room/dibs/90213', undefined, 'admin')
+      expect(await reasonFor(90213)).toBe('manual')
+    })
+
+    it('clearing the board is reset — blameless, and must not read as a failure', async () => {
+      await call('POST', '/api/war-room/dibs', { target_id: 90214 })
+      const { clearWarRoomState } = await import('../src/warRoomSetup.js')
+      await clearWarRoomState(stack.db)
+      expect(await reasonFor(90214)).toBe('reset')
+    })
+  })
 })
 
 // MonChoon's spec, verbatim in effect: "I press the help button once and it
