@@ -18,6 +18,67 @@ surface it automatically.
 
 ---
 
+## [3.204.0] - 2026-10-06
+
+### Added
+- **Per-war dibs summaries** (#530, slice 2 of 3). New `war_dibs_summary` and
+  `war_dibs_summary_state`, filled by an hourly `dibs-summary` job for each war that
+  has finished. No UI yet — slice 3 puts the table on War Overview.
+  ⚠️ **It runs AFTER a war, never during.** `attacks-sync` runs every 30 minutes
+  while the War Room's dibs sweep runs every second, so the attack row that explains
+  a claim's death lands up to half an hour after the claim is gone. Live attribution
+  is not available at this cadence, and chasing it would mean a far faster attack
+  scrape during wars for a report nobody reads mid-fight.
+  ⚠️ **Attacks outrank the release reason.** A successful conversion is recorded as
+  `spent`, because the sweep frees a claim the moment the target stops being
+  attackable and deliberately does not care who put them there. Reading the reason
+  first would file every success under "target went down, nobody's doing" — probed,
+  and it fails nine tests.
+  ⚠️ **A war whose attacks have not landed WAITS.** Summarising early records real
+  conversions as "no swing" against named members, and once the raw claims are
+  pruned there is nothing left to correct it from. Coverage is read from the data
+  (`max(started)` in `faction_attacks`) rather than from the run log, because an
+  `attacks-sync` that hits a Torn rate limit mid-backlog **exits as a success**
+  without having caught up.
+  ⚠️ **"Stolen" is two columns, not one.** Taken *from* a holder and taken *by* an
+  offender are different axes, a member can be on both sides in one war, and the
+  top-offenders question needs the second. A taker who claimed nothing themselves
+  still gets a row — otherwise the one member the report exists to surface is absent
+  from it.
+  ⚠️ **Blameless buckets stay separate.** `outside` (the target went down with no
+  attack from us — another faction, or a self-hospitalisation to dodge) and
+  `board-reset` are not failures to convert. `unknown` holds pre-0072 claims, which
+  have no reason at all and must read as unexplained rather than fall through to a
+  default.
+  ⚠️ A steal needs the claim to have been live for `STEAL_GRACE_SECONDS` first — a
+  stated tunable, not a hardcoded truth. Somebody who clicked attack in the same
+  instant raced rather than stole, and an attack is matched on `started`, never
+  `ended`: a fight already underway ends inside the window and would otherwise
+  convict whoever was mid-attack.
+  ⚠️ The grace window and a `summary_version` are stored **with** the numbers. A
+  figure with no record of its inputs cannot be defended to the member it describes,
+  and raising the version recomputes rather than leaving a war stale.
+
+### Fixed
+- ⚠️ `ranked_wars.start_at` / `end_at` are **bigint epoch seconds**, not timestamptz
+  like nearly every other timestamp in this schema. Caught while writing the job —
+  the `extract(epoch FROM …)` it started with would have thrown outright.
+
+### Changed
+- `WIN_RESULTS`, `LOSS_RESULTS` and `ASSIST_RESULT` are now **exported** from
+  `server/src/warOverview/summary.ts` so the dibs summary reuses them instead of
+  making a third copy. ⚠️ `war-overview-parity.test.ts` now asserts the **sets
+  themselves** match the frontend's, not merely the numbers they produce — that is
+  how `Special` drifted the first time, and the sets now reach a leaderboard with
+  members' names on it.
+
+### Internal
+- `warDibsSummary.ts` is pure and takes **epoch seconds only**; every conversion
+  happens in SQL, so no timestamp parsing exists in it to get wrong (#140).
+- 37 unit tests plus 11 against real Postgres. Four probes run and reverted:
+  reason-over-attacks (9 fail), no grace window (2), no settle gate (1), and
+  trusting `war_id` alone (8 — it is client-supplied and nullable).
+
 ## [3.203.0] - 2026-10-06
 
 ### Added

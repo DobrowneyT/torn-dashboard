@@ -117,6 +117,11 @@ const NEW_TABLES = [
   // table from the War Room's dibs on purpose — shared rules, separate
   // state, so a grudge claim cannot break a war or vice versa.
   'grudge_claims',
+  // #530: per-war dibs activity, frozen after the war ends. ⚠️ `_state` is a
+  // separate table because a war with NO claims produces no summary rows at all
+  // — without it you cannot tell "not computed yet" from "computed, nothing to
+  // show", which is exactly what a future prune gate has to decide.
+  'war_dibs_summary', 'war_dibs_summary_state',
 ]
 
 let server

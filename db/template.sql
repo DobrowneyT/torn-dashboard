@@ -763,6 +763,59 @@ CREATE TABLE public.war_room_dibs_v2 (
   release_reason text
 );
 
+CREATE TABLE IF NOT EXISTS public.war_dibs_summary (
+  war_id    bigint NOT NULL,
+  member_id bigint NOT NULL,
+  -- The name as the war recorded it, not today's. A post-mortem read months
+  -- later should say what people were called at the time.
+  member_name text,
+
+  claims      integer NOT NULL DEFAULT 0,
+  -- One bucket per claim, mutually exclusive and exhaustive: these eleven sum
+  -- to `claims`. ⚠️ Audited on purpose — a leaderboard whose columns do not add
+  -- up is one nobody can check, which is the opposite of what a metric with
+  -- members' names on it needs.
+  converted   integer NOT NULL DEFAULT 0,
+  attempted   integer NOT NULL DEFAULT 0,
+  taken_from  integer NOT NULL DEFAULT 0,
+  no_swing    integer NOT NULL DEFAULT 0,
+  outside     integer NOT NULL DEFAULT 0,
+  released    integer NOT NULL DEFAULT 0,
+  hopped      integer NOT NULL DEFAULT 0,
+  overridden  integer NOT NULL DEFAULT 0,
+  board_reset integer NOT NULL DEFAULT 0,
+  still_open  integer NOT NULL DEFAULT 0,
+  unknown     integer NOT NULL DEFAULT 0,
+
+  -- Claims where the holder attacked the target at all, win or lose.
+  swung       integer NOT NULL DEFAULT 0,
+  -- ⚠️ The OTHER axis. "Stolen" is two numbers that cannot share a column:
+  -- taken FROM a holder, and taken BY an offender. The top-offenders question
+  -- needs this one, and a member can be on both sides in the same war.
+  took_from_others integer NOT NULL DEFAULT 0,
+
+  PRIMARY KEY (war_id, member_id)
+);
+
+-- Which wars have been summarised, and on what basis.
+--
+-- ⚠️ Separate from the rows above because a war with NO claims produces no
+-- summary rows at all, and without this you cannot tell "not computed yet" from
+-- "computed, nothing to show". The prune gate will read this table.
+CREATE TABLE IF NOT EXISTS public.war_dibs_summary_state (
+  war_id      bigint PRIMARY KEY,
+  computed_at timestamptz NOT NULL DEFAULT now(),
+  claims_seen integer NOT NULL DEFAULT 0,
+  -- ⚠️ The tunable that PRODUCED these numbers, stored with them. If the grace
+  -- window is ever retuned, two wars computed under different values are not
+  -- comparable, and a stored figure with no record of its inputs cannot be
+  -- defended to the member it describes.
+  grace_seconds integer NOT NULL,
+  -- Bumped in code when the classifier's rules change, so a war summarised by
+  -- an older version is recomputed rather than silently left stale.
+  summary_version integer NOT NULL DEFAULT 1
+);
+
 -- #523: attacker-set, live "raise a hand" markers — smoke/tear/help, one click
 -- from the attack page against (requester, target). Deliberately NOT the same
 -- table as war_room_dibs_v2: dibs claims a target for a kill; this asks
