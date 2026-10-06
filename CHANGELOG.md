@@ -18,6 +18,46 @@ surface it automatically.
 
 ---
 
+## [3.201.0] - 2026-10-06
+
+### Fixed
+- ⚠️ **The War Overview's Member dropdown could not offer a member who did nothing.**
+  The list was derived from the loaded `attacks` and `revives` alone, so somebody with
+  no outgoing hits, no incoming hits and no revive received had no row to be found in
+  and never appeared. That made "not in the list" mean two different things at once —
+  *did nothing in this war* and *was not in this war* — and telling those apart is
+  what the member view is for. Reported by MonChoon: *"if a particular member has no
+  outgoing or incoming it seems like they don't appear in the list, is that true?"* It
+  was. The dropdown now unions the faction roster, and a zero-activity member renders
+  a real all-zero breakdown rather than being absent.
+- ⚠️ **Revives were matched on `target_id` only**, so a member who spent the war
+  reviving teammates — never hit, never hitting — was also missing, even though
+  `faction_revives.reviver_id` was already on the rows the page had loaded. Both
+  halves of the revive are read now.
+
+### Changed
+- The Member dropdown is **grouped**: "In the war data" and "No events in this war".
+  ⚠️ Split rather than mixed on purpose — `members` records no join date, so the
+  second group is today's roster matched against a war that may be months old. It
+  honestly says *no events in this war*, never *was here and did nothing*, and the
+  group label is what carries that difference.
+- A **revives-only** member is marked as such in the dropdown, and an empty member
+  view now explains itself in one line instead of leaving three blank panels: no
+  events at all, none inside the selected window, or revives performed — which no
+  panel plots. ⚠️ Deliberately a sentence and not a fourth stat pill: the summary
+  holds one shape across both views on purpose, and a pill on only one of them is how
+  the two stopped agreeing last time.
+
+### Internal
+- `frontend/src/utils/warOverviewMembers.js` — the member list as a pure function,
+  with 18 tests. Probed both ways: dropping the roster union fails three, dropping the
+  reviver half fails one.
+- The dropdown is extracted to `components/warOverview/MemberPicker.jsx` so the
+  grouping rules are testable without mounting a view that carries Plotly and four
+  network reads (8 tests).
+- `loadMembersRoster()` in `warDataLoader` — one definition of the roster read; the
+  live-contributions leaderboard had its own inline copy.
+
 ## [3.200.1] - 2026-10-04
 
 ### Fixed
