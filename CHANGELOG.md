@@ -18,6 +18,43 @@ surface it automatically.
 
 ---
 
+## [3.203.0] - 2026-10-06
+
+### Added
+- **Dibs claims now record WHY they ended** (#530, slice 1 of the call-activity
+  report). New `war_room_dibs_v2.release_reason`, written by all five paths that
+  tombstone a claim: `rehospitalised` (#107), `spent`, `window` (#106), `superseded`,
+  `manual`, `admin`, `reset`.
+  ⚠️ **This is the half that cannot be backfilled.** Whether a claim converted is
+  answerable retroactively from `faction_attacks`, but the holder's *intent* — gave
+  it back, hopped to another target, was overridden by a lead — exists only at the
+  moment of release. Every war that runs without this column is a war whose intent
+  data is gone, which is why it ships ahead of the report it feeds.
+  ⚠️ `release_reason` is stamped in the **same statement** that sets `deleted_at`. A
+  second UPDATE could be interrupted between the two, leaving a released claim with
+  no reason — indistinguishable from pre-0072 history, and therefore silently
+  dropped from the report.
+  ⚠️ A lead releasing their **own** claim records `manual`, not `admin`. The reason
+  is decided per row by who held it, not by which code branch ran; deciding it by
+  branch files every lead's ordinary release under moderation.
+  ⚠️ `reset`, `spent` and `rehospitalised` are marked **blameless** in
+  `warDibsReasons.ts`. The board being wiped at war setup, and a target going down
+  (frequently somebody else's hit, sometimes the target's own dodge), are not
+  failures to convert, and a report that counts them as such accuses members of
+  something the data does not support.
+
+### Internal
+- `db/test/template-matches-migrations.test.mjs` — **`template.sql` must not fall
+  behind the migrations.** ⚠️ Asserts that applying the whole history to a freshly
+  provisioned database adds no column and no table: on an up-to-date template every
+  migration is a no-op, so any growth measures exactly how stale the template is.
+  Probed — removing 0072's column from the template fails the test and names it.
+  Framed this way rather than as "both paths agree" because there is no tenant built
+  from the migrations alone: the history does not start at the beginning of the
+  schema and references tables that exist only in the template.
+  The 0047 and 0061 tests each check this for their own change — the right instinct,
+  repeated per-migration, and therefore only as good as whoever remembers to write it.
+
 ## [3.202.0] - 2026-10-06
 
 ### Changed

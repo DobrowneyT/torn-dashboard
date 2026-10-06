@@ -130,8 +130,13 @@ describe('war-room dibs auto-expiry', () => {
     await createWarRoomTicker(tickerDeps()).tick()
 
     // The dib is tombstoned…
-    const dib = await stack.db.query(`SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`)
+    const dib = await stack.db.query(`SELECT deleted_at, release_reason FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`)
     expect(dib.rows[0].deleted_at).toBeTruthy()
+    // …stamped with WHY, in the same statement (#530). ⚠️ `rehospitalised`
+    // rather than `spent`: both tombstone identically and used to share one code
+    // path, but this one means somebody hit a target who was already down, which
+    // the report must not read as the holder converting.
+    expect(dib.rows[0].release_reason).toBe('rehospitalised')
     // …and the release rode the dibs channel so every client updates live.
     const frame = await client.next(
       (m) => m.type === 'delta' && m.channel === 'dibs' && m.rows.some((r: any) => Number(r.target_id) === TARGET && r.deleted_at)
@@ -191,8 +196,12 @@ describe('war-room dibs auto-expiry', () => {
     )
     await ticker.tick() // target still Okay; the sweep fires
 
-    const dib = await stack.db.query(`SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`)
+    const dib = await stack.db.query(`SELECT deleted_at, release_reason FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`)
     expect(dib.rows[0].deleted_at).toBeTruthy()
+    // ⚠️ #530 — `window` is THE "did not swing" signal, and the one the report
+    // leans on hardest: the target surfaced, the holder got their head start,
+    // and the countdown lapsed with the target still standing.
+    expect(dib.rows[0].release_reason).toBe('window')
     const frame = await client.next(
       (m) => m.type === 'delta' && m.channel === 'dibs' && m.rows.some((r: any) => Number(r.target_id) === TARGET && r.deleted_at)
     )
@@ -231,6 +240,16 @@ describe('war-room dibs auto-expiry', () => {
         `SELECT deleted_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} AND deleted_at IS NULL`
       )
       expect(dib.rows).toHaveLength(0)
+
+      // ⚠️ #530 — `spent`, and BLAMELESS. The target went down; that is often
+      // somebody else's hit and sometimes the target's own dodge. A report that
+      // counted this against the holder would accuse them of not converting a
+      // target nobody could reach.
+      const reason = await stack.db.query(
+        `SELECT release_reason FROM war_room_dibs_v2
+         WHERE target_id = ${TARGET} ORDER BY id DESC LIMIT 1`
+      )
+      expect(reason.rows[0].release_reason).toBe('spent')
     })
   }
 
