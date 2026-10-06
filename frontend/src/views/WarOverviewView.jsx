@@ -25,12 +25,14 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
-import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds } from '../utils/warDataLoader'
+import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds, loadMembersRoster } from '../utils/warDataLoader'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import {
   summariseWindow, classifyEventType, factionKey, reviveOutcome,
   NO_FACTION_ID, NO_FACTION_NAME,
 } from '../utils/warOverviewSummary'
+import { buildMemberList, revivesPerformedInWindow, ACTIVITY } from '../utils/warOverviewMembers'
+import MemberPicker from '../components/warOverview/MemberPicker'
 import { apiPost } from '../utils/apiClient'
 import { getFactionId } from '../utils/factionIdentity'
 import { parseDbTime } from '../utils/time'
@@ -362,6 +364,10 @@ export default function WarOverviewView() {
   const [revives, setRevives] = useState([])
   const [attacks, setAttacks] = useState([])
   const [factionNames, setFactionNames] = useState({})  // id → name from factions table
+  // Current faction roster, so the Member dropdown can offer somebody who did
+  // nothing. ⚠️ Loaded ONCE on mount, not per war — it does not depend on the
+  // selected war, and a failure here must not stop the page rendering.
+  const [roster, setRoster] = useState([])
   const [dataLoading, setDataLoading] = useState(false)
   const [dataError, setDataError] = useState(null)
 
@@ -400,6 +406,17 @@ export default function WarOverviewView() {
       .finally(() => { if (!cancelled) setWarsLoading(false) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Load the faction roster (once; independent of the selected war) ─────
+  useEffect(() => {
+    let cancelled = false
+    loadMembersRoster()
+      .then(rows => { if (!cancelled) setRoster(rows) })
+      // Best-effort: without it the dropdown falls back to exactly the old
+      // behaviour (members who appear in the event data), which still works.
+      .catch(e => console.warn('[war overview] roster load failed; dropdown shows active members only:', e))
+    return () => { cancelled = true }
   }, [])
 
   // Reload attacks + revives + war row from the DB. Used both by the
@@ -611,26 +628,15 @@ export default function WarOverviewView() {
   function selectAllFactions()  { setSelectedFactionIds(new Set(allFactionsInWar.map(f => f.id))) }
   function selectNoFactions()   { setSelectedFactionIds(new Set()) }
 
-  // Members of our faction that appear in the loaded data (for the dropdown).
-  const ourMembers = useMemo(() => {
-    const map = new Map()
-    for (const a of attacks) {
-      if (a.attacker_faction_id === OUR_FACTION_ID && a.attacker_id) {
-        if (!map.has(a.attacker_id)) map.set(a.attacker_id, a.attacker_name || `id ${a.attacker_id}`)
-      }
-      if (a.defender_faction_id === OUR_FACTION_ID && a.defender_id) {
-        if (!map.has(a.defender_id)) map.set(a.defender_id, a.defender_name || `id ${a.defender_id}`)
-      }
-    }
-    for (const r of revives) {
-      if (r.target_faction_id === OUR_FACTION_ID && r.target_id) {
-        if (!map.has(r.target_id)) map.set(r.target_id, r.target_name || `id ${r.target_id}`)
-      }
-    }
-    return [...map.entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [attacks, revives])
+  // Everyone the Member dropdown can offer, and what each of them did.
+  //
+  // ⚠️ This used to be built from `attacks` + `revives` alone, which silently
+  // excluded anybody with no events — see `warOverviewMembers` for why that is
+  // the one answer this view must never give by omission.
+  const ourMembers = useMemo(
+    () => buildMemberList({ attacks, revives, roster, ourFactionId: OUR_FACTION_ID }),
+    [attacks, revives, roster]
+  )
 
   // ── Build the Plotly figure ─────────────────────────────────────────────
   const figure = useMemo(() => {
@@ -741,6 +747,45 @@ export default function WarOverviewView() {
       memberId: selectedMemberId,
     })
   }, [war, attacks, revives, viewMode, selectedMemberId, windowRange, effectiveSelectedFactions])
+
+  /**
+   * Why the three panels are empty — in words, when they are.
+   *
+   * ⚠️ An empty member view is ambiguous between four different things: did
+   * nothing, was not in this war, did something outside the window, and did
+   * something no panel plots. Revives PERFORMED are the last of those —
+   * `faction_revives.reviver_id` is in the loaded rows but there is no chart
+   * for it, so a medic who spent the war reviving reads as idle.
+   *
+   * ⚠️ Deliberately NOT a fourth stat pill: the summary holds one shape across
+   * both views on purpose (see the note on that block), and a pill that only
+   * ever appears on one of them is how the two stopped agreeing last time.
+   */
+  const memberNote = useMemo(() => {
+    if (viewMode !== 'member' || selectedMemberId == null || !summary) return null
+    const shown = (summary.outgoing?.total ?? 0)
+      + (summary.incoming?.total ?? 0)
+      + (summary.revives?.total ?? 0)
+    if (shown > 0) return null
+
+    const m = ourMembers.find(x => x.id === selectedMemberId)
+    const revivesOut = revivesPerformedInWindow({
+      revives, memberId: selectedMemberId, fromTs: summary.fromTs, toTs: summary.toTs,
+    })
+
+    if (revivesOut > 0) {
+      return `Nothing to plot: no attacks either way, and no revives received. `
+        + `${revivesOut} revive${revivesOut === 1 ? '' : 's'} performed in this window — `
+        + `there is no panel for those.`
+    }
+    if (m?.activity === ACTIVITY.none) {
+      return 'No events anywhere in this war. This name comes from the current roster, '
+        + 'which carries no join date — so it does not confirm they were in the faction at the time.'
+    }
+    return 'No events inside the selected window'
+      + (m?.events ? ` — ${m.events} across the full war.` : '.')
+      + ' Widen the range slider, or check the faction filter.'
+  }, [viewMode, selectedMemberId, summary, ourMembers, revives])
 
   // Plotly fires `relayout` when the user drags the range slider or clicks a
   // range-selector button. Pull the new x-axis range out and update state.
@@ -853,19 +898,11 @@ export default function WarOverviewView() {
             </div>
           )}
           {viewMode === 'member' && (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Member</label>
-              <select
-                value={selectedMemberId ?? ''}
-                onChange={e => setSelectedMemberId(e.target.value ? Number(e.target.value) : null)}
-                className="min-w-[14rem] px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">— pick a member —</option>
-                {ourMembers.map(m => (
-                  <option key={m.id} value={m.id}>{m.name} [{m.id}]</option>
-                ))}
-              </select>
-            </div>
+            <MemberPicker
+              members={ourMembers}
+              selectedId={selectedMemberId}
+              onSelect={setSelectedMemberId}
+            />
           )}
         </div>
 
@@ -1088,6 +1125,11 @@ export default function WarOverviewView() {
               <div className="mb-2 pb-2 border-b border-gray-200 dark:border-slate-700">
                 {headerLabel}
               </div>
+            )}
+            {memberNote && (
+              <p className="mb-2 text-xs italic text-amber-700 dark:text-amber-300">
+                {memberNote}
+              </p>
             )}
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
               Window: {new Date(summary.fromTs * 1000).toUTCString().slice(5, 22)}
