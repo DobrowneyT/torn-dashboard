@@ -11,6 +11,20 @@ import {
 import { getFactionId } from './factionIdentity'
 
 /**
+ * The faction roster — every member we know of, current and past.
+ *
+ * ⚠️ There is no join date on `members`, so this is TODAY'S roster and cannot
+ * be scoped to a war that has already finished. Callers using it to say what
+ * someone did in a past war have to present that caveat, not hide it.
+ *
+ * @returns {Promise<{member_id:string, member_name:string, is_current:boolean}[]>}
+ */
+export async function loadMembersRoster() {
+  const { roster } = await apiGet('/api/members/roster')
+  return roster || []
+}
+
+/**
  * Load faction lookup rows for a given set of IDs.
  * Returns a Map<id, { id, name, tag }> for easy use in components.
  *
@@ -106,8 +120,8 @@ export async function loadLiveContributionsFromAttacks(war) {
   // attack-only mode.
   const agg = new Map()
   try {
-    const { roster } = await apiGet('/api/members/roster')
-    for (const m of roster || []) {
+    const roster = await loadMembersRoster()
+    for (const m of roster) {
       if (!m.is_current) continue
       const id = Number(m.member_id)
       if (!id) continue
