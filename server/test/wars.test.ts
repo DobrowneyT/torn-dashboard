@@ -3,6 +3,8 @@
 // the HTTP seam against a real templated Postgres.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
+// @ts-expect-error — plain JS from the frontend workspace, no type declarations
+import { parseDbTime } from '../../frontend/src/utils/time.js'
 
 let stack: TestStack
 const tokens: Record<string, string> = {}
@@ -486,5 +488,86 @@ describe('GET /api/factions', () => {
       { id: 9002, name: 'Test Dummies', tag: 'TD' },
       { id: 9003, name: 'Fresh Meat', tag: null },
     ])
+  })
+})
+
+/**
+ * #530 — the frozen per-member dibs summary.
+ *
+ * ⚠️ The endpoint READS; it never recomputes. The numbers are produced once by
+ * the `dibs-summary` job, and a request that recomputed would disagree with the
+ * stored row the moment the classifier changed — two answers to a question with
+ * members' names in it.
+ */
+describe('GET /api/wars/:id/dibs-summary', () => {
+  it('⚠️ returns a null state for a war nobody has counted yet', async () => {
+    // Which is NOT the same as "no activity", and the client renders the two
+    // differently: a war counted early would blame people for hits we have not
+    // stored, so "not counted" has to be sayable.
+    const { status, body } = await get('/api/wars/100/dibs-summary')
+    expect(status).toBe(200)
+    expect(body).toEqual({ members: [], state: null })
+  })
+
+  it('returns a state row with no members for a war that truly had none', async () => {
+    await stack.db.query(
+      `INSERT INTO war_dibs_summary_state (war_id, claims_seen, grace_seconds, summary_version)
+       VALUES (100, 0, 5, 1)`
+    )
+    const { body } = await get('/api/wars/100/dibs-summary')
+    expect(body.members).toEqual([])
+    expect(body.state).toMatchObject({ claims_seen: 0, grace_seconds: 5 })
+  })
+
+  it('returns each member\'s counts, busiest caller first', async () => {
+    await stack.db.query(
+      `INSERT INTO war_dibs_summary
+         (war_id, member_id, member_name, claims, converted, taken_from, took_from_others)
+       VALUES (200, 601, 'Caller', 5, 3, 1, 0),
+              (200, 602, 'Taker',  0, 0, 0, 4)`
+    )
+    await stack.db.query(
+      `INSERT INTO war_dibs_summary_state (war_id, claims_seen, grace_seconds, summary_version)
+       VALUES (200, 5, 5, 1)`
+    )
+    const { body } = await get('/api/wars/200/dibs-summary')
+    expect(body.members.map((m: any) => m.member_name)).toEqual(['Caller', 'Taker'])
+    expect(body.members[0]).toMatchObject({ claims: 5, converted: 3, taken_from: 1 })
+    // ⚠️ A member who claimed nothing but took other people's targets is the
+    // one this report exists to surface — a zero claim count must not drop them.
+    expect(body.members[1]).toMatchObject({ claims: 0, took_from_others: 4 })
+  })
+
+  it('does not leak one war\'s rows into another', async () => {
+    const { body } = await get('/api/wars/300/dibs-summary')
+    expect(body).toEqual({ members: [], state: null })
+  })
+
+  /**
+   * ⚠️ `computed_at` is served RAW so the client's `fmtAgo` / `parseDbTime` path
+   * works. Converting it here would break the helper that every other "last
+   * updated" label on the site goes through (#140).
+   *
+   * ⚠️ Asserted THROUGH `parseDbTime` rather than against a literal format.
+   * Postgres emits a BARE TWO-DIGIT offset in whatever zone the server runs
+   * (`+00` in production, `-05` in this test box) — `new Date()` reads both as
+   * NaN, and `parseDbTime` expanding them is the actual contract. A regex for
+   * `+00` would pass in production and fail here for no real reason, which is
+   * how a guard gets deleted instead of trusted.
+   */
+  it('serves computed_at raw, in a shape parseDbTime can read', async () => {
+    const { body } = await get('/api/wars/200/dibs-summary')
+    const raw = String(body.state.computed_at)
+    // Raw text, not a coerced Date, and carrying an offset of some kind.
+    expect(raw).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+    expect(raw).toMatch(/[+-]\d{2}(:\d{2})?$/)
+    expect(parseDbTime(raw)).toBeInstanceOf(Date)
+    // ⚠️ And the trap itself: the bare offset really is unparseable by `Date`.
+    if (/[+-]\d{2}$/.test(raw)) expect(Number.isNaN(new Date(raw).getTime())).toBe(true)
+  })
+
+  it('requires authentication', async () => {
+    const res = await fetch(`${stack.baseUrl}/api/wars/200/dibs-summary`)
+    expect(res.status).toBe(401)
   })
 })
