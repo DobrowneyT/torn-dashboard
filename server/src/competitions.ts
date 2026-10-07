@@ -4,10 +4,10 @@
 // snapshot minus the first, per current member. A member whose first in-window
 // snapshot lands after the window opened is flagged `partial` (their baseline
 // isn't the opening day), so the comparison stays honest. Reads are open to any
-// session; creating is leadership/admin and blocked for visitors.
+// session; creating is leadership/admin.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 import { getMetric, metricOptions, DAILY_STAT_COLUMNS } from './competitions/metrics.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -148,7 +148,7 @@ export function registerCompetitionRoutes(
 
   app.post(
     '/api/competitions',
-    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    { preHandler: [requireRole('leadership', 'admin')] },
     async (req, reply) => {
       const body = (req.body ?? {}) as {
         name?: unknown; metric_id?: unknown; direction?: unknown; reducer?: unknown
@@ -284,7 +284,7 @@ export function registerCompetitionRoutes(
   // top-ranked member is the winner. Refuses an empty board (nothing to crown).
   app.post(
     '/api/competitions/:id/resolve',
-    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    { preHandler: [requireRole('leadership', 'admin')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Competition not found' })
@@ -303,7 +303,7 @@ export function registerCompetitionRoutes(
   // Pin/unpin a competition to the dashboard (#188). Leadership-gated.
   app.put(
     '/api/competitions/:id/pin',
-    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    { preHandler: [requireRole('leadership', 'admin')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       if (!/^\d+$/.test(id)) return reply.status(404).send({ error: 'Competition not found' })

@@ -49,10 +49,11 @@ export function effectiveRosterSide(side, permissions) {
  * member — so the toggle is gated, and the server withholds the data itself
  * (LEAD_ONLY_CHANNELS in warRoom.ts) rather than trusting this check.
  *
- * Mirrors canEditMemberNotes: war leads, leadership and admins, never visitors.
+ * Mirrors canEditMemberNotes: war leads, leadership and admins.
+ * ⚠️ Had an explicit `&& !isVisitor` until #922 removed that role (2026-10-06).
  */
-export function canViewOurRoster({ isWarLead, isLeadership, isAdmin, isVisitor } = {}) {
-  return Boolean((isWarLead || isLeadership || isAdmin) && !isVisitor)
+export function canViewOurRoster({ isWarLead, isLeadership, isAdmin } = {}) {
+  return Boolean(isWarLead || isLeadership || isAdmin)
 }
 
 /**

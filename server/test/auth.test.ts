@@ -47,7 +47,11 @@ describe('POST /api/auth/login', () => {
     expect(claims.is_admin).toBe(true)
     expect(claims.is_warlead).toBe(false)
     expect(claims.is_ocmanager).toBe(false)
-    expect(claims.is_visitor).toBe(false)
+    // ⚠️ `is_visitor` was asserted here too, until #922 removed the role. The
+    // claim is gone from the token entirely — asserting `undefined` would say
+    // nothing, and asserting `false` would quietly re-create the expectation
+    // that the claim still exists.
+    expect(claims).not.toHaveProperty('is_visitor')
     // 30-day remember-me lifetime (#119); the 24h freshness gate + refresh
     // endpoint carry the revocation guarantees (see session-refresh.test.ts).
     expect(claims.exp! - claims.iat!).toBe(30 * 24 * 60 * 60)
@@ -105,27 +109,32 @@ describe('POST /api/auth/login', () => {
     expect(body.error).toBe('Not a faction member')
   })
 
-  it('visitor logs in without faction membership and no key material is stored', async () => {
-    stack.torn.addKey('VISITORKEY123456', { id: '555', factionId: '42' })
-    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (555, 'visitor')`)
+  /**
+   * ⚠️ Was the `visitor` login test until #922 removed that role (2026-10-06).
+   * The out-of-faction LEADER is the case that still exists and still matters:
+   * a DB role is what gets you past the membership check, and `enrollsKey` turns
+   * on faction membership alone — so their key must not join the pool.
+   *
+   * ⚠️ The auth-cache assertion is deliberately GONE rather than converted. Only
+   * the visitor role was exempt from caching; an out-of-faction leader is cached
+   * like anybody else. Keeping the old assertion would have asserted a rule that
+   * left with the role.
+   */
+  it('an out-of-faction role holder logs in, and their key never enters the pool', async () => {
+    stack.torn.addKey('OUTSIDELEAD12345', { id: '555', factionId: '42' })
+    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (555, 'leadership')`)
 
-    const { status, body } = await login('VISITORKEY123456')
+    const { status, body } = await login('OUTSIDELEAD12345')
     expect(status).toBe(200)
     const claims = await verifyToken(body.token)
-    expect(claims.is_visitor).toBe(true)
-    expect(claims.is_leadership).toBe(false)
+    expect(claims.is_leadership).toBe(true)
 
-    // Visitor logins persist NO key material — not the raw key, and not even
-    // a key-derived cache row. (Scoped to the visitor: faction members'
-    // logins in this file legitimately enroll their keys.)
+    // No key material: `enrollsKey` requires faction membership, which they
+    // do not have. (Faction members' logins in this file legitimately enroll.)
     const secrets = await stack.db.query(
       `SELECT count(*)::int AS n FROM member_secrets WHERE member_id = '555'`
     )
     expect(secrets.rows[0].n).toBe(0)
-    const cacheRows = await stack.db.query(
-      `SELECT count(*)::int AS n FROM war_room_auth_cache WHERE user_id = '555' OR key_hash = 'VISITORKEY123456'`
-    )
-    expect(cacheRows.rows[0].n).toBe(0)
   })
 
   it('second login with the same key is served from the 24h cache, not Torn', async () => {
@@ -189,11 +198,12 @@ describe('key-pool enrollment on login', () => {
     expect((row.rows[0].cpr_api_key as Buffer).toString('utf8')).not.toContain('POOLERKEY2222222')
   })
 
-  it('visitor logins never enroll a key (no key material persists at all)', async () => {
-    stack.torn.addKey('VISITKEY33333333', { id: '333', factionId: null })
-    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (333, 'visitor')`)
+  // ⚠️ Same conversion as above (#922): factionless, but holding a DB role.
+  it('a factionless role holder never enrolls a key', async () => {
+    stack.torn.addKey('FACTIONLESS33333', { id: '333', factionId: null })
+    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (333, 'warlead')`)
 
-    const { status } = await login('VISITKEY33333333')
+    const { status } = await login('FACTIONLESS33333')
     expect(status).toBe(200)
 
     const row = await stack.db.query(`SELECT 1 FROM member_secrets WHERE member_id = '333'`)

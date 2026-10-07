@@ -216,7 +216,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
   // Everything the OC planner needs, in one role-gated call.
   app.get(
     '/api/oc-planner/data',
-    { preHandler: requireRole('ocmanager', 'leadership', 'admin', 'visitor') },
+    { preHandler: requireRole('ocmanager', 'leadership', 'admin') },
     async (_req, reply) => {
       const live = await fetchLiveCrimes(deps)
       if (!live.ok) return reply.status(live.status).send({ error: live.error })
@@ -251,7 +251,7 @@ export function registerOcRoutes(app: FastifyInstance, deps: OcDeps) {
   // Gated to OC managers, leadership and admin, per MonChoon. Visitors are
   // included on the read for the same reason as the war-notes archive — they
   // demo the leads view and this only ever reads mirrored public data.
-  const SIM_ROLES = ['ocmanager', 'leadership', 'admin', 'visitor'] as const
+  const SIM_ROLES = ['ocmanager', 'leadership', 'admin'] as const
 
   app.get(
     '/api/oc-simulator/scenarios',

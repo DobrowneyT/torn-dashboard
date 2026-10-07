@@ -5,7 +5,7 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { ROLES, type Role } from './auth.js'
-import { requireNotVisitor, requireRole } from './authz.js'
+import { requireRole } from './authz.js'
 import type { createJobRunner } from './scraper/registerJobs.js'
 import { resolveJobSchedule } from './scraper/scheduleResolution.js'
 import type { FlagResolver } from './featureFlags.js'
@@ -24,9 +24,9 @@ export interface AdminDeps {
 }
 
 // Leadership manage their faction's settings; admin implies leadership here.
-const SETTINGS_GUARD = { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }
+const SETTINGS_GUARD = { preHandler: [requireRole('leadership', 'admin')] }
 // The global-admin oversight surface — faction leaders don't see it.
-const ADMIN_GUARD = { preHandler: [requireNotVisitor(), requireRole('admin')] }
+const ADMIN_GUARD = { preHandler: [requireRole('admin')] }
 
 // The whole-document policy settings a leader may edit (db/seed/03 shapes
 // the first three; war_room_defaults is written by the admin UI only).

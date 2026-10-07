@@ -52,7 +52,10 @@ async function del(path: string, as = 'leader') {
 beforeAll(async () => {
   stack = await startTestStack()
   await loginAs('leader', '400', ['leadership'])
-  await loginAs('visitor', '401', ['visitor'])
+    // ⚠️ Was a `visitor` until #922 removed that role (2026-10-06). A plain
+  // member is the faithful replacement: every assertion below says "this
+  // actor must be refused", which is still true and still worth proving.
+await loginAs('member', '401', [])
   await loginAs('member', '402', [])
 
   // Crimes spanning every payout-window category (and the exclusions).
@@ -161,11 +164,10 @@ describe('POST /api/payouts/weeks (save)', () => {
     expect(wm.body.members).toHaveLength(1)
   })
 
-  it('rejects visitors with a clear read-only message', async () => {
-    const { status, body } = await post('/api/payouts/weeks', { week, members, crime_ids: [] }, 'visitor')
-    expect(status).toBe(403)
-    expect(body.error).toBe('Visitor mode is read-only')
-  })
+  // ⚠️ A `rejects visitors with the read-only message` case sat here. #922
+  // removed the role AND the guard that produced that message, so it would
+  // have duplicated the plain-member case below while asserting an error
+  // string that no longer exists.
 
   it('rejects plain members', async () => {
     const { status } = await post('/api/payouts/weeks', { week, members, crime_ids: [] }, 'member')
@@ -298,7 +300,7 @@ describe('DELETE /api/payouts/weeks/:id', () => {
 
     // Non-leadership is refused; the week survives.
     expect((await del(`/api/payouts/weeks/${weekId}`, 'member')).status).toBe(403)
-    expect((await del(`/api/payouts/weeks/${weekId}`, 'visitor')).status).toBe(403)
+    expect((await del(`/api/payouts/weeks/${weekId}`, 'member')).status).toBe(403)
 
     const res = await del(`/api/payouts/weeks/${weekId}`)
     expect(res.status).toBe(200)

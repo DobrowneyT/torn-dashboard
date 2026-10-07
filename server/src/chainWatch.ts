@@ -1,7 +1,7 @@
 // Chain Watch (#771): hourly sign-ups for a long chain, and the record that
 // pays for them.
 //
-// Reads are open to any session, visitors included. Every mutation of the
+// Reads are open to any authenticated session. Every mutation of the
 // EVENT is leadership; the sign-up routes are the exception, because claiming
 // an hour is the whole point of the page.
 //
@@ -12,7 +12,7 @@
 // in the database.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 import { projectChain, type ChainReading } from './chain/chainProjection.js'
 import { flagFor, FLAG_REASON, type HourEvidence } from './chain/watchFlags.js'
 import { chainOutcome, type OutcomeSample } from './chain/chainOutcome.js'
@@ -25,9 +25,9 @@ const APPLIES_TO = new Set(['tickets', 'payout', 'both'])
 const STATUSES = new Set(['draft', 'open', 'closed'])
 
 /** Leadership guard, spelled out on every mutating route rather than inherited. */
-const LEAD = { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }
-/** Any member may claim and drop their OWN slot; visitors may not write at all. */
-const MEMBER = { preHandler: [requireNotVisitor(), requireAuth()] }
+const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
+/** Any authenticated member may claim and drop their OWN slot. */
+const MEMBER = { preHandler: [requireAuth()] }
 
 const isLead = (req: FastifyRequest) =>
   !!req.session?.is_leadership || !!req.session?.is_admin

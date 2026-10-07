@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireNotVisitor } from './authz.js'
+import { requireAuth } from './authz.js'
 import { factionIdentity } from './auth.js'
 import { APP_VERSION } from './version.js'
 
@@ -263,7 +263,7 @@ export function registerFeedbackRoutes(app: FastifyInstance, deps: FeedbackDeps)
   // Base64 of up to 5×10 MB files (~67 MB) plus the text fields — generous ceiling.
   const POST_BODY_LIMIT = 75_000_000
 
-  app.post('/api/feedback', { preHandler: requireNotVisitor(), bodyLimit: POST_BODY_LIMIT }, async (req, reply) => {
+  app.post('/api/feedback', { preHandler: requireAuth(), bodyLimit: POST_BODY_LIMIT }, async (req, reply) => {
     if (!enabled) return reply.status(501).send({ error: 'Feedback is not configured' })
 
     const userId = String(req.session!.torn_user_id)

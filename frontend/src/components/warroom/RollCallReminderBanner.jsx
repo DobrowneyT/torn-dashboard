@@ -12,14 +12,14 @@ import { rollCallGateActive, formatCountdown } from '../../utils/rollCall'
 // on — so a long-lived session stays accurate (new match appears, filled-out
 // nag clears) without ever flashing.
 export default function RollCallReminderBanner() {
-  const { user, tokenReady, isVisitor } = useAuth()
+  const { user, tokenReady } = useAuth()
   const [pending, setPending] = useState(null)        // { id, opponentName, startAt } | null
   const [dismissedId, setDismissedId] = useState(null)
 
   const check = useCallback(async () => {
     // Need the session token for the faction-scoped reads (RLS); skip until ready.
     // Visitors are never part of the roll call — no nudge for them.
-    if (!user?.id || !tokenReady || isVisitor) { setPending(null); return }
+    if (!user?.id || !tokenReady) { setPending(null); return }
     try {
       const delta = await apiGet('/api/war-room/delta')
       const cfg = delta.config?.rows?.[0]
@@ -32,7 +32,7 @@ export default function RollCallReminderBanner() {
       const mine = (responses ?? []).some(r => String(r.member_id) === String(user.id))
       setPending(rollCallGateActive({ currentWar, mySubmitted: mine }) ? currentWar : null)
     } catch { /* best-effort nudge — ignore lookup errors */ }
-  }, [user?.id, tokenReady, isVisitor])
+  }, [user?.id, tokenReady])
 
   useEffect(() => {
     check()

@@ -154,7 +154,7 @@ function recalculateWithItemPrices(results, factionCutPercent, mode) {
 }
 
 export default function PayoutManagement() {
-  const { user, isVisitor } = useAuth()
+  const { user } = useAuth()
   // Non-tiered factions hide the Tier column in the results table (#136).
   const { usesTiers, payoutMode: factionPayoutMode } = useFactionConfig()
   const faction = useFactionIdentity()
@@ -1412,10 +1412,10 @@ export default function PayoutManagement() {
               </button>
               <button
                 onClick={handleSaveWeek}
-                disabled={isSaving || payoutResults.members.length === 0 || isVisitor}
+                disabled={isSaving || payoutResults.members.length === 0}
                 className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSaving ? 'Saving...' : (isVisitor ? 'Save disabled (visitor)' : 'Save to Database')}
+                {isSaving ? 'Saving...' : 'Save to Database'}
               </button>
             </div>
 

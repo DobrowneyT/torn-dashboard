@@ -45,7 +45,10 @@ beforeAll(async () => {
   await loginAs('warlead', '1700', ['warlead'])
   await loginAs('member', '1701', [])
   await loginAs('leadership', '1702', ['leadership'])
-  await loginAs('visitor', '1703', ['visitor'])
+    // ⚠️ Was a `visitor` until #922 removed that role (2026-10-06). A plain
+  // member is the faithful replacement: every assertion below says "this
+  // actor must be refused", which is still true and still worth proving.
+await loginAs('member', '1703', [])
 
   // One member's live stats, as the sweep would have written them.
   await stack.db.query(
@@ -84,7 +87,7 @@ describe('GET /api/war-room/delta — war-lead gate on live member stats', () =>
   })
 
   it('withholds them from a visitor even though visitors see the war room', async () => {
-    const { body } = await delta('visitor')
+    const { body } = await delta('member')
     expect(body.memberstats.rows).toEqual([])
   })
 

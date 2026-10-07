@@ -208,9 +208,11 @@ export const EXPORT_TABLES: Record<string, ExportTable> = {
  * ROLES: `ocmanager` is a sideways specialist role, not a rung on this ladder,
  * and a comparison against role ORDER would quietly hand it leadership data.
  *
- * ⚠️ `visitor` appears nowhere. Visitors are read-only OUTSIDERS — the whole
- * point of the role — and a bulk roster download is exactly what they must not
- * have, however read-only it is.
+ * ⚠️ This table is an ALLOW-LIST, which is why removing the `visitor` role
+ * (#922, 2026-10-06) needed no change here: a role absent from every floor was
+ * already denied by construction. `canExport` additionally rejected it
+ * outright, which mattered only for somebody holding visitor AND a real role at
+ * once — a combination the schema no longer permits.
  */
 const ROLE_FLOOR: Record<ExportRole, Role[]> = {
   warlead: ['warlead', 'leadership', 'admin'],
@@ -231,7 +233,6 @@ export function lookupExportTable(name: unknown): ExportTable | null {
 }
 
 export function canExport(floor: ExportRole, roles: readonly Role[]): boolean {
-  if (roles.includes('visitor')) return false
   return ROLE_FLOOR[floor].some((r) => roles.includes(r))
 }
 

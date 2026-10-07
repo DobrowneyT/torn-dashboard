@@ -88,16 +88,18 @@ const LEAD_ONLY_CHANNELS = new Set<WarRoomChannel>(['memberstats'])
 
 /**
  * Who may see lead-only channels. Mirrors canEditMemberNotes on the client:
- * war leads, leadership and admins, never visitors (read-only outsiders).
+ * war leads, leadership and admins.
+ *
+ * ⚠️ This used to exclude the `visitor` role explicitly (#922, removed
+ * 2026-10-06). The exclusion was belt-and-braces — the allow-list below is
+ * positive, so nothing reaches it without holding one of the three roles.
  */
 export function canSeeLeadOnlyChannels(claims: {
   is_warlead?: boolean
   is_leadership?: boolean
   is_admin?: boolean
-  is_visitor?: boolean
 } | null | undefined): boolean {
   if (!claims) return false
-  if (claims.is_visitor) return false
   return Boolean(claims.is_warlead || claims.is_leadership || claims.is_admin)
 }
 

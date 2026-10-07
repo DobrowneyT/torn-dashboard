@@ -1,7 +1,7 @@
 // Leadership tools (slice #66): member-overview saved views/thresholds CRUD,
 // tier overrides, inventory + pricing — black-box at the HTTP seam against a
 // real templated Postgres. Every write is purpose-built and leadership-gated;
-// visitors read everything, write nothing.
+// reads are lead-gated, writes leadership/admin.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
 
@@ -45,7 +45,11 @@ beforeAll(async () => {
       ('700', 'Boss', 2, true)
   `)
   await loginAs('leader', '700', ['leadership'])
-  await loginAs('visitor', '701', ['visitor'])
+  // ⚠️ Was a `visitor` until #922 removed that role. A plain member keeps
+  // every refusal assertion below meaningful — the writes are
+  // leadership/admin, and the reads became lead-only when `visitor` came
+  // out of their allow-list, so a member is now refused BOTH.
+  await loginAs('member', '701', [])
 }, 30000)
 
 afterAll(async () => {
@@ -62,7 +66,7 @@ describe('member-overview saved views', () => {
     expect(body.view.id).toBeTruthy()
     expect(body.view.name).toBe('Attack stats')
 
-    const list = await get('/api/overview/views', 'visitor')
+    const list = await get('/api/overview/views')
     expect(list.status).toBe(200)
     expect(list.body.views).toHaveLength(1)
     expect(list.body.views[0].columns).toEqual(['xanax_taken', 'attacks_won'])
@@ -89,24 +93,24 @@ describe('member-overview saved views', () => {
     expect((await call('DELETE', `/api/overview/views/${id}`)).status).toBe(404)
   })
 
-  it('visitors can read but not write; writes validate their payloads', async () => {
-    expect((await call('POST', '/api/overview/views', { name: 'V', columns: [] }, 'visitor')).status).toBe(403)
+  it('a plain member cannot write; writes validate their payloads', async () => {
+    expect((await call('POST', '/api/overview/views', { name: 'V', columns: [] }, 'member')).status).toBe(403)
     const existing = (await get('/api/overview/views')).body.views[0]
-    expect((await call('PUT', `/api/overview/views/${existing.id}`, { name: 'V', columns: [] }, 'visitor')).status).toBe(403)
-    expect((await call('DELETE', `/api/overview/views/${existing.id}`, undefined, 'visitor')).status).toBe(403)
+    expect((await call('PUT', `/api/overview/views/${existing.id}`, { name: 'V', columns: [] }, 'member')).status).toBe(403)
+    expect((await call('DELETE', `/api/overview/views/${existing.id}`, undefined, 'member')).status).toBe(403)
     expect((await call('POST', '/api/overview/views', { columns: [] })).status).toBe(400)
     expect((await call('POST', '/api/overview/views', { name: 'NoCols' })).status).toBe(400)
   })
 })
 
 describe('member-overview threshold sets', () => {
-  it('full CRUD round-trip with visitor read access', async () => {
+  it('full CRUD round-trip', async () => {
     const thresholds = { xanax_taken: { warn: 10, bad: 25 }, attacks_won: { good: 50 } }
     const created = await call('POST', '/api/overview/thresholds', { name: 'Default alerts', thresholds })
     expect(created.status).toBe(200)
     const id = created.body.threshold.id
 
-    const list = await get('/api/overview/thresholds', 'visitor')
+    const list = await get('/api/overview/thresholds')
     expect(list.status).toBe(200)
     expect(list.body.thresholds).toHaveLength(1)
     expect(list.body.thresholds[0].thresholds).toEqual(thresholds)
@@ -119,7 +123,7 @@ describe('member-overview threshold sets', () => {
     expect(updated.body.threshold.name).toBe('Stricter')
 
     expect((await call('POST', '/api/overview/thresholds', { name: 'NoBody' })).status).toBe(400)
-    expect((await call('POST', '/api/overview/thresholds', { name: 'V', thresholds }, 'visitor')).status).toBe(403)
+    expect((await call('POST', '/api/overview/thresholds', { name: 'V', thresholds }, 'member')).status).toBe(403)
 
     expect((await call('DELETE', `/api/overview/thresholds/${id}`)).status).toBe(200)
     expect((await get('/api/overview/thresholds')).body.thresholds).toEqual([])
@@ -140,7 +144,7 @@ describe('GET /api/overview/daily-stats', () => {
         ('702', '2026-07-05', '{"drugs": {"xanax": 3}}',   900000),
         ('702', '2026-06-01', '{"drugs": {"xanax": 1}}',   800000)
     `)
-    const { status, body } = await get('/api/overview/daily-stats?since=2026-06-15', 'visitor')
+    const { status, body } = await get('/api/overview/daily-stats?since=2026-06-15')
     expect(status).toBe(200)
     // The June 1 snapshot is outside the window.
     expect(body.snapshots).toHaveLength(3)
@@ -170,12 +174,12 @@ describe('GET /api/overview/daily-stats', () => {
       [recent, old]
     )
 
-    const all = await get('/api/overview/daily-stats?window=all', 'visitor')
+    const all = await get('/api/overview/daily-stats?window=all')
     const dates702all = all.body.snapshots.filter((s: any) => s.member_id === '702').map((s: any) => s.snapshot_date)
     expect(dates702all).toContain(old)         // 200 days back — only "all" reaches it
     expect(dates702all).toContain('2026-06-01')
 
-    const w30 = await get('/api/overview/daily-stats?window=30', 'visitor')
+    const w30 = await get('/api/overview/daily-stats?window=30')
     const dates702w30 = w30.body.snapshots.filter((s: any) => s.member_id === '702').map((s: any) => s.snapshot_date)
     expect(dates702w30).toContain(recent)      // within 30 days
     expect(dates702w30).not.toContain(old)     // 200 days back — excluded
@@ -183,7 +187,7 @@ describe('GET /api/overview/daily-stats', () => {
 })
 
 describe('PUT /api/members/:id/tier-override', () => {
-  it('leadership sets and clears a tier override; visitors cannot', async () => {
+  it('leadership sets and clears a tier override; a member cannot', async () => {
     const set = await call('PUT', '/api/members/702/tier-override', { tier_override: 1 })
     expect(set.status).toBe(200)
     expect(set.body.member.tier_override).toBe(1)
@@ -192,7 +196,7 @@ describe('PUT /api/members/:id/tier-override', () => {
     expect(cleared.status).toBe(200)
     expect(cleared.body.member.tier_override).toBeNull()
 
-    expect((await call('PUT', '/api/members/702/tier-override', { tier_override: 2 }, 'visitor')).status).toBe(403)
+    expect((await call('PUT', '/api/members/702/tier-override', { tier_override: 2 }, 'member')).status).toBe(403)
     expect((await call('PUT', '/api/members/999999/tier-override', { tier_override: 2 })).status).toBe(404)
     expect((await call('PUT', '/api/members/702/tier-override', { tier_override: 'high' })).status).toBe(400)
   })
@@ -214,7 +218,7 @@ describe('inventory management', () => {
         ('inventory', '2026-07-08T10:00:00', 'Boss'),
         ('crimes',    '2026-07-09T10:00:00', 'Boss')
     `)
-    const { status, body } = await get('/api/inventory', 'visitor')
+    const { status, body } = await get('/api/inventory')
     expect(status).toBe(200)
     expect(body.items).toHaveLength(2)
     const xanax = body.items.find((i: any) => i.item_id === '206')
@@ -223,7 +227,7 @@ describe('inventory management', () => {
     expect(body.last_sync).toBe('2026-07-08T10:00:00')
   })
 
-  it('leadership adds a pricing batch (attributed from the session); visitors cannot', async () => {
+  it('leadership adds a pricing batch (attributed from the session); a member cannot', async () => {
     const { status, body } = await call('POST', '/api/inventory/pricing-batches', {
       item_id: '66', price: 45000, quantity: 25,
     })
@@ -235,7 +239,7 @@ describe('inventory management', () => {
     const morphine = inv.body.items.find((i: any) => i.item_id === '66')
     expect(morphine.weighted_avg_price).toBe(45000)
 
-    expect((await call('POST', '/api/inventory/pricing-batches', { item_id: '66', price: 1, quantity: 1 }, 'visitor')).status).toBe(403)
+    expect((await call('POST', '/api/inventory/pricing-batches', { item_id: '66', price: 1, quantity: 1 }, 'member')).status).toBe(403)
     expect((await call('POST', '/api/inventory/pricing-batches', { item_id: '66', price: -5, quantity: 1 })).status).toBe(400)
     expect((await call('POST', '/api/inventory/pricing-batches', { item_id: 'nope', price: 5, quantity: 1 })).status).toBe(404)
   })
@@ -252,7 +256,7 @@ describe('inventory management', () => {
     expect(morphine.weighted_avg_price).toBe(50000)
     expect(morphine.total_batched_quantity).toBe(50)
 
-    expect((await call('PUT', '/api/inventory/items/66/price', { price: 1 }, 'visitor')).status).toBe(403)
+    expect((await call('PUT', '/api/inventory/items/66/price', { price: 1 }, 'member')).status).toBe(403)
     expect((await call('PUT', '/api/inventory/items/nope/price', { price: 1 })).status).toBe(404)
   })
 
@@ -288,6 +292,6 @@ describe('inventory management', () => {
     // The sync marker moved and is attributed to the caller.
     expect(inv.body.last_sync > '2026-07-08T10:00:00').toBe(true)
 
-    expect((await call('POST', '/api/inventory/sync', {}, 'visitor')).status).toBe(403)
+    expect((await call('POST', '/api/inventory/sync', {}, 'member')).status).toBe(403)
   })
 })

@@ -11,11 +11,11 @@
 //   • The client still makes ONE request. Splitting the fetch per source was
 //     the alternative and it is worse for both.
 //
-// Reads are open to any session, visitors included. Writes are leadership/admin
+// Reads are open to any authenticated session. Writes are leadership/admin
 // — except a member's own birthday, which they own.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 import { rolesFromClaims } from './auth.js'
 
 const TITLE_MAX = 120
@@ -203,7 +203,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
 
   app.post(
     '/api/calendar/events',
-    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    { preHandler: [requireRole('leadership', 'admin')] },
     async (req, reply) => {
       const parsed = readEventBody(req.body)
       if ('error' in parsed) return reply.status(400).send({ error: parsed.error })
@@ -220,7 +220,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
 
   app.put(
     '/api/calendar/events/:id',
-    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    { preHandler: [requireRole('leadership', 'admin')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'invalid id' })
@@ -245,7 +245,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
   // would either do nothing or delete the war.
   app.delete(
     '/api/calendar/events/:id',
-    { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] },
+    { preHandler: [requireRole('leadership', 'admin')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'invalid id' })
@@ -294,7 +294,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
 
   app.put(
     '/api/calendar/event-window/me',
-    { preHandler: [requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const memberId = String(req.session!.torn_user_id)
       const granted = (req.body as { granted?: unknown } | null)?.granted
@@ -347,7 +347,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
 
   app.put(
     '/api/calendar/birthdays/:memberId',
-    { preHandler: [requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const { memberId } = req.params as { memberId: string }
       if (!/^\d+$/.test(memberId)) return reply.status(400).send({ error: 'invalid member id' })
@@ -390,7 +390,7 @@ export function registerCalendarRoutes(app: FastifyInstance, db: pg.Pool) {
   // Withdrawal deletes. It does not hide.
   app.delete(
     '/api/calendar/birthdays/:memberId',
-    { preHandler: [requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const { memberId } = req.params as { memberId: string }
       if (!/^\d+$/.test(memberId)) return reply.status(400).send({ error: 'invalid member id' })

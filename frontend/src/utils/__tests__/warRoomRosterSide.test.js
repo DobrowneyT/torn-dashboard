@@ -123,11 +123,15 @@ describe('canViewOurRoster', () => {
     expect(canViewOurRoster()).toBe(false)
   })
 
-  it('excludes a visitor even when they also carry a lead role', () => {
-    // Visitors are read-only outsiders; the role combination is possible and
-    // must fail closed.
-    expect(canViewOurRoster({ isWarLead: true, isVisitor: true })).toBe(false)
-    expect(canViewOurRoster({ isLeadership: true, isVisitor: true })).toBe(false)
+  // ⚠️ Had an `excludes a visitor even when they also carry a lead role` case —
+  // that combination was possible and had to fail closed. #922 removed the role,
+  // so it cannot be held at all. What replaces it is the property that made the
+  // old behaviour safe in the first place: the predicate is an ALLOW-LIST, so an
+  // unrecognised flag grants nothing.
+  it('grants nothing on an unrecognised flag', () => {
+    expect(canViewOurRoster({ isSomethingElse: true })).toBe(false)
+    expect(canViewOurRoster({})).toBe(false)
+    expect(canViewOurRoster()).toBe(false)
   })
 })
 
@@ -143,7 +147,10 @@ describe('effectiveRosterSide', () => {
     // Roles are re-read on session refresh, so a lead can lose the role with
     // the board open — the table must not strand them on our roster.
     expect(effectiveRosterSide(US, {})).toBe(THEM)
-    expect(effectiveRosterSide(US, { isWarLead: true, isVisitor: true })).toBe(THEM)
+    // ⚠️ The second case was a lead who also held the `visitor` role (#922
+    // removed it). An unrecognised flag is the surviving shape of the same test:
+    // it must not promote anybody.
+    expect(effectiveRosterSide(US, { isSomethingElse: true })).toBe(THEM)
   })
 
   it('normalises a nonsense side to the enemy', () => {

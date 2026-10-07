@@ -27,26 +27,24 @@ async function loginViaApi(apiKey) {
   const userObj = {
     id: Number(boot.user.torn_user_id),
     // Roster name from bootstrap (login stubs it from Torn on first login);
-    // the id-based fallback covers visitors, who are never on the roster.
+    // the id-based fallback covers anybody not yet on the roster.
     name: boot.user.member_name || `Player ${boot.user.torn_user_id}`,
     factionId: null,
     factionPosition: roles.includes('leadership') ? 'Leadership'
       : roles.includes('admin') ? 'Admin'
-      : roles.includes('visitor') ? 'Visitor'
       : 'Member',
     // Deliberately NO apiKey: in API mode the browser holds only the session
-    // token — raw key material never reaches localStorage (visitors included).
+    // token — raw key material never reaches localStorage.
     accessLevel: 3,
     isLeadership: roles.includes('leadership'),
     isAdmin: roles.includes('admin'),
     isWarLead: roles.includes('warlead'),
     isOCManager: roles.includes('ocmanager'),
-    isVisitor: roles.includes('visitor'),
     // Whether the in-app feedback form is available (server has a PAT) — the
     // hamburger "Send feedback" entry is hidden when false (#253).
     feedbackEnabled: boot.feedback_enabled === true,
     // Last 4 chars of this user's own pooled key (#264) — shown masked in the
-    // hamburger menu; null when no key is on file (e.g. visitors).
+    // hamburger menu; null when no key is on file.
     apiKeyHint: boot.user.api_key_hint ?? null,
     // #894 — the API Key Usage disclosure this member last accepted, and
     // whether it is behind the current one. ⚠️ Both, not just the boolean:
@@ -194,10 +192,6 @@ export function AuthProvider({ children }) {
   // so we don't need to thread a flag through every login() branch. In API
   // mode the flag comes from DB-assigned roles instead.
   const isOCManagerFlag = user?.isOCManager || config.ocmanagerUserIds.includes(String(user?.id))
-  // Visitor is also derived live from the config list (belt-and-braces on top
-  // of the persisted flag) so removing an ID from the list revokes access on
-  // the next app load even before revalidation runs.
-  const isVisitorFlag = user?.isVisitor || config.visitorUserIds.includes(String(user?.id))
 
   const value = {
     user,
@@ -206,14 +200,13 @@ export function AuthProvider({ children }) {
     isAdmin: isAdminFlag,
     isWarLead,
     isOCManager: isOCManagerFlag,
-    // Read-only demo profile: sees everything leadership sees, saves nothing.
-    isVisitor: isVisitorFlag,
     // War Overview is available to leadership, admins, and warleads —
     // anyone whose role meaningfully owns or co-owns ranked-war planning.
-    // Visitors get view access to everything role-gated.
-    canAccessWarOverview: isLeadership || isAdminFlag || isWarLead || isVisitorFlag,
+    // ⚠️ The deprecated read-only `visitor` role was a fourth term here until
+    // #922 removed it (2026-10-06); no member held it.
+    canAccessWarOverview: isLeadership || isAdminFlag || isWarLead,
     // OC Planner is for OC Managers, plus leadership/admins as a superset.
-    canAccessOCPlanner: isOCManagerFlag || isLeadership || isAdminFlag || isVisitorFlag,
+    canAccessOCPlanner: isOCManagerFlag || isLeadership || isAdminFlag,
     loading,
     tokenReady,
     authError,

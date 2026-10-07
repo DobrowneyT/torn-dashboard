@@ -110,12 +110,10 @@ export function registerExportRoutes(app: FastifyInstance, db: pg.Pool) {
    */
   app.get('/api/export/me/stats.csv', { preHandler: requireAuth() }, async (req, reply) => {
     const claims = req.session!
-    // ⚠️ A visitor has no member identity to scope by, so there is nothing to
-    // export. 403 with a reason, never an empty CSV — an empty file reads as
-    // "you have no stats", which is a different and wrong statement.
-    if (claims.is_visitor) {
-      return reply.status(403).send({ error: 'Visitors have no stat history to export' })
-    }
+    // ⚠️ 403 with a reason, never an empty CSV — an empty file reads as "you
+    // have no stats", which is a different and wrong statement. (The `visitor`
+    // role had its own branch here for the same reason; #922 removed the role,
+    // and the identity check below covers what is left.)
     const memberId = String(claims.torn_user_id ?? '')
     if (!memberId) return reply.status(403).send({ error: 'No member identity on this session' })
 

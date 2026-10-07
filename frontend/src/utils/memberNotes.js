@@ -10,9 +10,10 @@ export function isOverdosed(member) {
   return typeof details === 'string' && /overdos/i.test(details)
 }
 
-// Who may edit member notes: war leads + leadership/admin, never visitors.
-export function canEditMemberNotes({ isWarLead, isLeadership, isAdmin, isVisitor }) {
-  return Boolean((isWarLead || isLeadership || isAdmin) && !isVisitor)
+// Who may edit member notes: war leads + leadership/admin.
+// ⚠️ Had an explicit `&& !isVisitor` until #922 removed that role (2026-10-06).
+export function canEditMemberNotes({ isWarLead, isLeadership, isAdmin }) {
+  return Boolean(isWarLead || isLeadership || isAdmin)
 }
 
 // Turn the API's note list into a { [member_id]: note } lookup for the roster.

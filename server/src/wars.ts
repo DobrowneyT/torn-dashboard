@@ -3,7 +3,7 @@
 // syncing/saving arrive with the war-room slices.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 
 // Columns the client may set on war_payouts — everything else is
 // server-stamped (created_by, created_at, updated_at) or defaulted.
@@ -107,7 +107,7 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
   // a response can be revised right up to war start, and the snapshot's job
   // is to freeze the stacks reading, not to also freeze what leadership sees
   // of a still-open roll call.
-  app.get('/api/wars/:id/stacks-snapshot', { preHandler: [requireNotVisitor(), requireRole('warlead', 'leadership', 'admin')] }, async (req) => {
+  app.get('/api/wars/:id/stacks-snapshot', { preHandler: [requireRole('warlead', 'leadership', 'admin')] }, async (req) => {
     const { id } = req.params as { id: string }
     const res = await db.query(
       `SELECT s.member_id, s.member_name, s.energy_current, s.energy_maximum,
@@ -173,7 +173,7 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
 
   // Delete a saved RW payout: remove its member rows, then the payout. The
   // self-hosted replacement for the old DataManagement single-delete tool.
-  app.delete('/api/war-payouts/:id', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+  app.delete('/api/war-payouts/:id', { preHandler: [requireRole('leadership', 'admin')] }, async (req, reply) => {
     const { id } = req.params as { id: string }
     if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'valid payout id required' })
     const client = await db.connect()
@@ -200,7 +200,7 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
   // the first), replacing its member rows — the same semantics the admin-db
   // edge function had. Visitors get the explicit read-only message; everyone
   // else needs leadership/admin.
-  app.post('/api/war-payouts', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+  app.post('/api/war-payouts', { preHandler: [requireRole('leadership', 'admin')] }, async (req, reply) => {
     const body = req.body as { payout?: Record<string, unknown>; members?: Record<string, unknown>[] } | null
     if (!body?.payout || !Array.isArray(body.members) || body.members.length === 0) {
       return reply.status(400).send({ error: 'payout and members are required' })
@@ -276,7 +276,7 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
 
   // Toggle a war's Real/Termed classification (mirrors the calculator's
   // war-class picker; only is_termed changes).
-  app.post('/api/wars/:id/is-termed', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+  app.post('/api/wars/:id/is-termed', { preHandler: [requireRole('leadership', 'admin')] }, async (req, reply) => {
     const { id } = req.params as { id: string }
     const isTermed = (req.body as { is_termed?: unknown } | null)?.is_termed
     if (typeof isTermed !== 'boolean') {
