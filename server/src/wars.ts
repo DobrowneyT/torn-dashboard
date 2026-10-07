@@ -328,6 +328,49 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
     ])
     return { attacks: attacks.rows, total: total.rows[0].n }
   })
+
+  /**
+   * One war's dibs activity, per member (#530).
+   *
+   * ⚠️ Reads the FROZEN summary; it never recomputes. The numbers are produced
+   * once by the `dibs-summary` job after the war's attacks have landed, and a
+   * request that recomputed on the fly would disagree with the stored row the
+   * moment the classifier changed — two answers to a question with members'
+   * names in it.
+   *
+   * ⚠️ `state` is returned even when `members` is empty, and the two mean
+   * different things. No state row at all = not summarised yet (the job is
+   * still waiting for this war's attacks). A state row with no members = the
+   * war really had no dibs activity. Collapsing those would show "nobody
+   * called anything" for a war we simply have not finished counting.
+   *
+   * Same `requireAuth()` as this page's other reads (`/api/attacks`,
+   * `/api/wars/:id/revives`), which already expose per-member war activity. The
+   * page itself is gated client-side by `canAccessWarOverview`.
+   */
+  app.get('/api/wars/:id/dibs-summary', { preHandler: requireAuth() }, async (req) => {
+    const { id } = req.params as { id: string }
+    const [members, state] = await Promise.all([
+      db.query(
+        `SELECT member_id, member_name, claims, converted, attempted, taken_from,
+                no_swing, outside, released, hopped, overridden, board_reset,
+                still_open, unknown, swung, took_from_others
+         FROM war_dibs_summary WHERE war_id = $1
+         ORDER BY claims DESC, took_from_others DESC, member_id`,
+        [id]
+      ),
+      db.query(
+        `SELECT war_id, claims_seen, grace_seconds, summary_version,
+                computed_at
+         FROM war_dibs_summary_state WHERE war_id = $1`,
+        [id]
+      ),
+    ])
+    // ⚠️ `computed_at` is served RAW, as timestamptz. The frontend parses it
+    // with `parseDbTime` so `fmtAgo` works; converting here would break the
+    // helper that every other "last updated" label on the site goes through.
+    return { members: members.rows, state: state.rows[0] ?? null }
+  })
 }
 
 function clamp(raw: string | undefined, fallback: number, max: number): number {

@@ -274,6 +274,22 @@ export async function loadFactionRevivesByWar(warId) {
  * @param {number} warId
  * @returns {Promise<Array>}
  */
+/**
+ * One war's dibs activity, per member (#530).
+ *
+ * ⚠️ `state` and an empty `members` mean different things, so both are returned.
+ * `state === null` is "not summarised yet" — the job waits for a war's attacks
+ * to land before counting it. A state row with no members is a war that really
+ * had no dibs activity. Showing "nobody called anything" for the first case
+ * would be wrong about members by name.
+ *
+ * @returns {Promise<{members: object[], state: object|null}>}
+ */
+export async function loadWarDibsSummary(warId) {
+  const { members, state } = await apiGet(`/api/wars/${warId}/dibs-summary`)
+  return { members: members || [], state: state ?? null }
+}
+
 export async function loadWarPayouts(warId) {
   const { payouts } = await apiGet(`/api/wars/${warId}/payouts`)
   return payouts || []

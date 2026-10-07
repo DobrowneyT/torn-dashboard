@@ -18,6 +18,45 @@ surface it automatically.
 
 ---
 
+## [3.205.0] - 2026-10-06
+
+### Added
+- **The dibs table on War Overview** (#530, slice 3 — the epic is now complete). Who
+  called targets in a war, and what came of each claim: Claims, Converted, Tried, No
+  swing, Taken from, Outside, Other, Took from others. Sortable, and served from the
+  frozen summary — `GET /api/wars/:id/dibs-summary` reads, it never recomputes, so it
+  cannot disagree with the stored row it came from.
+  ⚠️ **"Not counted yet" and "nobody called anything" render differently**, because
+  they are different facts. A war waits to be counted until its attacks have landed,
+  and showing that as an empty table would tell a lead their faction ignored dibs in a
+  war we simply have not finished counting. Probed — collapsing the two fails a test.
+  ⚠️ **Every row adds up**: Claims = Converted + Tried + No swing + Taken from +
+  Outside + Other, exactly. `Other` exists to carry the narrow buckets *including*
+  `unknown` (claims from before 3.203.0 have no reason at all), because the first
+  thing anybody does with a number about themselves is check the arithmetic.
+  ⚠️ **`Outside` is visible and untoned**, not folded into a failure column. It is the
+  target going down with no attack from our faction — another faction, or the target
+  **self-hospitalising to dodge**, which is indistinguishable from a steal in the
+  data. Neither reading is claimed.
+  ⚠️ **`Took from others` is a different axis from `Taken from`, not its mirror.** One
+  is losing a target, the other is finishing somebody else's; a member can lead both
+  columns in one war, and the "who takes targets" question is the second.
+  ⚠️ The grace window that produced the numbers is **shown with them**. Two wars
+  counted under different windows are not comparable.
+  ⚠️ The panel is war-level: deliberately NOT filtered by the faction checkboxes or
+  the range slider, which narrow the plot above it. Re-filtering frozen numbers would
+  make the table disagree with the row it was read from.
+
+### Notes
+- The panel sits behind War Overview's existing gate, which still includes the
+  **deprecated `visitor` role** — acceptable only because nobody holds it. Filed as
+  #922 to remove the role entirely: 15 server files, 24 frontend files and a
+  `role_assignments` CHECK constraint. ⚠️ That issue records the two hazards, since
+  neither is obvious: `requireNotVisitor()` is the read-only enforcement on many
+  mutations, so a sweep that strips the `preHandler` rather than the role check would
+  open those endpoints to everyone; and every tenant must be checked for live visitor
+  assignments first.
+
 ## [3.204.0] - 2026-10-06
 
 ### Added
