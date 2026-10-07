@@ -18,6 +18,143 @@ surface it automatically.
 
 ---
 
+## [3.205.0] - 2026-10-06
+
+### Added
+- **The dibs table on War Overview** (#530, slice 3 — the epic is now complete). Who
+  called targets in a war, and what came of each claim: Claims, Converted, Tried, No
+  swing, Taken from, Outside, Other, Took from others. Sortable, and served from the
+  frozen summary — `GET /api/wars/:id/dibs-summary` reads, it never recomputes, so it
+  cannot disagree with the stored row it came from.
+  ⚠️ **"Not counted yet" and "nobody called anything" render differently**, because
+  they are different facts. A war waits to be counted until its attacks have landed,
+  and showing that as an empty table would tell a lead their faction ignored dibs in a
+  war we simply have not finished counting. Probed — collapsing the two fails a test.
+  ⚠️ **Every row adds up**: Claims = Converted + Tried + No swing + Taken from +
+  Outside + Other, exactly. `Other` exists to carry the narrow buckets *including*
+  `unknown` (claims from before 3.203.0 have no reason at all), because the first
+  thing anybody does with a number about themselves is check the arithmetic.
+  ⚠️ **`Outside` is visible and untoned**, not folded into a failure column. It is the
+  target going down with no attack from our faction — another faction, or the target
+  **self-hospitalising to dodge**, which is indistinguishable from a steal in the
+  data. Neither reading is claimed.
+  ⚠️ **`Took from others` is a different axis from `Taken from`, not its mirror.** One
+  is losing a target, the other is finishing somebody else's; a member can lead both
+  columns in one war, and the "who takes targets" question is the second.
+  ⚠️ The grace window that produced the numbers is **shown with them**. Two wars
+  counted under different windows are not comparable.
+  ⚠️ The panel is war-level: deliberately NOT filtered by the faction checkboxes or
+  the range slider, which narrow the plot above it. Re-filtering frozen numbers would
+  make the table disagree with the row it was read from.
+
+### Notes
+- The panel sits behind War Overview's existing gate, which still includes the
+  **deprecated `visitor` role** — acceptable only because nobody holds it. Filed as
+  #922 to remove the role entirely: 15 server files, 24 frontend files and a
+  `role_assignments` CHECK constraint. ⚠️ That issue records the two hazards, since
+  neither is obvious: `requireNotVisitor()` is the read-only enforcement on many
+  mutations, so a sweep that strips the `preHandler` rather than the role check would
+  open those endpoints to everyone; and every tenant must be checked for live visitor
+  assignments first.
+
+## [3.204.0] - 2026-10-06
+
+### Added
+- **Per-war dibs summaries** (#530, slice 2 of 3). New `war_dibs_summary` and
+  `war_dibs_summary_state`, filled by an hourly `dibs-summary` job for each war that
+  has finished. No UI yet — slice 3 puts the table on War Overview.
+  ⚠️ **It runs AFTER a war, never during.** `attacks-sync` runs every 30 minutes
+  while the War Room's dibs sweep runs every second, so the attack row that explains
+  a claim's death lands up to half an hour after the claim is gone. Live attribution
+  is not available at this cadence, and chasing it would mean a far faster attack
+  scrape during wars for a report nobody reads mid-fight.
+  ⚠️ **Attacks outrank the release reason.** A successful conversion is recorded as
+  `spent`, because the sweep frees a claim the moment the target stops being
+  attackable and deliberately does not care who put them there. Reading the reason
+  first would file every success under "target went down, nobody's doing" — probed,
+  and it fails nine tests.
+  ⚠️ **A war whose attacks have not landed WAITS.** Summarising early records real
+  conversions as "no swing" against named members, and once the raw claims are
+  pruned there is nothing left to correct it from. Coverage is read from the data
+  (`max(started)` in `faction_attacks`) rather than from the run log, because an
+  `attacks-sync` that hits a Torn rate limit mid-backlog **exits as a success**
+  without having caught up.
+  ⚠️ **"Stolen" is two columns, not one.** Taken *from* a holder and taken *by* an
+  offender are different axes, a member can be on both sides in one war, and the
+  top-offenders question needs the second. A taker who claimed nothing themselves
+  still gets a row — otherwise the one member the report exists to surface is absent
+  from it.
+  ⚠️ **Blameless buckets stay separate.** `outside` (the target went down with no
+  attack from us — another faction, or a self-hospitalisation to dodge) and
+  `board-reset` are not failures to convert. `unknown` holds pre-0072 claims, which
+  have no reason at all and must read as unexplained rather than fall through to a
+  default.
+  ⚠️ A steal needs the claim to have been live for `STEAL_GRACE_SECONDS` first — a
+  stated tunable, not a hardcoded truth. Somebody who clicked attack in the same
+  instant raced rather than stole, and an attack is matched on `started`, never
+  `ended`: a fight already underway ends inside the window and would otherwise
+  convict whoever was mid-attack.
+  ⚠️ The grace window and a `summary_version` are stored **with** the numbers. A
+  figure with no record of its inputs cannot be defended to the member it describes,
+  and raising the version recomputes rather than leaving a war stale.
+
+### Fixed
+- ⚠️ `ranked_wars.start_at` / `end_at` are **bigint epoch seconds**, not timestamptz
+  like nearly every other timestamp in this schema. Caught while writing the job —
+  the `extract(epoch FROM …)` it started with would have thrown outright.
+
+### Changed
+- `WIN_RESULTS`, `LOSS_RESULTS` and `ASSIST_RESULT` are now **exported** from
+  `server/src/warOverview/summary.ts` so the dibs summary reuses them instead of
+  making a third copy. ⚠️ `war-overview-parity.test.ts` now asserts the **sets
+  themselves** match the frontend's, not merely the numbers they produce — that is
+  how `Special` drifted the first time, and the sets now reach a leaderboard with
+  members' names on it.
+
+### Internal
+- `warDibsSummary.ts` is pure and takes **epoch seconds only**; every conversion
+  happens in SQL, so no timestamp parsing exists in it to get wrong (#140).
+- 37 unit tests plus 11 against real Postgres. Four probes run and reverted:
+  reason-over-attacks (9 fail), no grace window (2), no settle gate (1), and
+  trusting `war_id` alone (8 — it is client-supplied and nullable).
+
+## [3.203.0] - 2026-10-06
+
+### Added
+- **Dibs claims now record WHY they ended** (#530, slice 1 of the call-activity
+  report). New `war_room_dibs_v2.release_reason`, written by all five paths that
+  tombstone a claim: `rehospitalised` (#107), `spent`, `window` (#106), `superseded`,
+  `manual`, `admin`, `reset`.
+  ⚠️ **This is the half that cannot be backfilled.** Whether a claim converted is
+  answerable retroactively from `faction_attacks`, but the holder's *intent* — gave
+  it back, hopped to another target, was overridden by a lead — exists only at the
+  moment of release. Every war that runs without this column is a war whose intent
+  data is gone, which is why it ships ahead of the report it feeds.
+  ⚠️ `release_reason` is stamped in the **same statement** that sets `deleted_at`. A
+  second UPDATE could be interrupted between the two, leaving a released claim with
+  no reason — indistinguishable from pre-0072 history, and therefore silently
+  dropped from the report.
+  ⚠️ A lead releasing their **own** claim records `manual`, not `admin`. The reason
+  is decided per row by who held it, not by which code branch ran; deciding it by
+  branch files every lead's ordinary release under moderation.
+  ⚠️ `reset`, `spent` and `rehospitalised` are marked **blameless** in
+  `warDibsReasons.ts`. The board being wiped at war setup, and a target going down
+  (frequently somebody else's hit, sometimes the target's own dodge), are not
+  failures to convert, and a report that counts them as such accuses members of
+  something the data does not support.
+
+### Internal
+- `db/test/template-matches-migrations.test.mjs` — **`template.sql` must not fall
+  behind the migrations.** ⚠️ Asserts that applying the whole history to a freshly
+  provisioned database adds no column and no table: on an up-to-date template every
+  migration is a no-op, so any growth measures exactly how stale the template is.
+  Probed — removing 0072's column from the template fails the test and names it.
+  Framed this way rather than as "both paths agree" because there is no tenant built
+  from the migrations alone: the history does not start at the beginning of the
+  schema and references tables that exist only in the template.
+  The 0047 and 0061 tests each check this for their own change — the right instinct,
+  repeated per-migration, and therefore only as good as whoever remembers to write it.
+
 ## [3.202.0] - 2026-10-06
 
 ### Changed

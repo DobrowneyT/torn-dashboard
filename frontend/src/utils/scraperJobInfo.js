@@ -98,6 +98,17 @@ export const SCRAPER_JOB_INFO = {
     'actually SEEN in a crime slot, because Torn never reports a departure — ' +
     'every "left at" elsewhere is inferred. Feeds the payout page\'s observed ' +
     'time. 1 API call per minute (~1,440/day).',
+  'dibs-summary':
+    'Freezes each finished war\'s dibs activity into a per-member summary — ' +
+    'claims taken, converted, lost to a teammate, and taken from others. ' +
+    '⚠️ It runs AFTER a war, never during: attacks are scraped every 30 ' +
+    'minutes while the War Room\'s dibs sweep runs every second, so the attack ' +
+    'row that explains a claim\'s death lands long after the claim is gone. ' +
+    '⚠️ A war whose attacks have not landed yet WAITS for a later run rather ' +
+    'than being summarised early — a war counted too soon records real ' +
+    'conversions as "no swing" against named members. ⚠️ Costs ZERO Torn API ' +
+    'calls: it reads claims and attacks already in the database and makes no ' +
+    'request of its own. Most runs do nothing at all.',
   'grudge-stats':
     'Daily battle-stat lookup for Book of Grudges targets — TornStats first ' +
     '(one call covers a whole faction), then Battle Stats Predictor for anyone ' +

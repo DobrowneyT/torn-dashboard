@@ -12,6 +12,7 @@ import type pg from 'pg'
 import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
 import { rolesFromClaims } from './auth.js'
 import { DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
+import { DIBS_RELEASE_REASONS } from './warDibsReasons.js'
 import { ASSIST_EXPIRY_SECONDS } from './warRoomAssistsExpiry.js'
 import {
   validateLoadoutPayload,
@@ -87,8 +88,13 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
       }
       // Single-dibs rule: tombstone the caller's other live claims (and a
       // re-claim of the same target) before inserting the fresh row.
+      // ⚠️ #530 — `superseded`, not `manual`: the holder did not give this claim
+      // back, they moved to another target and the single-dibs rule took it. Read
+      // often enough against one member, that pattern is target-hopping, which is
+      // a different thing from releasing a target you decided against.
       const tombstoned = await dbc.query(
-        `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now()
+        `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now(),
+           release_reason = '${DIBS_RELEASE_REASONS.superseded}'
          WHERE claimed_by = $1 AND deleted_at IS NULL RETURNING *`,
         [userId]
       )
@@ -139,14 +145,22 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     const { targetId } = req.params as { targetId: string }
     const userId = Number(req.session!.torn_user_id)
     // Non-admins release only their own claim (a filtered no-op otherwise).
+    // ⚠️ #530 — a lead releasing their OWN claim is `manual`, not `admin`. The
+    // admin branch is the only one that can touch somebody else's row, so the
+    // reason is decided per row by who held it, not by which branch ran. Getting
+    // this backwards would file every lead's own release under moderation.
     const res = isAdmin(req)
       ? await db.query(
-          `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now()
+          `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now(),
+             release_reason = CASE WHEN claimed_by = $2
+               THEN '${DIBS_RELEASE_REASONS.manual}'
+               ELSE '${DIBS_RELEASE_REASONS.admin}' END
            WHERE target_id = $1 AND deleted_at IS NULL RETURNING *`,
-          [targetId]
+          [targetId, userId]
         )
       : await db.query(
-          `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now()
+          `UPDATE war_room_dibs_v2 SET deleted_at = now(), updated_at = now(),
+             release_reason = '${DIBS_RELEASE_REASONS.manual}'
            WHERE target_id = $1 AND deleted_at IS NULL AND claimed_by = $2 RETURNING *`,
           [targetId, userId]
         )

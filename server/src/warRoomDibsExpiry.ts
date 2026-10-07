@@ -4,6 +4,7 @@
 // the shared member-sync stays clean and its broadcast payload unpolluted —
 // this reads only the handful of dibbed targets, before and after the sync.
 import type pg from 'pg'
+import { DIBS_RELEASE_REASONS } from './warDibsReasons.js'
 
 /** Hospital status as stored in war_room_state_v2.state->'status'. */
 interface TargetStatus {
@@ -72,7 +73,11 @@ export async function sweepDibsExpiry(
      WHERE d.deleted_at IS NULL`
   )
 
-  const dropNow: number[] = []
+  // ⚠️ #107 and "spent" were ONE array before #530. They tombstone identically
+  // but mean different things — a target hit again in hospital versus a target
+  // that stopped being attackable — and the report needs them apart.
+  const dropRehospitalised: number[] = []
+  const dropSpent: number[] = []
   const schedule: number[] = []
   const disarm: number[] = []
   for (const row of live.rows) {
@@ -97,7 +102,7 @@ export async function sweepDibsExpiry(
     if (wasHospital && next?.state === 'Hospital') {
       const pu = until(prev)
       const nu = until(next)
-      if (pu !== null && nu !== null && nu > pu) dropNow.push(row.id) // #107
+      if (pu !== null && nu !== null && nu > pu) dropRehospitalised.push(row.id) // #107
     } else if (wasOkay && typeof next?.state === 'string' && next.state !== 'Okay') {
       // ⚠️ A CLAIM IS SPENT THE MOMENT THE TARGET STOPS BEING ATTACKABLE
       // (MonChoon, 2026-10-03, mid-war). Hospital, jail, travel — any of them.
@@ -141,7 +146,7 @@ export async function sweepDibsExpiry(
       // recently-Okay target that goes down is now dropped outright, so there
       // is usually no surviving claim left to disarm. It is kept as a cheap
       // guard against any path that still reaches it.
-      dropNow.push(row.id)
+      dropSpent.push(row.id)
     } else if (wasHospital && next?.state === 'Okay' && row.auto_expire_at == null) {
       schedule.push(row.id) // #106
     }
@@ -170,11 +175,22 @@ export async function sweepDibsExpiry(
   // (target now in hospital) keeps the dib — the countdown only frees claims
   // that were never converted. #106's hospital-exit window lapses on an Okay
   // target too, so this gate is a no-op there.
+  //
+  // ⚠️ #530 — `release_reason` is stamped in the SAME statement that tombstones
+  // the row. A second UPDATE could be interrupted between the two, leaving a
+  // released claim with no reason, which the report would then have to treat as
+  // pre-0072 history and silently exclude.
   const expired = await db.query(
-    `UPDATE war_room_dibs_v2 d SET deleted_at = now(), updated_at = now()
+    `UPDATE war_room_dibs_v2 d SET deleted_at = now(), updated_at = now(),
+       release_reason = CASE
+         WHEN d.id = ANY($1) THEN '${DIBS_RELEASE_REASONS.rehospitalised}'
+         WHEN d.id = ANY($2) THEN '${DIBS_RELEASE_REASONS.spent}'
+         ELSE '${DIBS_RELEASE_REASONS.window}'
+       END
      WHERE d.deleted_at IS NULL
        AND (
          d.id = ANY($1)
+         OR d.id = ANY($2)
          OR (
            d.auto_expire_at IS NOT NULL AND d.auto_expire_at <= now()
            AND EXISTS (
@@ -185,7 +201,7 @@ export async function sweepDibsExpiry(
          )
        )
      RETURNING d.*`,
-    [dropNow]
+    [dropRehospitalised, dropSpent]
   )
   return expired.rows
 }

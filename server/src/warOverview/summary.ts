@@ -18,18 +18,22 @@
 // view while the summary silently stopped describing the graph, and
 // `WIN_RESULTS` disagreeing about `Special`.
 
+// ⚠️ EXPORTED as of #530 so the dibs summary reuses them rather than making a
+// THIRD copy. `war-overview-parity.test.ts` asserts these still match the
+// frontend's sets — the drift this file's header complains about is only
+// prevented while something checks it.
 /** Win results that SCORE. ⚠️ `Special` is excluded — see the note below. */
-const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted'])
+export const WIN_RESULTS = new Set(['Attacked', 'Mugged', 'Hospitalized', 'Arrested', 'Looted'])
 
 /**
  * ⚠️ `Special` counts as an attack for DISPLAY but is absent from the payout
  * set, because every payout path tests that set directly. Mirrors the frontend
  * `TIMELINE_WIN_RESULTS`.
  */
-const TIMELINE_WIN_RESULTS = new Set([...WIN_RESULTS, 'Special'])
+export const TIMELINE_WIN_RESULTS = new Set([...WIN_RESULTS, 'Special'])
 
-const LOSS_RESULTS = new Set(['Lost', 'Timeout', 'Interrupted', 'Stalemate', 'Escape'])
-const ASSIST_RESULT = 'Assist'
+export const LOSS_RESULTS = new Set(['Lost', 'Timeout', 'Interrupted', 'Stalemate', 'Escape'])
+export const ASSIST_RESULT = 'Assist'
 
 export const NO_FACTION_ID = 0
 export const factionKey = (fid: unknown): number => Number(fid) || NO_FACTION_ID

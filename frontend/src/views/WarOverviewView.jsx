@@ -25,7 +25,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Plot from 'react-plotly.js'
-import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds, loadMembersRoster } from '../utils/warDataLoader'
+import { loadWars, loadWar, loadFactionAttacksByWindow, loadFactionRevivesByWar, loadFactionsByIds, loadMembersRoster, loadWarDibsSummary } from '../utils/warDataLoader'
 import { formatWarDateRange } from '../utils/warPayoutCalculations'
 import {
   summariseWindow, classifyEventType, factionKey, reviveOutcome,
@@ -33,6 +33,7 @@ import {
 } from '../utils/warOverviewSummary'
 import { buildMemberList, revivesPerformedInWindow, ACTIVITY } from '../utils/warOverviewMembers'
 import MemberPicker from '../components/warOverview/MemberPicker'
+import DibsSummaryPanel from '../components/warOverview/DibsSummaryPanel'
 import { apiPost } from '../utils/apiClient'
 import { getFactionId } from '../utils/factionIdentity'
 import { parseDbTime } from '../utils/time'
@@ -368,6 +369,11 @@ export default function WarOverviewView() {
   // nothing. ⚠️ Loaded ONCE on mount, not per war — it does not depend on the
   // selected war, and a failure here must not stop the page rendering.
   const [roster, setRoster] = useState([])
+  // #530 — the frozen per-member dibs summary for the selected war. ⚠️ `state`
+  // null means "not counted yet", which is NOT the same as no activity; see
+  // DibsSummaryPanel for why the two must not render alike.
+  const [dibs, setDibs] = useState({ members: [], state: null })
+  const [dibsLoading, setDibsLoading] = useState(false)
   const [dataLoading, setDataLoading] = useState(false)
   const [dataError, setDataError] = useState(null)
 
@@ -418,6 +424,25 @@ export default function WarOverviewView() {
       .catch(e => console.warn('[war overview] roster load failed; dropdown shows active members only:', e))
     return () => { cancelled = true }
   }, [])
+
+  // ── The war's dibs summary (#530) ───────────────────────────────────────
+  // ⚠️ Its own effect, not part of reloadWarData: it is a frozen read that does
+  // not change when the staleness banner refetches attacks, and a failure here
+  // must not take the plots down with it.
+  useEffect(() => {
+    if (selectedWarId == null) { setDibs({ members: [], state: null }); return }
+    let cancelled = false
+    setDibsLoading(true)
+    loadWarDibsSummary(selectedWarId)
+      .then((d) => { if (!cancelled) setDibs(d) })
+      .catch((e) => {
+        if (cancelled) return
+        console.warn('[war overview] dibs summary load failed:', e)
+        setDibs({ members: [], state: null })
+      })
+      .finally(() => { if (!cancelled) setDibsLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedWarId])
 
   // Reload attacks + revives + war row from the DB. Used both by the
   // initial war-selection effect and by the staleness banner's Fetch
@@ -1172,6 +1197,21 @@ export default function WarOverviewView() {
           </div>
           )
         })()}
+
+        {/* ── Dibs, per member, for the whole war (#530) ──────────────────
+            ⚠️ WAR-level, not member-level: it renders on both toggles and is
+            NOT filtered by the faction checkboxes or the range slider. Those
+            narrow the plot above; these numbers were counted once, after the
+            war, and silently re-filtering them would make the table disagree
+            with the stored row it came from — two answers to a question with
+            members' names in it. */}
+        {war && (
+          <DibsSummaryPanel
+            members={dibs.members}
+            state={dibs.state}
+            loading={dibsLoading}
+          />
+        )}
       </div>
     </div>
   )

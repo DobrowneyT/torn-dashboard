@@ -17,6 +17,8 @@ import { describe, expect, it } from 'vitest'
 // @ts-expect-error — plain JS from the frontend workspace, no type declarations
 import * as web from '../../frontend/src/utils/warOverviewSummary.js'
 import * as srv from '../src/warOverview/summary.js'
+// @ts-expect-error — plain JS from the frontend workspace, no type declarations
+import * as webPayout from '../../frontend/src/utils/warPayoutCalculations.js'
 
 const US = 10739
 const OPP = 20747
@@ -104,5 +106,38 @@ describe('the server summary agrees with the page', () => {
     }
     expect(r.revives.success).toBeGreaterThan(0)
     expect(r.revives.failure).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * ⚠️ The sets themselves, not just the numbers they produce.
+ *
+ * The summary fixture above would catch a disagreement about a result it
+ * happens to contain. These assertions catch one about a result NOBODY thought
+ * to put in the fixture — which is how `Special` drifted the first time. #530
+ * made this matter more: the dibs summary now reuses the server's sets, so a
+ * silent divergence would reach a leaderboard with members' names on it.
+ */
+describe('the result vocabularies are the same on both sides', () => {
+  const sorted = (s: Iterable<string>) => [...s].sort()
+
+  it('WIN_RESULTS match', () => {
+    expect(sorted(srv.WIN_RESULTS)).toEqual(sorted(webPayout.WIN_RESULTS))
+  })
+
+  it('LOSS_RESULTS match', () => {
+    expect(sorted(srv.LOSS_RESULTS)).toEqual(sorted(webPayout.LOSS_RESULTS))
+  })
+
+  it('ASSIST_RESULT matches', () => {
+    expect(srv.ASSIST_RESULT).toBe(webPayout.ASSIST_RESULT)
+  })
+
+  it("⚠️ and `Special` is still OUT of the scoring set on both sides", () => {
+    // Every payout path tests WIN_RESULTS directly; adding Special to it would
+    // silently change what people are paid.
+    expect(srv.WIN_RESULTS.has('Special')).toBe(false)
+    expect(webPayout.WIN_RESULTS.has('Special')).toBe(false)
+    expect(srv.TIMELINE_WIN_RESULTS.has('Special')).toBe(true)
   })
 })
