@@ -511,7 +511,8 @@ describe('on-demand sync triggers (HTTP seam)', () => {
 
   beforeAll(async () => {
     await loginAs('leader', '1200', ['leadership'])
-    await loginAs('visitor', '1201', ['visitor'])
+    // ⚠️ Was a `visitor` until #922; a plain member keeps the refusal honest.
+    await loginAs('member', '1201', [])
   })
 
   it('leadership triggers run the same job code and land in the run log; visitors cannot', async () => {
@@ -542,9 +543,9 @@ describe('on-demand sync triggers (HTTP seam)', () => {
     // quite different from a five-minutely tail.
     expect(runs.rows.map((r: any) => r.job_name).sort()).toEqual(['attacks-sync', 'revives-sync-war', 'wars-sync'])
 
-    expect((await post('/api/sync/attacks', 'visitor')).status).toBe(403)
-    expect((await post('/api/sync/wars', 'visitor')).status).toBe(403)
-    expect((await post('/api/sync/wars/500/revives', 'visitor')).status).toBe(403)
+    expect((await post('/api/sync/attacks', 'member')).status).toBe(403)
+    expect((await post('/api/sync/wars', 'member')).status).toBe(403)
+    expect((await post('/api/sync/wars/500/revives', 'member')).status).toBe(403)
   })
 
   it('leadership can trigger crimes-sync and members-sync; visitors cannot', async () => {
@@ -559,8 +560,8 @@ describe('on-demand sync triggers (HTTP seam)', () => {
     expect(members.status).toBe(200)
     expect(members.body.run.job_name).toBe('members-sync')
 
-    expect((await post('/api/sync/crimes', 'visitor')).status).toBe(403)
-    expect((await post('/api/sync/members', 'visitor')).status).toBe(403)
+    expect((await post('/api/sync/crimes', 'member')).status).toBe(403)
+    expect((await post('/api/sync/members', 'member')).status).toBe(403)
   })
 })
 

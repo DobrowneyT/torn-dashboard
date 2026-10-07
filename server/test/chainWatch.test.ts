@@ -20,7 +20,6 @@ let stack: TestStack
 let lead: string
 let member: string
 let other: string
-let visitor: string
 
 async function loginAs(key: string, id: string, inFaction = true) {
   stack.torn.addKey(key, { id, factionId: inFaction ? TEST_FACTION.tornFactionId : null })
@@ -80,11 +79,9 @@ const release = (id: number, h: string, slot: number, token: string, body?: Reco
 beforeAll(async () => {
   stack = await startTestStack()
   await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9100, 'leadership')`)
-  await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9400, 'visitor')`)
   lead    = await loginAs('CWLEAD9100XXXXXX', '9100')
   member  = await loginAs('CWMEMBER9200XXXX', '9200')
   other   = await loginAs('CWOTHER9300XXXXX', '9300')
-  visitor = await loginAs('CWVISITOR9400XXX', '9400', false)
   await stack.db.query(
     `INSERT INTO members (member_id, member_name, is_current) VALUES
        ('9200','Watcher One',true), ('9300','Watcher Two',true), ('9100','The Lead',true)
@@ -564,16 +561,16 @@ describe('⚠️ every mutation is gated, one route at a time', () => {
     })
   }
 
-  it('refuses a visitor even the things a member may do', async () => {
-    const ev = await newEvent()
-    expect((await claim(ev.id, '2027-10-26T22:00:00Z', 0, visitor)).status).toBe(403)
-    expect((await api('POST', `/api/chain-events/${ev.id}/days`, visitor)).status).toBe(403)
-  })
-
-  it('lets any member, and a visitor, read', async () => {
+  /**
+   * ⚠️ There was a `refuses a visitor even the things a member may do` case
+   * here. #922 removed that role, and with it the only actor who could read the
+   * sheet while being barred from claiming a slot — so the case has no subject
+   * left. The per-member refusals above still cover the lead-only mutations.
+   */
+  it('lets any member read', async () => {
     const ev = await newEvent()
     expect((await api('GET', `/api/chain-events/${ev.id}`, member)).status).toBe(200)
-    expect((await api('GET', '/api/chain-events', visitor)).status).toBe(200)
+    expect((await api('GET', '/api/chain-events', member)).status).toBe(200)
   })
 })
 

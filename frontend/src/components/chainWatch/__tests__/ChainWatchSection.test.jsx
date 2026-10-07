@@ -19,7 +19,7 @@ vi.mock('../../../utils/apiClient', () => ({
   apiDelete: (...a) => api.del(...a),
 }))
 vi.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ user: { id: '9200' }, isVisitor: false }),
+  useAuth: () => ({ user: { id: '9200' } }),
 }))
 
 // ⚠️ Node resolves the zone at startup, so setting process.env.TZ inside a

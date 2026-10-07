@@ -405,11 +405,6 @@ export async function buildServer(
      * record of agreeing to nothing.
      */
     app.post('/api/auth/consent', { preHandler: requireAuth() }, async (req, reply) => {
-      if (req.session!.is_visitor) {
-        // A visitor's login persists no key material, so there is nothing here
-        // to consent to.
-        return reply.status(400).send({ error: 'Visitors have no key to consent for' })
-      }
       const memberId = String(req.session!.torn_user_id)
       const res = await deps.db.query(
         `UPDATE member_secrets
@@ -451,8 +446,8 @@ export async function buildServer(
         feedback_enabled: feedbackOn,
       }
       if (!req.session) return publicView
-      // The header shows the roster name; visitors and not-yet-synced members
-      // simply have none. The api_key_hint (#264) is the caller's OWN key's last
+      // The header shows the roster name; a not-yet-synced member simply has
+      // none. The api_key_hint (#264) is the caller's OWN key's last
       // 4 chars — scoped to req.session, never anyone else's; null when no key.
       const [named, secret] = await Promise.all([
         deps.db.query('SELECT member_name FROM members WHERE member_id = $1', [req.session.torn_user_id]),
@@ -472,10 +467,12 @@ export async function buildServer(
           // compares the two; sending a boolean instead would make the server
           // the only place that could ever explain WHY somebody was prompted.
           consent_version: secret.rows[0]?.consent_version ?? null,
-          // A visitor stores no key material at all, so there is nothing to
-          // consent to and nothing to prompt about.
-          consent_required: !req.session.is_visitor
-            && secret.rows.length > 0
+          // ⚠️ `secret.rows.length > 0` is what makes this safe: a session with
+          // no key enrolled is never prompted, because consent without a key is
+          // agreement to nothing. (It also used to exclude the `visitor` role,
+          // which stored no key material — #922, removed 2026-10-06 — but the
+          // key test was always the one doing the work.)
+          consent_required: secret.rows.length > 0
             && !consentIsCurrent(secret.rows[0]?.consent_version),
         },
       }

@@ -9,7 +9,7 @@
 // private note readable; roll call, notes, chain-save rejected.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 import { rolesFromClaims } from './auth.js'
 import { DIBS_EXPIRY_SECONDS } from './warRoomDibsExpiry.js'
 import { DIBS_RELEASE_REASONS } from './warDibsReasons.js'
@@ -51,17 +51,23 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
    * ⚠️ Deliberately WIDER than isAdmin and narrower than "logged in": the war
    * room is run by war leads, so gating a war-room action on the `admin` role
    * alone would put it out of reach of the people whose job it is. Mirrors
-   * canSeeLeadOnlyChannels in warRoom.ts — visitors never qualify.
+   * canSeeLeadOnlyChannels in warRoom.ts.
+   *
+   * ⚠️ An ALLOW-LIST, which is why removing the `visitor` role (#922) needed no
+   * replacement: the explicit reject above it only ever mattered for somebody
+   * holding visitor AND a lead role at once, which the schema no longer permits.
    */
   const isLead = (req: any) => {
     const roles = rolesFromClaims(req.session!)
-    if (roles.includes('visitor')) return false
     return roles.some((r) => r === 'warlead' || r === 'leadership' || r === 'admin')
   }
 
   // ── Dibs ────────────────────────────────────────────────────────────────
-  // Visitors included: claiming a target is the one mutation the demo role
-  // keeps (it's how the war room is trialled).
+  // ⚠️ Any authenticated member may claim. This used to be the single mutation
+  // the read-only `visitor` role was allowed, which is why it takes
+  // `requireAuth()` rather than a role check; #922 removed that role, and the
+  // open-to-all-members behaviour is deliberate on its own merits — dibs is how
+  // the whole faction coordinates targets.
   app.post('/api/war-room/dibs', { preHandler: requireAuth() }, async (req, reply) => {
     const body = req.body as { target_id?: unknown; war_id?: unknown } | null
     const targetId = Number(body?.target_id)
@@ -170,8 +176,8 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
 
   // ── Assist requests (#523) ─────────────────────────────────────────────
   // Attacker-set, live "raise a hand" markers — smoke/tear/help against
-  // (requester, target), from the attack page. Visitors included, same
-  // reasoning as dibs: it's the one mutation the demo role keeps.
+  // (requester, target), from the attack page. Open to any authenticated
+  // member, same reasoning as dibs: it is how the faction coordinates.
   const ASSIST_KINDS = new Set(['smoke', 'tear', 'help'])
   // What the fight log can report. `join` is the log's word for what a request
   // calls `help`; smoke and tear share their names with the request kinds.
@@ -516,7 +522,7 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   })
 
   // ── Chain save ──────────────────────────────────────────────────────────
-  app.post('/api/war-room/chain-save', { preHandler: requireNotVisitor() }, async (req, reply) => {
+  app.post('/api/war-room/chain-save', { preHandler: requireAuth() }, async (req, reply) => {
     const userId = Number(req.session!.torn_user_id)
     const name = await actorName(req.session!.torn_user_id)
     const existing = await db.query(
@@ -539,7 +545,7 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     return { ok: true }
   })
 
-  app.delete('/api/war-room/chain-save', { preHandler: requireNotVisitor() }, async (req) => {
+  app.delete('/api/war-room/chain-save', { preHandler: requireAuth() }, async (req) => {
     const userId = Number(req.session!.torn_user_id)
     const res = isAdmin(req)
       ? await db.query(
@@ -596,7 +602,7 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   // ── Roll call ───────────────────────────────────────────────────────────
   // Visitors excluded on submit: a roll-call row for a non-member would
   // pollute leadership's results table.
-  app.post('/api/war-room/roll-call', { preHandler: requireNotVisitor() }, async (req, reply) => {
+  app.post('/api/war-room/roll-call', { preHandler: requireAuth() }, async (req, reply) => {
     const d = req.body as Record<string, any> | null
     if (d?.war_id == null) return reply.status(400).send({ error: 'war_id required' })
     if (typeof d.on_at_start !== 'boolean') return reply.status(400).send({ error: 'on_at_start required' })
@@ -663,7 +669,7 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   // lives in its own table and is never on the member-readable surface.
   app.put(
     '/api/war-room/notes',
-    { preHandler: [requireNotVisitor(), requireRole('warlead', 'leadership', 'admin')] },
+    { preHandler: [requireRole('warlead', 'leadership', 'admin')] },
     async (req, reply) => {
       const d = req.body as Record<string, any> | null
       if (d?.war_id == null) return reply.status(400).send({ error: 'war_id required' })
@@ -742,7 +748,7 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   )
 
   // Past-wars archive (#145): every war's notes joined to ranked_wars for the
-  // opponent + start date, newest first. Leads only — never members/visitors.
+  // opponent + start date, newest first. Leads only — never ordinary members.
   // The list carries only the public note; the private note stays behind the
   // per-war leads-gated endpoint below. (Static route — Fastify matches it
   // ahead of /notes/:warId.)
@@ -785,7 +791,7 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
    */
   app.get(
     '/api/war-room/history/:factionId',
-    { preHandler: requireRole('warlead', 'leadership', 'admin', 'visitor') },
+    { preHandler: requireRole('warlead', 'leadership', 'admin') },
     async (req, reply) => {
       const { factionId } = req.params as { factionId: string }
       if (!/^\d+$/.test(factionId)) {
@@ -852,11 +858,11 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
     return { notes: res.rows[0] ?? null }
   })
 
-  // The private note read deliberately includes visitors: they demo the full
-  // leads view, and this only ever reads.
+  // ⚠️ Read-only, and lead-gated. It used to admit the `visitor` role as well
+  // so an outsider could demo the full leads view (#922 removed that role).
   app.get(
     '/api/war-room/notes/:warId/private',
-    { preHandler: requireRole('warlead', 'leadership', 'admin', 'visitor') },
+    { preHandler: requireRole('warlead', 'leadership', 'admin') },
     async (req) => {
       const { warId } = req.params as { warId: string }
       const res = await db.query(
@@ -879,7 +885,7 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   // implements the Nuke shape anyway, so flipping the frontend over is a
   // one-line change once a real Nuke request through the VPS is confirmed to
   // land. See #308.
-  app.post('/api/war-room/revive', { preHandler: requireNotVisitor() }, async (req, reply) => {
+  app.post('/api/war-room/revive', { preHandler: requireAuth() }, async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>
 
     const target = checkReviveTarget(body.url)

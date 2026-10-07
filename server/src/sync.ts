@@ -5,7 +5,7 @@
 // pool isn't configured (no KEY_ENCRYPTION_KEY).
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireNotVisitor, requireRole } from './authz.js'
+import { requireRole } from './authz.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { createRunLogger } from './scraper/runLog.js'
@@ -22,7 +22,7 @@ export interface SyncDeps {
   encryptionKey?: string
 }
 
-const GUARD = { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }
+const GUARD = { preHandler: [requireRole('leadership', 'admin')] }
 
 export function registerSyncRoutes(app: FastifyInstance, deps: SyncDeps) {
   function jobDeps(): JobDeps {

@@ -146,11 +146,14 @@ export function notePointsToText(points) {
 }
 
 // Who may view/edit the War Notes & roll-call results panel: war leaders and
-// real leadership/admin. In the SPA the `isLeadership` flag is also true for
-// read-only visitors (they see the leadership layout), so visitors must be
-// excluded explicitly — war notes include a leads-only private note.
-export function canSeeWarNotes({ isWarLead, isLeadership, isVisitor }) {
-  return Boolean(isWarLead || (isLeadership && !isVisitor))
+// leadership/admin.
+//
+// ⚠️ This used to exclude the read-only `visitor` role explicitly, because the
+// SPA set `isLeadership` true for visitors as well — they saw the leadership
+// layout — and war notes include a leads-only private note. #922 removed the
+// role (2026-10-06), so `isLeadership` no longer has that second meaning.
+export function canSeeWarNotes({ isWarLead, isLeadership }) {
+  return Boolean(isWarLead || isLeadership)
 }
 
 // Per-war overlay dismissal (#167). Persist "this browser cleared the roll-call

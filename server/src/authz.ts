@@ -26,12 +26,3 @@ export function requireRole(...allowed: Role[]): preHandlerHookHandler {
   }
 }
 
-/** Write-path guard: visitors are read-only everywhere it's applied. */
-export function requireNotVisitor(): preHandlerHookHandler {
-  return async (req, reply) => {
-    if (!req.session) return reply.status(401).send({ error: 'Authentication required' })
-    if (req.session.is_visitor) {
-      return reply.status(403).send({ error: 'Visitor mode is read-only' })
-    }
-  }
-}

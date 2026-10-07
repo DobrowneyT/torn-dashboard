@@ -68,7 +68,6 @@ beforeAll(async () => {
   `)
   await loginAs('member', '1400', [])
   await loginAs('rival', '1401', [])
-  await loginAs('visitor', '1402', ['visitor'])
   await loginAs('warlead', '1403', ['warlead'])
   await loginAs('admin', '1404', ['admin'])
   await stack.db.query(`INSERT INTO war_room_chain_v2 (id) VALUES (1)`)
@@ -124,13 +123,20 @@ describe('dibs', () => {
     expect(gone.rows[0].n).toBe(0)
   })
 
-  it('visitors CAN claim dibs (the one visitor-permitted mutation)', async () => {
-    const claim = await call('POST', '/api/war-room/dibs', { target_id: 90202 }, 'visitor')
+  /**
+   * ⚠️ This said `visitors CAN claim dibs (the one visitor-permitted mutation)`.
+   * #922 removed that role; the route stays on `requireAuth()`, so any
+   * authenticated member may claim — which is what dibs is for. Re-pointed at an
+   * ordinary member so the open-to-all-members contract is still asserted rather
+   * than merely assumed.
+   */
+  it('any authenticated member can claim dibs', async () => {
+    const claim = await call('POST', '/api/war-room/dibs', { target_id: 90202 }, 'rival')
     expect(claim.status).toBe(200)
     const row = await stack.db.query(
       `SELECT claimed_by FROM war_room_dibs_v2 WHERE target_id = 90202 AND deleted_at IS NULL`
     )
-    expect(row.rows[0].claimed_by).toBe(1402)
+    expect(row.rows[0].claimed_by).toBe(1401)
   })
 
   /**
@@ -603,8 +609,10 @@ describe('assist requests (#523)', () => {
     expect(Number(gone.rows[0].smoke_wanted)).toBe(0)
   })
 
-  it('visitors CAN raise their hand (the one visitor-permitted mutation, same as dibs)', async () => {
-    const req = await call('POST', '/api/war-room/assist', { target_id: 90306, kind: 'smoke' }, 'visitor')
+  // ⚠️ Was `visitors CAN raise their hand` (#922 removed the role). Same point as
+  // dibs: open to any authenticated member, and still worth asserting.
+  it('any authenticated member can raise their hand', async () => {
+    const req = await call('POST', '/api/war-room/assist', { target_id: 90306, kind: 'smoke' }, 'rival')
     expect(req.status).toBe(200)
     const row = await stack.db.query(
       `SELECT smoke_wanted FROM war_room_assist_counts_v2 WHERE target_id = 90306`
@@ -716,7 +724,7 @@ describe('loadout capture (#528 Part 2)', () => {
 })
 
 describe('chain save', () => {
-  it('one member holds the save at a time; visitors rejected; broadcasts ride the chain channel', async () => {
+  it('one member holds the save at a time; broadcasts ride the chain channel', async () => {
     const watcher = await wsConnect(tokens.member)
     await watcher.next((m) => m.type === 'snapshot')
 
@@ -738,7 +746,9 @@ describe('chain save', () => {
     const free = await stack.db.query(`SELECT save_claimed_by FROM war_room_chain_v2 WHERE id = 1`)
     expect(free.rows[0].save_claimed_by).toBeNull()
 
-    expect((await call('POST', '/api/war-room/chain-save', {}, 'visitor')).status).toBe(403)
+    // ⚠️ A visitor-refusal assertion sat here. The route's only guard WAS the
+    // visitor check, so #922 converted it to `requireAuth()`: any authenticated
+    // member may take the save, which the holder-swap above already exercises.
     watcher.ws.close()
   })
 })
@@ -775,7 +785,7 @@ describe('headline banner (#158)', () => {
 })
 
 describe('roll call', () => {
-  it('members submit and revise; leads read results; visitors rejected', async () => {
+  it('members submit and revise; leads read results', async () => {
     const submit = await call('POST', '/api/war-room/roll-call', { war_id: 700, on_at_start: true })
     expect(submit.status).toBe(200)
     expect(submit.body.created).toBe(true)
@@ -799,11 +809,12 @@ describe('roll call', () => {
     })
 
     // Rows are member-visible (matches legacy RLS: the banner needs "have I
-    // answered?"); visitors read too.
+    // answered?").
     expect((await call('GET', '/api/war-room/roll-call?war_id=700', undefined, 'member')).status).toBe(200)
-    expect((await call('GET', '/api/war-room/roll-call?war_id=700', undefined, 'visitor')).status).toBe(200)
 
-    expect((await call('POST', '/api/war-room/roll-call', { war_id: 700, on_at_start: true }, 'visitor')).status).toBe(403)
+    // ⚠️ A visitor write-refusal sat here; the route's only guard WAS that check,
+    // so #922 left it on `requireAuth()`. The 400 below still proves the handler
+    // is reached and validates.
     expect((await call('POST', '/api/war-room/roll-call', { war_id: 700 }, 'rival')).status).toBe(400)
   })
 })
@@ -833,12 +844,11 @@ describe('war notes', () => {
     expect(stale.status).toBe(409)
     expect(stale.body.conflict).toBe(true)
 
-    // Members can't write notes; visitors can't either.
+    // Members can't write notes.
     expect((await call('PUT', '/api/war-room/notes', { war_id: 700 }, 'member')).status).toBe(403)
-    expect((await call('PUT', '/api/war-room/notes', { war_id: 700 }, 'visitor')).status).toBe(403)
   })
 
-  it('public notes readable by any member; the private note only by leads and visitors', async () => {
+  it('public notes readable by any member; the private note only by leads', async () => {
     const pub = await call('GET', '/api/war-room/notes/700')
     expect(pub.status).toBe(200)
     expect(pub.body.notes.notes_public).toBe('Focus their top 5')
@@ -848,11 +858,13 @@ describe('war notes', () => {
     expect(priv.status).toBe(200)
     expect(priv.body.notes).toBe('Merc budget approved up to 500m')
 
-    expect((await call('GET', '/api/war-room/notes/700/private', undefined, 'visitor')).status).toBe(200)
+    // ⚠️ The read used to admit the `visitor` role too, so an outsider could
+    // demo the full leads view (#922 removed it). Leads only now; a plain
+    // member is still refused, which is the half that matters.
     expect((await call('GET', '/api/war-room/notes/700/private', undefined, 'member')).status).toBe(403)
   })
 
-  it('leads browse the past-wars archive (labelled by opponent + start); members/visitors cannot', async () => {
+  it('leads browse the past-wars archive (labelled by opponent + start); members cannot', async () => {
     // A ranked_wars row lets the archive label the war by opponent + start.
     await stack.db.query(
       `INSERT INTO ranked_wars (id, start_at, end_at, opponent_id, opponent_name)
@@ -868,9 +880,8 @@ describe('war notes', () => {
     // The archive list never carries the private note.
     expect(JSON.stringify(arch.body)).not.toContain('Merc budget')
 
-    // Leads only — the browse entry point is closed to members and visitors.
+    // Leads only — the browse entry point is closed to ordinary members.
     expect((await call('GET', '/api/war-room/notes/archive', undefined, 'member')).status).toBe(403)
-    expect((await call('GET', '/api/war-room/notes/archive', undefined, 'visitor')).status).toBe(403)
   })
 })
 
@@ -994,10 +1005,9 @@ describe('GET /api/war-room/history/:factionId', () => {
     expect(status).toBe(400)
   })
 
-  it('is leads-only, with visitors allowed to read', async () => {
-    // Same gate as the notes archive: visitors demo the full leads view and
-    // this only ever reads. Plain members do not get war notes.
-    expect((await call('GET', `/api/war-room/history/${OPP}`, undefined, 'visitor')).status).toBe(200)
+  it('is leads-only', async () => {
+    // Same gate as the notes archive. ⚠️ It admitted the `visitor` role until
+    // #922 so an outsider could demo the leads view; leads only now.
     expect((await call('GET', `/api/war-room/history/${OPP}`, undefined, 'admin')).status).toBe(200)
     expect((await call('GET', `/api/war-room/history/${OPP}`, undefined, 'member')).status).toBe(403)
   })

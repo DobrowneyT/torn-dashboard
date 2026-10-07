@@ -18,6 +18,56 @@ surface it automatically.
 
 ---
 
+## [3.206.0] - 2026-10-07
+
+### Removed
+- **The deprecated `visitor` role is gone** (#922). A read-only outsider profile for
+  leaders of the other TNL family factions, superseded by per-faction
+  `role_assignments`, and by the end a term every newly gated surface had to reason
+  about ("is it acceptable for a visitor to see this?") for a role **nobody held**.
+  Confirmed empty across all six databases before anything was deleted — ascension,
+  capacityx, forge, forge_dev, mayhem, tnl.
+  ⚠️ **`requireNotVisitor()` did two jobs**: it 403'd visitors AND it 401'd anonymous
+  callers. On **eight routes it was the only `preHandler`**, so deleting it would have
+  removed the authentication with it and published those endpoints. Each was converted
+  to `requireAuth()`, and the authz matrix now asserts all eight by path — probed by
+  stripping the guard, which answers 500 instead of 401 and fails the test.
+  ⚠️ **Four read allow-lists narrowed** (`requireRole(..., 'visitor')` on the
+  leadership overview reads, the OC planner, war-room history and the private war
+  note). Two negative checks came out as redundant: both sat above a positive
+  allow-list, so they only ever mattered for somebody holding `visitor` AND a real
+  role, which the schema no longer permits.
+  ⚠️ **Three login behaviours simplified**: key-pool enrollment now turns on faction
+  membership alone, the auth cache no longer exempts anybody, and `is_visitor` is gone
+  from the session token. `auth.test.ts` asserts the claim is **absent** rather than
+  `false` — asserting `false` would quietly re-create the expectation that it exists.
+  ⚠️ **Two routes widened in principle**: feedback and the grudge add had the visitor
+  check as their only extra guard, so they are now open to any authenticated session.
+  No practical change, since nobody held the role, but it is a real change and the
+  tests that asserted otherwise were deleted rather than quietly adjusted.
+
+### Changed
+- Migration **0074** deletes any `visitor` assignment and narrows the
+  `role_assignments` CHECK to the four real roles.
+  ⚠️ **The DELETE runs first.** An assignment on a database nobody checked would make
+  the narrowed constraint fail to apply, and one database failing aborts the deploy for
+  every tenant — the 0070 outage shape. Probed: removing that line reproduces
+  `check constraint "role_assignments_role_check" is violated by some row`.
+  ⚠️ Idempotency comes from `DROP CONSTRAINT IF EXISTS` preceding the `ADD`, **not**
+  from a catalogue guard. I wrote a `pg_constraint` lookup first, probed it, and found
+  it never fires — so it came out. A dead guard is worse than none: it claims a hazard
+  is handled somewhere other than where it actually is.
+- `visitor` is no longer offered in the Settings role picker — a role nobody can be
+  granted must not be selectable.
+
+### Internal
+- `db/test/migration-0074.test.mjs` — six cases, including a database that still holds
+  a visitor assignment and a freshly provisioned one where the migration must no-op.
+- Visitor actors in the test suites were **replaced with a plain member wherever the
+  assertion was "this actor must be refused"**, so those refusals keep their value
+  instead of being deleted. Where the premise was specifically "a read-only role may
+  read but not write", the case was removed and the reason recorded in place.
+
 ## [3.205.0] - 2026-10-06
 
 ### Added

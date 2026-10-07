@@ -78,7 +78,10 @@ beforeAll(async () => {
     ['2250591', 'MonChoon', '3058543', 'Gank']
   )
   await loginAs('member', '2250591', [])
-  await loginAs('visitor', '3058543', ['visitor'])
+  // ⚠️ A second actor (a `visitor`) logged in here to prove the proxy refused
+  // read-only roles. #922 removed that role, and the route's only guard WAS
+  // that check — it is `requireAuth()` now — so there is no second actor left to
+  // distinguish. Gank stays on the roster above; nothing logs in as them.
 })
 
 afterAll(async () => {
@@ -221,12 +224,11 @@ describe('POST /api/war-room/revive — auth and input guards', () => {
     expect(captured).toHaveLength(0)
   })
 
-  it('rejects a visitor — the read-only role sends nothing outbound', async () => {
-    captured = []
-    const res = await revive({ url: serviceUrl, source: 'TNL' }, 'visitor')
-    expect(res.status).toBe(403)
-    expect(captured).toHaveLength(0)
-  })
+  // ⚠️ A `rejects a visitor — the read-only role sends nothing outbound` case sat
+  // here. The guard it tested was the visitor check itself, which was also this
+  // route's only guard; #922 converted it to `requireAuth()`. The
+  // unauthenticated case above still proves nothing goes outbound without a
+  // session, which is the property that actually matters for an outbound proxy.
 
   it('requires a url', async () => {
     const res = await revive({ source: 'TNL' })

@@ -80,20 +80,11 @@ describe('POST /api/feedback', () => {
     expect(issue.body).not.toContain('Impersonator')
   })
 
-  it('rejects read-only visitors with 403 and files nothing', async () => {
-    stack.torn.addKey('VISITORFEEDBACK01', { id: '4003', factionId: '42' })
-    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (4003, 'visitor')`)
-    const loginRes = await fetch(`${stack.baseUrl}/api/auth/login`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ apiKey: 'VISITORFEEDBACK01' }),
-    })
-    const { token } = (await loginRes.json()) as { token: string }
-    const before = stack.github.issuesCreated().length
-
-    const { status } = await submit(token, { category: 'bug', title: 'x', description: 'y' })
-    expect(status).toBe(403)
-    expect(stack.github.issuesCreated()).toHaveLength(before)
-  })
+  // ⚠️ A `rejects read-only visitors with 403` case lived here. The route's only
+  // guard WAS the visitor check, so #922 converted it to `requireAuth()` — which
+  // is a deliberate widening: feedback is now open to any authenticated session.
+  // In practice nothing changed, because nobody held the role. The
+  // unauthenticated case below is what still holds the line.
 
   it('rejects an unauthenticated request (401)', async () => {
     const { status } = await submit(null, { category: 'bug', title: 'x' })

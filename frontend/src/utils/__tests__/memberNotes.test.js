@@ -15,12 +15,15 @@ describe('isOverdosed', () => {
 })
 
 describe('canEditMemberNotes', () => {
-  it('allows war leads / leadership / admin but never visitors', () => {
+  // ⚠️ Had a `never visitors` case until #922 removed that role (2026-10-06).
+  // An unknown extra flag must not change the answer, which is asserted below in
+  // its place — the predicate reads only the three it names.
+  it('allows war leads / leadership / admin, and nobody else', () => {
     expect(canEditMemberNotes({ isWarLead: true })).toBe(true)
     expect(canEditMemberNotes({ isLeadership: true })).toBe(true)
     expect(canEditMemberNotes({ isAdmin: true })).toBe(true)
-    expect(canEditMemberNotes({ isLeadership: true, isVisitor: true })).toBe(false)
     expect(canEditMemberNotes({})).toBe(false)
+    expect(canEditMemberNotes({ isSomethingElse: true })).toBe(false)
   })
 })
 

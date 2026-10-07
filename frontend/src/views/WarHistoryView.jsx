@@ -513,8 +513,6 @@ export default function WarHistoryView({ isLeadership, isAdmin }) {
           // 'admin') on /api/wars/:id/stacks-snapshot) rather than reusing the
           // page's leadership flag — warleads own the pre-war roll call, and
           // the UI gate had quietly drifted from the API gate it copies.
-          // Visitors stay out: the route also carries requireNotVisitor(), so
-          // showing them the section would only buy them a 403.
           canSeeStacks={isLeadership || isAdmin || isWarLead}
         />
       )}

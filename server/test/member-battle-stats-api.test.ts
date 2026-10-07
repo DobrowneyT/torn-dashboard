@@ -37,7 +37,10 @@ beforeAll(async () => {
   await loginAs('warlead', '1800', ['warlead'])
   await loginAs('member', '1801', [])
   await loginAs('leadership', '1802', ['leadership'])
-  await loginAs('visitor', '1803', ['visitor'])
+    // ⚠️ Was a `visitor` until #922 removed that role (2026-10-06). A plain
+  // member is the faithful replacement: every assertion below says "this
+  // actor must be refused", which is still true and still worth proving.
+await loginAs('member', '1803', [])
 
   await stack.db.query(
     `INSERT INTO member_battle_stats
@@ -71,7 +74,7 @@ describe('GET /api/members/battle-stats — war-lead gate', () => {
   })
 
   it('refuses a visitor', async () => {
-    expect((await get('/api/members/battle-stats', 'visitor')).status).toBe(403)
+    expect((await get('/api/members/battle-stats', 'member')).status).toBe(403)
   })
 
   it('refuses an unauthenticated caller', async () => {
@@ -158,7 +161,7 @@ describe('GET /api/members/revive-history (#358)', () => {
     // and how hard they are to get back up.
     expect((await get('/api/members/revive-history', 'leadership')).status).toBe(200)
     expect((await get('/api/members/revive-history', 'member')).status).toBe(403)
-    expect((await get('/api/members/revive-history', 'visitor')).status).toBe(403)
+    expect((await get('/api/members/revive-history', 'member')).status).toBe(403)
     expect((await get('/api/members/revive-history')).status).toBe(401)
   })
 

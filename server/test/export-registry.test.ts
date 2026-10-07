@@ -86,11 +86,17 @@ describe('role floors', () => {
     expect(exportableFor([])).toEqual([])
   })
 
-  it('refuses visitors even when they somehow also carry leadership', () => {
-    // Visitors are read-only OUTSIDERS. A bulk download is the thing they must
-    // not have, however read-only it is.
-    expect(canExport('leadership', ['leadership', 'visitor'])).toBe(false)
-    expect(exportableFor(['visitor'])).toEqual([])
+  /**
+   * ⚠️ This asserted that a `visitor` was refused even while also carrying
+   * leadership — a bulk roster download being the thing a read-only outsider
+   * must not have. #922 removed the role, so the combination cannot exist and
+   * `canExport` no longer special-cases it. What keeps the property true is that
+   * ROLE_FLOOR is an ALLOW-LIST: a role absent from every floor is denied by
+   * construction, which is now asserted directly.
+   */
+  it('refuses a role that appears in no floor', () => {
+    expect(canExport('leadership', ['ocmanager'])).toBe(false)
+    expect(exportableFor(['ocmanager'])).toEqual([])
   })
 })
 

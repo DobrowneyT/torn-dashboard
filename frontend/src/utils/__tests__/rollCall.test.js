@@ -80,21 +80,20 @@ describe('note points <-> text', () => {
 
 describe('canSeeWarNotes', () => {
   it('grants war leaders', () => {
-    expect(canSeeWarNotes({ isWarLead: true, isLeadership: false, isVisitor: false })).toBe(true)
+    expect(canSeeWarNotes({ isWarLead: true, isLeadership: false })).toBe(true)
   })
 
   it('grants real leadership/admin (isLeadership true, not a visitor)', () => {
-    expect(canSeeWarNotes({ isWarLead: false, isLeadership: true, isVisitor: false })).toBe(true)
+    expect(canSeeWarNotes({ isWarLead: false, isLeadership: true })).toBe(true)
   })
 
-  it('denies visitors even though the leadership layout flag is on for them', () => {
-    // In the SPA the isLeadership prop is true for visitors (they see the
-    // leadership layout), so the gate must exclude them explicitly.
-    expect(canSeeWarNotes({ isWarLead: false, isLeadership: true, isVisitor: true })).toBe(false)
-  })
+  // ⚠️ Had a `denies visitors even though the leadership layout flag is on for
+  // them` case: `isLeadership` used to be true for the read-only `visitor` role,
+  // so the gate excluded it explicitly. #922 removed the role and that layout
+  // quirk with it, so `isLeadership` now means only what it says.
 
   it('denies a plain member', () => {
-    expect(canSeeWarNotes({ isWarLead: false, isLeadership: false, isVisitor: false })).toBe(false)
+    expect(canSeeWarNotes({ isWarLead: false, isLeadership: false })).toBe(false)
   })
 })
 

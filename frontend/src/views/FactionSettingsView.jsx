@@ -2,7 +2,6 @@
 // faction identity/branding, and the whole-document policy settings
 // (tier/CPR requirements, payout tickets, war-room defaults).
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useAuth } from '../contexts/AuthContext'
 import { useFactionConfig } from '../contexts/FactionConfigContext'
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiClient'
 import { PAYOUT_MODES, DEFAULT_PAYOUT_MODE } from '../utils/payoutCalculations'
@@ -90,7 +89,9 @@ function ImageUploadField({ kind, label, hint, value, onChange, readOnly }) {
   )
 }
 
-const ROLE_OPTIONS = ['admin', 'leadership', 'warlead', 'ocmanager', 'visitor']
+// ⚠️ The deprecated read-only `visitor` role was removed here by #922
+// (2026-10-06) — a role nobody could be granted must not be offerable.
+const ROLE_OPTIONS = ['admin', 'leadership', 'warlead', 'ocmanager']
 
 // Faction default OC payout mode (#136). `tiered` is the only mode that shows
 // the tier machinery (Tier Management / Requirements + tier columns).
@@ -492,8 +493,10 @@ function PolicySection({ readOnly }) {
 }
 
 export default function FactionSettingsView() {
-  const { isVisitor } = useAuth()
-  const readOnly = !!isVisitor
+  // ⚠️ `readOnly` stayed as a prop rather than being deleted with the `visitor`
+  // role it served (#922). Every section below still honours it, so a future
+  // read-only audience needs one line here rather than a sweep of the file.
+  const readOnly = false
 
   return (
     <div className="space-y-6">
