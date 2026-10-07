@@ -26,15 +26,6 @@ export const config = {
     '2250591', // MonChoon
   ],
 
-  // Read-only demo access for leaders of the other TNL family factions.
-  // Visitors bypass the faction-membership check at login, see everything
-  // leadership sees (Data Management excluded), and can run the full OC/RW
-  // payout flows — but every save/write is disabled. Their API key is used
-  // for identity ONLY and is never stored in the rotation pool.
-  // Cleared for the multi-faction distribution: visitors are granted per
-  // faction via role_assignments (Settings page), not a shipped list.
-  visitorUserIds: [],
-
   leadershipUserIds: [
     '2250591', // MonChoon
     '2749598', // Uncensored
@@ -283,8 +274,4 @@ export function isWarLead(userId) {
 
 export function isOCManager(userId) {
   return config.ocmanagerUserIds.includes(String(userId))
-}
-
-export function isVisitor(userId) {
-  return config.visitorUserIds.includes(String(userId))
 }

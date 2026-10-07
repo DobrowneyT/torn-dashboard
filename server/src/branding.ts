@@ -4,7 +4,7 @@
 // (no multipart dependency); anyone can read them back over the tenant origin.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireNotVisitor, requireRole } from './authz.js'
+import { requireRole } from './authz.js'
 
 const KINDS = ['logo', 'favicon', 'hero']
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml', 'image/gif']
@@ -34,7 +34,7 @@ function decodeBase64(input: string): Buffer {
 
 export function registerBrandingRoutes(app: FastifyInstance, deps: { db: pg.Pool }) {
   const { db } = deps
-  const WRITE_GUARD = { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }
+  const WRITE_GUARD = { preHandler: [requireRole('leadership', 'admin')] }
 
   // Upload/replace an asset. Leadership-gated. base64 body → bytea. The
   // bodyLimit covers base64's ~33% overhead on the 3 MB image ceiling (#178).

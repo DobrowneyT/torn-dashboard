@@ -43,7 +43,10 @@ beforeAll(async () => {
   await stack.db.query(`INSERT INTO members (member_id, member_name, tier, is_current) VALUES ('1600', 'Lead', 2, true)`)
   await loginAs('warlead', '1600', ['warlead'])
   await loginAs('member', '1601', [])
-  await loginAs('visitor', '1602', ['visitor'])
+    // ⚠️ Was a `visitor` until #922 removed that role (2026-10-06). A plain
+  // member is the faithful replacement: every assertion below says "this
+  // actor must be refused", which is still true and still worth proving.
+await loginAs('member', '1602', [])
   const pool = createKeyPool({ db: stack.db, encryptionKey: TEST_KEY_ENCRYPTION_KEY })
   await pool.store('1600', 'SETUPKEY1600AAAA', { consentVersion: 'v2' })
 
@@ -78,7 +81,7 @@ describe('war-room manual setup', () => {
     expect(body.config.started_by).toBeNull()
 
     expect((await call('PUT', '/api/war-room/config', { enabled: true }, 'member')).status).toBe(403)
-    expect((await call('PUT', '/api/war-room/config', { enabled: true }, 'visitor')).status).toBe(403)
+    expect((await call('PUT', '/api/war-room/config', { enabled: true }, 'member')).status).toBe(403)
   })
 
   it('⚠️ stores 0 as OFF for the three cadences a lead can disable', async () => {
@@ -264,6 +267,6 @@ describe('war-room manual setup', () => {
     expect(chain.rows[0].enemy.cooldown).toBeNull()
     expect(chain.rows[0].our_last_fetched_at).toBeTruthy()
 
-    expect((await call('POST', '/api/war-room/fetch-chains', { enemy_faction_id: ENEMY }, 'visitor')).status).toBe(403)
+    expect((await call('POST', '/api/war-room/fetch-chains', { enemy_faction_id: ENEMY }, 'member')).status).toBe(403)
   })
 })

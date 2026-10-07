@@ -1,6 +1,6 @@
 // Faction upgrades panel (#458).
 //
-// Read-only and open to any session, visitors included — this is mirrored Torn
+// Read-only and open to any authenticated session — this is mirrored Torn
 // state with nothing private in it and no writes of any kind.
 //
 // ⚠️ Serves the LATEST snapshot, deliberately. `faction_upgrade_snapshots` keeps

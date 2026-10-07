@@ -1,6 +1,6 @@
 // The faction Hall of Fame board (#872).
 //
-// ⚠️ Read-only and open to any session, visitors included. It is a
+// ⚠️ Read-only and open to any authenticated session. It is a
 // bragging-rights board; gating it to leadership would defeat the purpose.
 //
 // ⚠️ Each tenant's board contains its OWN members only. A member's HoF data is

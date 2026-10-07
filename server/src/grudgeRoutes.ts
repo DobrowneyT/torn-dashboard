@@ -10,7 +10,7 @@
 // ⚠️ Not coupled to the War Room. Nothing here reads `war_room_state_v2`.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor } from './authz.js'
+import { requireAuth } from './authz.js'
 import { rolesFromClaims } from './auth.js'
 import {
   parseTargetId, initialState, canSeeTarget, canModifyEntry, normaliseReason,
@@ -274,7 +274,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
    */
   app.put(
     '/api/grudges/settings',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
@@ -349,7 +349,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
    */
   app.put(
     '/api/grudges/watch',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
@@ -373,7 +373,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
    */
   app.post(
     '/api/grudges/targets/:id/claim',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       const { id } = req.params as { id: string }
@@ -420,7 +420,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
   /** Drop a claim. The holder, or leadership freeing a forgotten one. */
   app.delete(
     '/api/grudges/targets/:id/claim',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       const { id } = req.params as { id: string }
@@ -517,7 +517,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
   /* ─────────────────────────────────────────────────────────── add a grudge ── */
   app.post(
     '/api/grudges',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       const body = (req.body ?? {}) as any
@@ -665,7 +665,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
   /* ────────────────────────────────────────────────────────── edit a grudge ── */
   app.patch(
     '/api/grudges/entries/:id',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       const { id } = req.params as { id: string }
@@ -709,7 +709,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
   /* ──────────────────────────────────────────────────────── remove a grudge ── */
   app.delete(
     '/api/grudges/entries/:id',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       const { id } = req.params as { id: string }
@@ -758,7 +758,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
   /* ───────────────────────────────────────────── leadership: the whole target ── */
   app.delete(
     '/api/grudges/targets/:id',
-    { preHandler: [requireAuth(), requireNotVisitor()] },
+    { preHandler: [requireAuth()] },
     async (req, reply) => {
       const viewer = viewerOf(req)
       if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })
@@ -791,7 +791,7 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
   ] as const) {
     app.post(
       `/api/grudges/targets/:id/${verb}`,
-      { preHandler: [requireAuth(), requireNotVisitor()] },
+      { preHandler: [requireAuth()] },
       async (req, reply) => {
         const viewer = viewerOf(req)
         if (!viewer.isLeadership) return reply.status(403).send({ error: 'Forbidden' })

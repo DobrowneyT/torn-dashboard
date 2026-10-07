@@ -82,14 +82,17 @@ describe('GET /api/bootstrap', () => {
   it('never exposes another member’s key hint (#264 — own key only)', async () => {
     // A member with no pooled key sees a null hint, not someone else's.
     stack.torn.addKey('NOKEYHINT1234567', { id: '223', factionId: '42' })
-    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (223, 'visitor')`)
+    // ⚠️ Out of faction + a DB role: that is what gets them past the membership
+    // check WITHOUT enrolling a key, which is the state this test needs. It was
+    // the `visitor` role until #922 removed it; the mechanism is the same.
+    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (223, 'leadership')`)
     const loginRes = await fetch(`${stack.baseUrl}/api/auth/login`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ apiKey: 'NOKEYHINT1234567' }),
     })
     const { token } = await loginRes.json() as any
     const { body } = await bootstrap(token)
-    expect(body.user.api_key_hint).toBeNull() // visitor: no key on file
+    expect(body.user.api_key_hint).toBeNull() // no key on file
   })
 
   it('a garbage bearer token degrades to the public view, not an error', async () => {

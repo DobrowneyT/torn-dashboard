@@ -48,13 +48,14 @@ const monthStart = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(),
 const fmtTime = (d) => `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
 
 export default function CalendarSection({ isLeadership }) {
-  const { user, isVisitor } = useAuth()
+  const { user } = useAuth()
   // ⚠️ The `isLeadership` prop is `effectiveIsLeadership`, which deliberately
   // includes visitors so they can SEE leadership surfaces read-only (App.jsx).
   // Writing is a different question: the server refuses a visitor on every one
   // of these routes, so offering the buttons only produces a 403 they cannot
   // act on. Adding entries is leadership/admin, and never a visitor.
-  const canEdit = isLeadership && !isVisitor
+  // ⚠️ Had `&& !isVisitor` until #922 removed that read-only role (2026-10-06).
+  const canEdit = isLeadership
   const [month, setMonth] = useState(() => monthStart(new Date())) // db-time-safe
   const [payload, setPayload] = useState(null)
   const [loading, setLoading] = useState(true)

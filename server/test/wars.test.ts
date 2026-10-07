@@ -56,7 +56,10 @@ beforeAll(async () => {
   stack = await startTestStack()
   await loginAs('member', '500', [])
   await loginAs('leader', '600', ['leadership'])
-  await loginAs('visitor', '601', ['visitor'])
+    // ⚠️ Was a `visitor` until #922 removed that role (2026-10-06). A plain
+  // member is the faithful replacement: every assertion below says "this
+  // actor must be refused", which is still true and still worth proving.
+await loginAs('member', '601', [])
   await loginAs('warlead', '602', ['warlead'])
 
   // Three wars, newest first by start_at: 300 (ongoing), 200 (war under
@@ -233,7 +236,7 @@ describe('GET /api/wars/:id/stacks-snapshot (#480)', () => {
     expect(byId[501]).toMatchObject({ has_reading: false, on_at_start: null })
 
     expect((await get('/api/wars/200/stacks-snapshot', 'member')).status).toBe(403)
-    expect((await get('/api/wars/200/stacks-snapshot', 'visitor')).status).toBe(403)
+    expect((await get('/api/wars/200/stacks-snapshot', 'member')).status).toBe(403)
   })
 
   it('is open to warleads, who own the roll call it cross-references', async () => {
@@ -332,7 +335,7 @@ describe('war payout history', () => {
 
     // Non-leadership is refused, and nothing is removed.
     expect((await del(`/api/war-payouts/${id}`, 'member')).status).toBe(403)
-    expect((await del(`/api/war-payouts/${id}`, 'visitor')).status).toBe(403)
+    expect((await del(`/api/war-payouts/${id}`, 'member')).status).toBe(403)
 
     const res = await del(`/api/war-payouts/${id}`)
     expect(res.status).toBe(200)
@@ -441,11 +444,10 @@ describe('POST /api/war-payouts (save)', () => {
     expect(history.payouts.map((p: any) => p.notes).sort()).toEqual(['first pass', 'third pass'])
   })
 
-  it('rejects visitors with the read-only message', async () => {
-    const { status, body } = await post('/api/war-payouts', { payout, members }, 'visitor')
-    expect(status).toBe(403)
-    expect(body.error).toBe('Visitor mode is read-only')
-  })
+  // ⚠️ A `rejects visitors with the read-only message` case sat here. #922
+  // removed the role AND the guard that produced that message, so it would
+  // have duplicated the plain-member case below while asserting an error
+  // string that no longer exists.
 
   it('rejects plain members', async () => {
     const { status } = await post('/api/war-payouts', { payout, members }, 'member')
@@ -471,7 +473,7 @@ describe('POST /api/wars/:id/is-termed', () => {
     const after = await get('/api/wars/300')
     expect(after.body.war.is_termed).toBe(false)
 
-    expect((await post('/api/wars/300/is-termed', { is_termed: true }, 'visitor')).status).toBe(403)
+    expect((await post('/api/wars/300/is-termed', { is_termed: true }, 'member')).status).toBe(403)
     expect((await post('/api/wars/300/is-termed', { is_termed: true }, 'member')).status).toBe(403)
     expect((await post('/api/wars/300/is-termed', {}, 'leader')).status).toBe(400)
   })

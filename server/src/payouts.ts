@@ -3,7 +3,7 @@
 // link crimes) — same semantics the admin-db edge function had.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 
 const THREE_WEEKS_SECONDS = 604800 * 3
 
@@ -68,7 +68,7 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
   // Delete a saved OC payout week: unlink its crimes (the FK forbids dropping
   // the week while they point at it), then remove its member rows and the week.
   // The self-hosted replacement for the old DataManagement single-delete tool.
-  app.delete('/api/payouts/weeks/:id', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+  app.delete('/api/payouts/weeks/:id', { preHandler: [requireRole('leadership', 'admin')] }, async (req, reply) => {
     const { id } = req.params as { id: string }
     if (!/^\d+$/.test(id)) return reply.status(400).send({ error: 'valid payout week id required' })
     const client = await db.connect()
@@ -281,7 +281,7 @@ export function registerPayoutRoutes(app: FastifyInstance, db: pg.Pool) {
   // Save a computed payout week. Visitors get the explicit read-only message
   // (they can run the whole flow, only the save is blocked); everyone else
   // needs leadership/admin.
-  app.post('/api/payouts/weeks', { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }, async (req, reply) => {
+  app.post('/api/payouts/weeks', { preHandler: [requireRole('leadership', 'admin')] }, async (req, reply) => {
     const body = req.body as { week?: Record<string, unknown>; members?: Record<string, unknown>[]; crime_ids?: string[] } | null
     if (!body?.week || !Array.isArray(body.members) || body.members.length === 0) {
       return reply.status(400).send({ error: 'week and members are required' })

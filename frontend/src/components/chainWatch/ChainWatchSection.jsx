@@ -31,12 +31,13 @@ import PayoutPanel from './PayoutPanel'
  * 3am this page exists for.
  */
 export default function ChainWatchSection({ isLeadership }) {
-  const { user, isVisitor } = useAuth()
+  const { user } = useAuth()
   // The `isLeadership` prop deliberately includes visitors so they can SEE
   // leadership surfaces read-only (App.jsx). Writing is a different question:
   // the server refuses a visitor on every one of these routes (#771), so
   // offering the controls only produces a 403 they cannot act on.
-  const canEdit = isLeadership && !isVisitor
+  // ⚠️ Had `&& !isVisitor` until #922 removed that read-only role (2026-10-06).
+  const canEdit = isLeadership
 
   const [tab, setTab] = useState('signup')
   const [payload, setPayload] = useState(null)

@@ -3,7 +3,7 @@
 // leadership, and admin can write. An empty note clears the row.
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireAuth, requireNotVisitor, requireRole } from './authz.js'
+import { requireAuth, requireRole } from './authz.js'
 
 const NOTE_MAX = 2000
 
@@ -27,7 +27,7 @@ export function registerMemberNotesRoutes(app: FastifyInstance, db: pg.Pool) {
 
   app.put(
     '/api/member-notes/:memberId',
-    { preHandler: [requireNotVisitor(), requireRole('warlead', 'leadership', 'admin')] },
+    { preHandler: [requireRole('warlead', 'leadership', 'admin')] },
     async (req, reply) => {
       const { memberId } = req.params as { memberId: string }
       if (!/^\d+$/.test(memberId)) return reply.status(400).send({ error: 'invalid member id' })

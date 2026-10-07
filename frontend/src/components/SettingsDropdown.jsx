@@ -163,7 +163,7 @@ export default function SettingsDropdown({ viewAsRole, setViewAsRole, canViewAs,
 
               {/* Feedback (#253): any non-visitor member, only when the server
                   has a PAT configured. */}
-              {user?.feedbackEnabled && !user?.isVisitor && (
+              {user?.feedbackEnabled && (
                 <button
                   onClick={() => { setShowFeedbackModal(true); setIsOpen(false) }}
                   className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-2"

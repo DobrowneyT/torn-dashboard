@@ -8,7 +8,7 @@ import type pg from 'pg'
 import { createKeyPool } from './scraper/keyPool.js'
 import { CURRENT_DISCLOSURE_VERSION } from './consent.js'
 
-export const ROLES = ['admin', 'leadership', 'warlead', 'ocmanager', 'visitor'] as const
+export const ROLES = ['admin', 'leadership', 'warlead', 'ocmanager'] as const
 export type Role = (typeof ROLES)[number]
 
 const AUTH_CACHE_TTL_MS = 24 * 60 * 60 * 1000
@@ -35,7 +35,6 @@ export interface SessionClaims extends JWTPayload {
   is_admin: boolean
   is_warlead: boolean
   is_ocmanager: boolean
-  is_visitor: boolean
 }
 
 export type LoginResult =
@@ -72,7 +71,6 @@ export function rolesFromClaims(claims: SessionClaims): Role[] {
     leadership: claims.is_leadership,
     warlead: claims.is_warlead,
     ocmanager: claims.is_ocmanager,
-    visitor: claims.is_visitor,
   }
   return ROLES.filter((r) => map[r])
 }
@@ -83,7 +81,7 @@ const TRANSIENT_TORN_CODES = new Set([5, 8, 9, 17])
 const REQUIRED_KEY_LEVEL = 3 // Limited Access
 
 /** Resolve a Torn API key to a user id: cache first, then the Torn API.
- *  Does NOT write the cache — the caller decides (visitors must leave no trace). */
+ *  Does NOT write the cache — the caller decides. */
 async function verifyTornKey(deps: AuthDeps, apiKey: string): Promise<
   | { ok: true; userId: string; tornFactionId: string | null; accessLevel: number; hasFactionAccess: boolean; keyHash: string; fromCache: boolean }
   | { ok: false; status: number; error: string }
@@ -189,8 +187,8 @@ export async function loginWithTornKey(
     }
   }
 
-  // Membership: in the faction, or holding any DB-assigned role (visitors and
-  // out-of-faction leaders enter through role_assignments, not hardcoded lists).
+  // Membership: in the faction, or holding any DB-assigned role (out-of-faction
+  // leaders enter through role_assignments, not hardcoded lists).
   // Cache-served logins never reached Torn, so tornFactionId is unknown there —
   // fall back to the roster (cache rows only exist for previously-passed logins).
   const isMember = verified.fromCache
@@ -202,10 +200,14 @@ export async function loginWithTornKey(
     return { ok: false, status: 403, error: 'Not a faction member' }
   }
 
-  // A member's key joins the pool on login (visitors/out-of-faction never do).
-  // Cache-served logins still enroll — a login predating enrollment left only a
-  // cache row (see the cache-served enrollment test).
-  const enrollsKey = isMember && !roles.includes('visitor')
+  // A member's key joins the pool on login; an out-of-faction leader's does
+  // not. Cache-served logins still enroll — a login predating enrollment left
+  // only a cache row (see the cache-served enrollment test).
+  //
+  // ⚠️ This used to also exclude the `visitor` role (#922, removed 2026-10-06),
+  // which was the only role that suppressed enrollment. Faction membership is
+  // the whole test now.
+  const enrollsKey = isMember
 
   // Faction API access is leader-granted (a recruit in their first ~72h can't
   // have it), so we never bar login over it. The key is still enrolled — but
@@ -215,9 +217,8 @@ export async function loginWithTornKey(
   // Health surfaces those keys with a yellow badge (#271).
 
   // Key-pool enrollment: the login disclosure covers pool consent, so a
-  // faction member's key joins the rotation on login (visitors never — their
-  // logins persist no key material at all). Best-effort: a failure must
-  // never block the login.
+  // faction member's key joins the rotation on login. Best-effort: a failure
+  // must never block the login.
   if (deps.keyEncryptionKey && enrollsKey) {
     try {
       const pool = createKeyPool({ db: deps.db, encryptionKey: deps.keyEncryptionKey })
@@ -266,9 +267,10 @@ export async function loginWithTornKey(
     }
   }
 
-  // Cache the verification — except for visitors, whose logins must persist
-  // no key material at all (not even a key-derived hash).
-  if (!verified.fromCache && !roles.includes('visitor')) {
+  // Cache the verification. ⚠️ This used to skip the `visitor` role, whose
+  // logins had to persist no key material at all — not even a key-derived hash
+  // (#922, role removed 2026-10-06). Nothing is exempt now.
+  if (!verified.fromCache) {
     const expiresAt = new Date(Date.now() + AUTH_CACHE_TTL_MS).toISOString()
     await deps.db.query(
       `INSERT INTO war_room_auth_cache (key_hash, user_id, expires_at) VALUES ($1, $2, $3)
@@ -301,7 +303,6 @@ async function mintSessionToken(
     is_admin: roles.includes('admin'),
     is_warlead: roles.includes('warlead'),
     is_ocmanager: roles.includes('ocmanager'),
-    is_visitor: roles.includes('visitor'),
   })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(`torn-${userId}`)
@@ -344,7 +345,7 @@ export type RefreshResult =
 /**
  * Exchange a signed, unexpired (possibly stale) token for a fresh one, after
  * re-checking the member server-side: still on the roster, or still holding a
- * DB role (visitors and out-of-faction leaders live there). Roles are re-read,
+ * DB role (out-of-faction leaders live there). Roles are re-read,
  * so grants and revocations land within 24h without a re-login. No key
  * material is involved anywhere in this path.
  */

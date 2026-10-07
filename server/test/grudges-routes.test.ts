@@ -801,12 +801,8 @@ describe('claiming a target (#892)', () => {
   })
 })
 
-describe('visitors', () => {
-  it('⚠️ may read the list but may not add to it', async () => {
-    await stack.db.query(`INSERT INTO role_assignments (torn_user_id, role) VALUES (9030, 'visitor')`)
-    const visitor = await loginAs('GRUDGEVISITOR1XX', '9030')
-    expect((await get('/api/grudges', visitor)).status).toBe(200)
-    const r = await call('POST', '/api/grudges', visitor, { target: '9999', reason: 'nope' })
-    expect(r.status).toBe(403)
-  })
-})
+// ⚠️ A `visitors may read the list but may not add to it` case lived here. The
+// add route was guarded by `requireAuth()` AND the visitor check, so #922 left
+// it on `requireAuth()` alone — every authenticated member may now add, which is
+// what the Book of Grudges is for. Nobody held the role, so nothing changed in
+// practice; the unauthenticated cases elsewhere in this file hold the line.

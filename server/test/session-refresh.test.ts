@@ -26,7 +26,6 @@ async function forgeToken(userId: string, { ageSeconds = 0, ttlSeconds = 30 * DA
     is_admin: roles.includes('admin'),
     is_warlead: roles.includes('warlead'),
     is_ocmanager: roles.includes('ocmanager'),
-    is_visitor: roles.includes('visitor'),
   })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(`torn-${userId}`)

@@ -1620,16 +1620,17 @@ function ConfigPanel({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function WarRoomViewV2({ isLeadership, isAdmin }) {
-  const { user, tokenReady, isVisitor } = useAuth()
+  const { user, tokenReady } = useAuth()
   // Derive war-lead status from config + ID rather than the session flag, so a
   // stale/older cached session object can't hide the War Notes controls.
   // API mode: the session's role_assignments are authoritative (bootstrap
   // sets user.isWarLead); legacy builds fall back to the config.js ID list.
   const isWarLead = user?.isWarLead ?? checkWarLead(user?.id)
-  // War Notes & roll-call panel: war leaders + real leadership/admin, never
-  // visitors (isLeadership is true for them — the leadership layout — but the
-  // panel exposes the leads-only private note). See canSeeWarNotes.
-  const canSeeNotes = canSeeWarNotes({ isWarLead, isLeadership, isVisitor })
+  // War Notes & roll-call panel: war leaders + leadership/admin. The panel
+  // exposes a leads-only private note. See canSeeWarNotes.
+  // ⚠️ Also excluded the read-only `visitor` role until #922 (2026-10-06),
+  // because `isLeadership` was true for it — that layout quirk is gone.
+  const canSeeNotes = canSeeWarNotes({ isWarLead, isLeadership })
 
   // Reload-persisted prefs: filter chips, stats range, sort, poll rate.
   // Sets are stored as arrays so JSON.stringify can round-trip them.
@@ -1800,7 +1801,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Per-member war notes (#199) — fetched once for the roster; war leads /
   // leadership / admin can edit, everyone reads. API-only feature.
   const [memberNotes, setMemberNotes] = useState({})
-  const canEditNotes = canEditMemberNotes({ isWarLead, isLeadership, isAdmin, isVisitor })
+  const canEditNotes = canEditMemberNotes({ isWarLead, isLeadership, isAdmin })
   useEffect(() => {
     apiGet('/api/member-notes')
       .then(({ notes }) => setMemberNotes(notesByMember(notes)))
@@ -2315,8 +2316,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // viewer can lose the war-lead role while the board is open (roles are
   // re-read on session refresh), and must fall straight back to the enemy
   // roster rather than sitting on one they may no longer see.
-  const canSeeOurRoster = canViewOurRoster({ isWarLead, isLeadership, isAdmin, isVisitor })
-  const effectiveSide = effectiveRosterSide(rosterSide, { isWarLead, isLeadership, isAdmin, isVisitor })
+  const canSeeOurRoster = canViewOurRoster({ isWarLead, isLeadership, isAdmin })
+  const effectiveSide = effectiveRosterSide(rosterSide, { isWarLead, isLeadership, isAdmin })
 
   // Our own members' battle stats (#353). Daily data, so it comes over the
   // lead-gated REST endpoint rather than the war room's delta channel — that
@@ -2808,10 +2809,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               )}
               {/* Leadership controls collapse toggle — sits on the title row
                   so admins can hide all admin chrome by default and only show
-                  it when needed. Only rendered to leadership. Visitors see
-                  the leadership layout but the config panel is pure writes,
-                  so it stays hidden for them. */}
-              {isLeadership && !isVisitor && (
+                  it when needed. Only rendered to leadership. */}
+              {isLeadership && (
                 <button
                   onClick={() => setLeadershipPanelOpen(v => !v)}
                   aria-expanded={leadershipPanelOpen}
@@ -2826,7 +2825,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 </button>
               )}
               {/* War Notes panel toggle — War Leaders + leadership/admin
-                  (never visitors). Sits beside the settings gear. */}
+                  Sits beside the settings gear. */}
               {canSeeNotes && (
                 <button
                   onClick={() => setNotesPanelOpen(v => !v)}
@@ -2852,10 +2851,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
                 Mobile App
               </button>
               {/* Roll Call — shown once a war exists so members can review/edit
-                  their response even after the gate has auto-released.
-                  Hidden from visitors: submitting would write a roll-call row
-                  for a non-member. */}
-              {currentWar && !isVisitor && (
+                  their response even after the gate has auto-released. */}
+              {currentWar && (
                 <button
                   data-tour="rollcall"
                   onClick={() => { setRollCallOpen(true) }}
@@ -2916,7 +2913,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           </div>
         </div>
 
-        {isLeadership && !isVisitor && leadershipPanelOpen && (
+        {isLeadership && leadershipPanelOpen && (
           <ConfigPanel
             config={config}
             isActive={isActive}
@@ -2945,7 +2942,6 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
             ourBattleStats={ourBattleStats}
             enemyMembers={members}
             ourFactionId={OUR_FACTION_ID}
-            readOnly={isVisitor}
           />
         )}
 
@@ -2970,7 +2966,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         <div data-tour="filters" className="card flex flex-col gap-2">
             {/* Leader headline composer (#197 layout) — post/clear the headline
                 from here; the banner itself renders above the roster. */}
-            {(isWarLead || isLeadership || isAdmin) && !isVisitor && (
+            {(isWarLead || isLeadership || isAdmin) && (
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Headline:</span>
                 <HeadlineBanner config={config} canManage mode="composer" />
@@ -3207,11 +3203,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
       {/* Leader headline banner (#158) — display sits between the status bar
           and roster (#197). The leader composer lives in the filters card. */}
-      <HeadlineBanner config={config} mode="banner" canManage={(isWarLead || isLeadership || isAdmin) && !isVisitor} />
+      <HeadlineBanner config={config} mode="banner" canManage={(isWarLead || isLeadership || isAdmin)} />
 
       {/* Push opt-in (#207): offer background notifications on entering a live
-          war room (visitors are read-only observers). */}
-      {!isVisitor && <WarRoomPushPrompt live={isActive} />}
+          war room. */}
+      <WarRoomPushPrompt live={isActive} />
 
       {/* Server-detected PUSH surge (#208) — auto-fires sound/flash for everyone. */}
       {surgeAlert && (
@@ -3229,7 +3225,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Leader-only one-tap rally call (#209). Non-leaders never see it. */}
-            {(isWarLead || isLeadership || isAdmin) && !isVisitor && surgeHeadlinePreset(surgeAlert.surge, surgeAlert.direction) && (
+            {(isWarLead || isLeadership || isAdmin) && surgeHeadlinePreset(surgeAlert.surge, surgeAlert.direction) && (
               surgeAlert.posted ? (
                 <span className="text-xs font-semibold px-2.5 py-1 rounded bg-white/20">Headline posted ✓</span>
               ) : (
@@ -3776,7 +3772,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               dibsByEnemyId={mobileDibs}
               currentUserId={user?.id}
               headlineConfig={config}
-              canManageHeadline={(isWarLead || isLeadership || isAdmin) && !isVisitor}
+              canManageHeadline={(isWarLead || isLeadership || isAdmin)}
               memberNotes={memberNotes}
               canEditNotes={canEditNotes}
               onSaveNote={saveMemberNote}
@@ -3784,7 +3780,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               surgeAlert={surgeAlert}
               onDismissSurge={() => setSurgeAlert(null)}
               canPostRally={
-                (isWarLead || isLeadership || isAdmin) && !isVisitor
+                (isWarLead || isLeadership || isAdmin)
                 && !!surgeAlert && !!surgeHeadlinePreset(surgeAlert.surge, surgeAlert.direction)
               }
               onPostRally={postSurgeHeadline}
@@ -3792,7 +3788,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
               factionId={String(config?.faction_id ?? '')}
               factionName={factionName ?? config?.faction_name}
               ourCounts={mobileOurCounts}
-              isLeadership={isLeadership && !isVisitor}
+              isLeadership={isLeadership}
               isActive={isActive}
               paused={!isActive}
               reviveServices={effectiveReviveServices(config)}
@@ -3839,11 +3835,11 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       )}
 
       {/* Contextual help panel (#153) — the "?" reference. Leader sections show
-          for war leads / leadership / admin (never visitors). */}
+          for war leads / leadership / admin. */}
       <HelpPanel
         open={helpOpen}
         onClose={() => setHelpOpen(false)}
-        isLeader={(isWarLead || isLeadership || isAdmin) && !isVisitor}
+        isLeader={(isWarLead || isLeadership || isAdmin)}
         onReplayTour={replayTour}
       />
 
@@ -3857,9 +3853,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
       )}
 
       {/* Roll-call overlay — hard gate when the member hasn't responded and
-          we're >1h from kickoff; also opened manually (edit) via the button.
-          Never shown to visitors — they aren't part of the roll call. */}
-      {showRollCall && currentWar && !isVisitor && (
+          we're >1h from kickoff; also opened manually (edit) via the button. */}
+      {showRollCall && currentWar && (
         <RollCallOverlay
           currentWar={currentWar}
           notes={warNotes}

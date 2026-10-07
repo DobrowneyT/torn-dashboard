@@ -1,12 +1,12 @@
 // Manual war-room setup — the endpoints behind the leader's "Save & Fetch"
 // flow (formerly the set_config_v2 / clear_state_v2 / fetch_members_v2 /
 // fetch_chains_v2 edge actions). Same guard as war notes: warlead/
-// leadership/admin, never visitors. The lifecycle job reuses
+// leadership/admin. The lifecycle job reuses
 // clearWarRoomState so manual and automated setups behave identically.
 import type { FastifyInstance } from 'fastify'
 import { DIBS_RELEASE_REASONS } from './warDibsReasons.js'
 import type pg from 'pg'
-import { requireNotVisitor, requireRole } from './authz.js'
+import { requireRole } from './authz.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { resolveSpyProviders, fetchSpiesForMembers } from './spyFetch.js'
@@ -98,7 +98,7 @@ export async function clearWarRoomState(db: pg.Pool) {
   return { state: state.rows, dibs: dibs.rows, assist: assist.rows, chain: chain.rows, config: config.rows }
 }
 
-const GUARD = { preHandler: [requireNotVisitor(), requireRole('warlead', 'leadership', 'admin')] }
+const GUARD = { preHandler: [requireRole('warlead', 'leadership', 'admin')] }
 
 export function registerWarRoomSetupRoutes(app: FastifyInstance, deps: WarRoomSetupDeps) {
   const { db, hub } = deps

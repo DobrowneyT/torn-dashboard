@@ -1,10 +1,10 @@
 // Leadership tools: member-overview saved views/thresholds, tier overrides,
 // and inventory management. Purpose-built endpoints replace the old generic
-// arbitrary-table CRUD; visitors read everything, write nothing.
+// arbitrary-table CRUD; reads are lead-gated, writes leadership/admin.
 import { withTornAuth } from './tornComment.js'
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
-import { requireNotVisitor, requireRole } from './authz.js'
+import { requireRole } from './authz.js'
 import { claimPooledKey, EMPTY_POOL_MESSAGE } from './scraper/keyPool.js'
 import { projectPersonalstats } from './overviewStatPaths.js'
 import { fetchFactionInventoryV2, aggregateInventoryRows } from './scraper/inventoryMap.js'
@@ -19,8 +19,8 @@ export interface LeadershipDeps {
   encryptionKey?: string
 }
 
-const READ = { preHandler: requireRole('leadership', 'admin', 'visitor') }
-const WRITE = { preHandler: [requireNotVisitor(), requireRole('leadership', 'admin')] }
+const READ = { preHandler: requireRole('leadership', 'admin') }
+const WRITE = { preHandler: [requireRole('leadership', 'admin')] }
 
 export function registerLeadershipRoutes(app: FastifyInstance, deps: LeadershipDeps) {
   const db = deps.db
