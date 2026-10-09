@@ -184,3 +184,28 @@ describe('weapon bonuses (#929)', () => {
     expect(screen.getByText('Dune Armour')).toBeTruthy()
   })
 })
+
+/**
+ * ⚠️ End-to-end on the shape that actually sits in the database: a bonus with a
+ * description and NO `percent`. Every observation captured before userscript
+ * 1.52.0 looks like this, and the panel has to show a percentage for them.
+ */
+describe('percentages derived from stored descriptions', () => {
+  const openPanel = () => {
+    const shields = screen.getAllByRole('button', { name: 'Observed gear' })
+    fireEvent.click(shields[shields.length - 1])
+  }
+
+  it('shows percentages for a capture that predates the percent field', () => {
+    render(<LoadoutShieldIcon loadoutRow={{
+      loadout: { weapons: { primary: { name: 'Jackhammer', glow: 'yellow', bonuses: [
+        { title: 'Recoil Pad', description: '+25% ammo conservation' },
+        { title: 'Skeet Choke', description: '+6% damage' },
+        { title: 'Powerful', description: '16% increased damage' },
+      ] } }, armor: {} },
+      observed_at: new Date().toISOString(),
+    }} />)
+    openPanel()
+    expect(screen.getByText('Recoil Pad 25%, Skeet Choke 6%, Powerful 16%')).toBeTruthy()
+  })
+})

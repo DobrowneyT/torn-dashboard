@@ -163,3 +163,61 @@ describe('formatBonusLine (#929)', () => {
     expect(formatBonusLine([{ title: 'Burn', percent: 'loads' }])).toBe('Burn')
   })
 })
+
+/**
+ * ⚠️ The percentage has to come from the DESCRIPTION when the capture carries
+ * no `percent` field — which is every observation taken before userscript
+ * 1.52.0, i.e. all 1,301 forge captures that existed when this shipped. Without
+ * the fallback the War Room shows bare titles for a month of data we already
+ * hold, until every member updates their script.
+ *
+ * A probe proved this was unguarded: removing the fallback broke no test.
+ */
+describe('bonus percentage from a stored description (#929 follow-up)', () => {
+  it('derives the percentage for a capture that predates the percent field', () => {
+    // Verbatim from a real forge observation (a Jackhammer, 2026-10-09).
+    expect(formatBonusLine([
+      { title: 'Recoil Pad', description: '+25% ammo conservation' },
+      { title: 'Skeet Choke', description: '+6% damage' },
+      { title: 'Powerful', description: '16% increased damage' },
+    ])).toBe('Recoil Pad 25%, Skeet Choke 6%, Powerful 16%')
+  })
+
+  it('derives it for the specials that state their figure mid-sentence', () => {
+    expect(formatBonusLine([
+      { title: 'Eviscerate', description: 'Eviscerates opponent causing them 15% extra damage on further hits' },
+      { title: 'Penetrate', description: 'Ignores 26% of armor mitigation' },
+    ])).toBe('Eviscerate 15%, Penetrate 26%')
+  })
+
+  /** ⚠️ A penalty must not be presented as the bonus. */
+  it('shows no figure when the only percentage is a penalty', () => {
+    expect(formatBonusLine([
+      { title: 'Deadly Accuracy', description: '+1.75 Accuracy -30% Dexterity' },
+    ])).toBe('Deadly Accuracy')
+  })
+
+  it('shows no figure for a flat value or a worded effect', () => {
+    expect(formatBonusLine([
+      { title: 'Sight', description: '+1.50 Accuracy' },
+      { title: 'Disarm', description: "Disables an opponent's weapon upon a hand or arm hit for 3 turns" },
+    ])).toBe('Sight, Disarm')
+  })
+
+  /**
+   * ⚠️ The RECORDED value wins over the derived one. It is what the capture
+   * actually observed, and if Torn ever rewords a description the stored figure
+   * stays the historical record rather than being re-derived from new prose.
+   */
+  it('prefers a recorded percent over the description', () => {
+    expect(formatBonusLine([
+      { title: 'Burn', percent: 37, description: '99% chance to Burn' },
+    ])).toBe('Burn 37%')
+  })
+
+  it('falls back when the recorded percent is not a usable number', () => {
+    expect(formatBonusLine([
+      { title: 'Burn', percent: null, description: '37% chance to Burn' },
+    ])).toBe('Burn 37%')
+  })
+})
