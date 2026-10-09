@@ -132,6 +132,12 @@ export function loadoutEntries(loadout) {
         bonuses: Array.isArray(entry.bonuses) ? entry.bonuses : [],
         glow: entry.glow ?? null,
         colour: entry.colour ?? null,
+        // ⚠️ #929 — carried but NOT rendered anywhere yet, on purpose. MonChoon:
+        // "I would still record dmg/acc in case we ever decide to display it".
+        // Surfacing them here rather than only in the DB is what makes that a
+        // one-line change later instead of a re-plumb.
+        damage: typeof entry.damage === 'number' ? entry.damage : null,
+        accuracy: typeof entry.accuracy === 'number' ? entry.accuracy : null,
         notable: group === 'weapons' && isNotableWeapon(entry),
       })
     }
@@ -183,4 +189,42 @@ export function formatLoadoutTooltip(row, nowMs = Date.now()) {
  */
 export function isLoadoutStale(row, nowMs = Date.now()) {
   return loadoutFreshness(row, nowMs) === 'stale'
+}
+
+/**
+ * One weapon's bonuses as a single comma-delimited line (#929).
+ *
+ *   "Focus 16%, 30mW Laser 4%, Reflex Sight"
+ *
+ * MonChoon, 2026-10-09: *"lets just show the weapons, and then the bonuses
+ * underneath that, comma-delimited"*.
+ *
+ * ⚠️ **A bonus with no percentage renders as its bare title.** Disarm carries
+ * no figure at all and attachments are frequently flat values ("+1.00
+ * Accuracy"), so appending a percentage unconditionally would print
+ * "Disarm undefined%" on a real capture. Absent, never zero — a bonus shown as
+ * "0%" reads as useless rather than unmeasured.
+ *
+ * ⚠️ **Specials and attachments are mixed together**, because Torn's DOM does
+ * not distinguish them: Burn and Reflex Sight are the same markup with the same
+ * attributes. The only discriminator is which side of the slot's `topMarker`
+ * they sit on, which the capture does not record. Shown as Torn presented them
+ * rather than filtered against a hard-coded specials list that would silently
+ * drop whatever Torn adds next.
+ *
+ * Returns '' when there is nothing to say, so a caller can skip the row
+ * entirely rather than render an empty line under every ordinary weapon.
+ */
+export function formatBonusLine(bonuses) {
+  if (!Array.isArray(bonuses) || bonuses.length === 0) return ''
+  return bonuses
+    .map((b) => {
+      const title = String(b?.title ?? '').trim()
+      if (!title) return ''
+      return typeof b?.percent === 'number' && Number.isFinite(b.percent)
+        ? `${title} ${b.percent}%`
+        : title
+    })
+    .filter(Boolean)
+    .join(', ')
 }

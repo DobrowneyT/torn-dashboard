@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { config } from '../config'
 import { loadFactionIdentity } from '../utils/factionIdentity'
 import {
@@ -9,6 +9,9 @@ import {
   storeApiSession,
   clearApiSession,
 } from '../utils/apiClient'
+import {
+  buildUserFromBootstrap, sessionFieldsChanged, describeRoleDelta,
+} from '../utils/sessionUser'
 
 // API-mode login (self-hosted stack): the server does Torn verification, role
 // resolution, and JWT minting — the browser never talks to Torn or Supabase.
@@ -23,39 +26,7 @@ async function loginViaApi(apiKey) {
     return { success: false, error: 'Login succeeded but bootstrap failed. Please try again.' }
   }
 
-  const roles = boot.user.roles
-  const userObj = {
-    id: Number(boot.user.torn_user_id),
-    // Roster name from bootstrap (login stubs it from Torn on first login);
-    // the id-based fallback covers anybody not yet on the roster.
-    name: boot.user.member_name || `Player ${boot.user.torn_user_id}`,
-    factionId: null,
-    factionPosition: roles.includes('leadership') ? 'Leadership'
-      : roles.includes('admin') ? 'Admin'
-      : 'Member',
-    // Deliberately NO apiKey: in API mode the browser holds only the session
-    // token — raw key material never reaches localStorage.
-    accessLevel: 3,
-    isLeadership: roles.includes('leadership'),
-    isAdmin: roles.includes('admin'),
-    isWarLead: roles.includes('warlead'),
-    isOCManager: roles.includes('ocmanager'),
-    // Whether the in-app feedback form is available (server has a PAT) — the
-    // hamburger "Send feedback" entry is hidden when false (#253).
-    feedbackEnabled: boot.feedback_enabled === true,
-    // Last 4 chars of this user's own pooled key (#264) — shown masked in the
-    // hamburger menu; null when no key is on file.
-    apiKeyHint: boot.user.api_key_hint ?? null,
-    // #894 — the API Key Usage disclosure this member last accepted, and
-    // whether it is behind the current one. ⚠️ Both, not just the boolean:
-    // without the version the client can show that somebody must re-accept but
-    // never what changed.
-    consentVersion: boot.user.consent_version ?? null,
-    consentRequired: boot.user.consent_required === true,
-    apiMode: true,
-    lastLogin: new Date().toISOString(),
-  }
-  return { success: true, user: userObj }
+  return { success: true, user: buildUserFromBootstrap(boot) }
 }
 
 const AuthContext = createContext(null)
@@ -86,6 +57,47 @@ async function revalidateSession() {
   }
 }
 
+/**
+ * Adopt the server's view of this session, after a refresh has already minted a
+ * token with fresh claims (#927).
+ *
+ * ⚠️ **The refresh alone was never enough.** `/api/auth/refresh` re-reads
+ * `role_assignments`, so the SERVER honours a role change immediately — but
+ * every permission gate in the app reads the cached `user` object, and that was
+ * only ever written by `login()`. A member granted a role got it on the API and
+ * never saw it in the UI, which is why the fix was "log out and back in".
+ *
+ * ⚠️ Best-effort by design: a bootstrap failure here leaves the session exactly
+ * as it was. Whether the session is still VALID is `revalidateSession`'s
+ * question and it has already been answered; this is only about what the UI
+ * knows, so a transient failure must never log anybody out.
+ *
+ * ⚠️ Returns null when nothing changed, so the caller can skip the state write.
+ * Re-rendering the whole app every four hours for an identical object would be
+ * churn — and on a revocation it would tear down panels somebody is using, so
+ * doing it only when something really moved is the difference between a
+ * necessary interruption and a pointless one.
+ */
+async function syncUserFromServer(cached) {
+  const boot = await apiBootstrap()
+  if (!boot?.ok || !boot.user) return null
+  // ⚠️ Carry `lastLogin`: this runs on a timer, and restamping it would redate
+  // a session nobody has actually logged into.
+  const fresh = buildUserFromBootstrap(boot, { lastLogin: cached?.lastLogin })
+  if (!sessionFieldsChanged(cached, fresh)) return null
+  const { gained, lost } = describeRoleDelta(cached, fresh)
+  if (gained.length || lost.length) {
+    // Named, not just "session updated" — this line is what a bug report will
+    // carry, and the delta is the only part worth reading.
+    console.info(
+      '[auth] roles changed without a re-login:',
+      gained.length ? `+${gained.join(', ')}` : '',
+      lost.length ? `-${lost.join(', ')}` : ''
+    )
+  }
+  return fresh
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -109,13 +121,21 @@ export function AuthProvider({ children }) {
         // Background re-validation — non-blocking so cached UI renders
         // immediately. On a fatal verdict (key invalid / wrong faction /
         // role removed) we tear the session down and surface the reason.
-        revalidateSession().then(result => {
+        revalidateSession().then(async result => {
           if (!result.ok) {
             console.warn('Session revalidation: forcing logout —', result.reason)
             clearApiSession()
             setUser(null)
             localStorage.removeItem('tornUser')
             setAuthError(result.reason)
+            return
+          }
+          // #927 — the refresh above re-read roles into a new token; pick up
+          // what that changed so the UI agrees with what the API will now allow.
+          const fresh = await syncUserFromServer(userData)
+          if (fresh) {
+            setUser(fresh)
+            localStorage.setItem('tornUser', JSON.stringify(fresh))
           }
         })
       } catch (err) {
@@ -125,6 +145,15 @@ export function AuthProvider({ children }) {
     }
     identityReady.finally(() => setLoading(false))
   }, [])
+
+  // ⚠️ The CURRENT user, for the keepalive timer below. The timer must not be
+  // re-created every time the user object changes — that would push the next
+  // check four hours out on every change — but it also must not close over a
+  // stale user, or it would keep comparing against a value it already replaced
+  // and write an identical object every four hours forever. A ref is how the
+  // interval reads fresh state without being a dependency of it.
+  const userRef = useRef(user)
+  useEffect(() => { userRef.current = user }, [user])
 
   // The API session token is the only credential; it's ready as soon as a user
   // is logged in. (tokenReady gates the RLS-era faction-scoped reads.)
@@ -139,9 +168,20 @@ export function AuthProvider({ children }) {
   // gracefully) working across day-spanning war-room sessions.
   useEffect(() => {
     if (!user) return
-    const timer = setInterval(() => { apiRefresh() }, 4 * 60 * 60 * 1000)
+    const timer = setInterval(async () => {
+      const refreshed = await apiRefresh()
+      if (!refreshed.ok) return
+      // #927 — same reason as on load: the new token may carry different roles,
+      // and the UI reads the cached user rather than the token.
+      const fresh = await syncUserFromServer(userRef.current)
+      if (fresh) {
+        setUser(fresh)
+        localStorage.setItem('tornUser', JSON.stringify(fresh))
+      }
+    }, 4 * 60 * 60 * 1000)
     return () => clearInterval(timer)
-  }, [user])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
 
   async function login(apiKey) {
     try {
