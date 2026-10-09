@@ -4096,8 +4096,11 @@ describe('enemy loadout capture (#528 Part 2)', () => {
       const el = weaponEl('weaponWrapper___pdF1a glow-yellow___B37GS', [
         bonusEl('Slow', '26% chance to Slow opponent reducing Speed by 25% (x3)'),
       ])
+      // ⚠️ `percent: 26` is #929's leading-figure parse, not a proc chance by
+      // name — the same field is a magnitude on "84% increased Heart damage".
+      // The full description stays beside it for exactly that reason.
       expect(S.captureBonuses(el)).toEqual([
-        { title: 'Slow', description: '26% chance to Slow opponent reducing Speed by 25% (x3)' },
+        { title: 'Slow', description: '26% chance to Slow opponent reducing Speed by 25% (x3)', percent: 26 },
       ])
     })
 
@@ -4113,13 +4116,117 @@ describe('enemy loadout capture (#528 Part 2)', () => {
         bonusEl('', ''),
       ])
       expect(S.captureBonuses(el)).toEqual([
-        { title: 'Plunder', description: '24% increased money mugged on final hit' },
+        { title: 'Plunder', description: '24% increased money mugged on final hit', percent: 24 },
       ])
     })
 
     it('keeps a bonus with no description rather than dropping it', () => {
       const { S } = loadScript()
       expect(S.captureBonuses(weaponEl('x', [bonusEl('Assassinate', '')]))).toEqual([{ title: 'Assassinate' }])
+    })
+
+    /**
+     * #929 — the per-weapon damage and accuracy Torn renders under each slot.
+     *
+     * ⚠️ **Read POSITIONALLY, never by id.** Torn ships a duplicate id here:
+     * the `<i>` icon and the value `<span>` both use
+     * `accuracy_defender_primary`, so `getElementById` returns the empty icon
+     * and silently records nothing. Damage happens to use distinct ids
+     * (`damage_…` vs `damage-value_…`), which is exactly what makes accuracy
+     * the one that fails quietly — it looks like the same pattern and is not.
+     *
+     * Recorded, not displayed. MonChoon: *"I would still record dmg/acc in case
+     * we ever decide to display it"*.
+     */
+    describe('weapon damage and accuracy (#929)', () => {
+      /** A slot whose bottom row holds the two `bonusInfo` spans, in DOM order.
+       *  ⚠️ The ids are the real, duplicated ones from a live capture. */
+      const slotWithStats = (values, { bottom = true } = {}) => {
+        const spans = values.map((v) => ({ textContent: String(v) }))
+        const bottomEl = { querySelectorAll: (sel) => (sel === 'span[class*="bonusInfo___"]' ? spans : []) }
+        return {
+          getAttribute: () => null,
+          querySelector: (sel) => (bottom && sel === '[class*="bottom___"]' ? bottomEl : null),
+          querySelectorAll: () => [],
+        }
+      }
+
+      it('reads damage then accuracy from the bottom row', () => {
+        const { S } = loadScript()
+        // Verbatim from MonChoon's 2026-10-09 capture (defender's ArmaLite).
+        expect(S.captureWeaponStats(slotWithStats([76.54, 61.37])))
+          .toEqual({ damage: 76.54, accuracy: 61.37 })
+      })
+
+      it('keeps the fractions Torn renders', () => {
+        const { S } = loadScript()
+        // ⚠️ Not rounded: these are per-ITEM-INSTANCE figures with the
+        // attachments and quality tier already folded in, so rounding discards
+        // the only thing that makes them better than the item name.
+        expect(S.captureWeaponStats(slotWithStats([67.5, 42.7])))
+          .toEqual({ damage: 67.5, accuracy: 42.7 })
+      })
+
+      /** ⚠️ A temporary (a needle) has no damage row at all — Tyrosine in the
+       *  2026-10-09 capture. Absent, not zero. */
+      it('records nothing for a slot with no stats', () => {
+        const { S } = loadScript()
+        expect(S.captureWeaponStats(slotWithStats([], { bottom: false }))).toEqual({})
+        expect(S.captureWeaponStats(slotWithStats([]))).toEqual({})
+      })
+
+      it('records damage alone when accuracy is missing', () => {
+        const { S } = loadScript()
+        expect(S.captureWeaponStats(slotWithStats([76.54]))).toEqual({ damage: 76.54 })
+      })
+
+      it('records nothing for unparseable text rather than NaN', () => {
+        const { S } = loadScript()
+        expect(S.captureWeaponStats(slotWithStats(['—', '—']))).toEqual({})
+      })
+    })
+
+    /**
+     * #929 — the leading figure, and the cases where there isn't one.
+     *
+     * ⚠️ Absent is NORMAL. Disarm's description carries no percentage at all
+     * and attachments are frequently flat values, so a missing `percent` is an
+     * ordinary bonus rather than a failed parse — and nothing may render
+     * "Disarm undefined%".
+     */
+    describe('bonus percentages (#929)', () => {
+      const pctOf = (S, desc) => S.captureBonuses(weaponEl('x', [bonusEl('B', desc)]))[0].percent
+
+      it('takes the figure Torn leads with', () => {
+        const { S } = loadScript()
+        expect(pctOf(S, '16% increased hit chance for every miss')).toBe(16)
+        expect(pctOf(S, '+20% ammo per mag')).toBe(20)
+        expect(pctOf(S, '+4% critical hit rate')).toBe(4)
+      })
+
+      /** ⚠️ Two percentages in one description; the FIRST is the one Torn is
+       *  describing, so the parse is anchored to the start of the string. */
+      it('takes the first of two percentages, not the second', () => {
+        const { S } = loadScript()
+        expect(pctOf(S, '37% chance to Burn opponent causing 90% damage over 3 turns')).toBe(37)
+      })
+
+      it('records none for a flat value or a worded effect', () => {
+        const { S } = loadScript()
+        expect(pctOf(S, '+0.75 Accuracy')).toBeUndefined()
+        expect(pctOf(S, '-3.00 Opp Acc -2 Opp stealth')).toBeUndefined()
+        expect(pctOf(S, "Disables an opponent's weapon upon a hand or arm hit for 4 turns")).toBeUndefined()
+      })
+
+      it('ignores a percentage that is not at the start', () => {
+        const { S } = loadScript()
+        expect(pctOf(S, 'increases damage by 50%')).toBeUndefined()
+      })
+
+      it('keeps a fractional figure', () => {
+        const { S } = loadScript()
+        expect(pctOf(S, '2.5% chance of something')).toBe(2.5)
+      })
     })
 
     it('\u26a0\ufe0f reads the glow by PREFIX, so a bundle rebuild cannot break it', () => {

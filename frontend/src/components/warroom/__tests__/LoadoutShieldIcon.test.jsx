@@ -96,3 +96,91 @@ describe('LoadoutShieldIcon', () => {
     expect(container.querySelector('svg').getAttribute('class')).toContain('text-gray-400')
   })
 })
+
+/**
+ * #929 — the bonuses, which were captured for a month with nothing showing
+ * them. `formatBonusLine`, `rankedLoadoutEntries` and friends were written in
+ * 3.93.0 and never imported by a component; MonChoon found it by looking at the
+ * War Room and seeing no specials anywhere.
+ */
+describe('weapon bonuses (#929)', () => {
+  const openPanel = () => {
+    const shields = screen.getAllByRole('button', { name: 'Observed gear' })
+    fireEvent.click(shields[shields.length - 1])
+  }
+
+  const withBonuses = (weapons) => ({
+    loadout: { weapons, armor: { chest: { name: 'Dune Armour' } } },
+    observed_by_name: 'Scout',
+    observed_at: new Date().toISOString(),
+  })
+
+  it('lists a weapon\'s bonuses underneath it, comma-delimited', () => {
+    render(<LoadoutShieldIcon loadoutRow={withBonuses({
+      melee: {
+        name: 'Macana',
+        bonuses: [{ title: 'Cupid', percent: 84 }, { title: 'Achilles', percent: 50 }],
+      },
+    })} />)
+    openPanel()
+    expect(screen.getByText('Macana')).toBeTruthy()
+    expect(screen.getByText('Cupid 84%, Achilles 50%')).toBeTruthy()
+  })
+
+  /**
+   * ⚠️ The row has to be ITS OWN row under the weapon. Appended to the name
+   * cell, "Burn 37%" reads as part of the weapon's name and a long bonus list
+   * shoves the right-aligned names out of their column.
+   */
+  it('puts the bonuses on a separate row from the weapon name', () => {
+    render(<LoadoutShieldIcon loadoutRow={withBonuses({
+      secondary: { name: 'Flamethrower', bonuses: [{ title: 'Burn', percent: 37 }] },
+    })} />)
+    openPanel()
+    const nameCell = screen.getByText('Flamethrower')
+    const bonusCell = screen.getByText('Burn 37%')
+    expect(nameCell.closest('tr')).not.toBe(bonusCell.closest('tr'))
+  })
+
+  /** ⚠️ Would otherwise print "Disarm NaN%" on a real capture. */
+  it('shows a bonus with no percentage as its bare title', () => {
+    render(<LoadoutShieldIcon loadoutRow={withBonuses({
+      primary: {
+        name: 'ArmaLite M-15A4',
+        bonuses: [{ title: 'Focus', percent: 16 }, { title: 'Reflex Sight' }, { title: 'Disarm' }],
+      },
+    })} />)
+    openPanel()
+    expect(screen.getByText('Focus 16%, Reflex Sight, Disarm')).toBeTruthy()
+  })
+
+  it('renders no bonus row at all for an ordinary weapon', () => {
+    render(<LoadoutShieldIcon loadoutRow={withBonuses({ primary: { name: 'Pocket Knife' } })} />)
+    openPanel()
+    expect(screen.getByText('Pocket Knife')).toBeTruthy()
+    // One row for the weapon, one for the armour — no blank third row.
+    expect(document.querySelectorAll('tbody tr')).toHaveLength(2)
+  })
+
+  /**
+   * ⚠️ Recorded, not rendered. MonChoon asked for damage/accuracy to be kept
+   * "in case we ever decide to display it" — so they must NOT leak into the
+   * panel now, or the decision has been made by accident.
+   */
+  it('does not show damage or accuracy', () => {
+    render(<LoadoutShieldIcon loadoutRow={withBonuses({
+      primary: { name: 'ArmaLite M-15A4', damage: 76.54, accuracy: 61.37 },
+    })} />)
+    openPanel()
+    expect(screen.queryByText(/76\.54/)).toBeNull()
+    expect(screen.queryByText(/61\.37/)).toBeNull()
+  })
+
+  it('still shows armour, which carries no bonuses', () => {
+    render(<LoadoutShieldIcon loadoutRow={withBonuses({
+      melee: { name: 'Macana', bonuses: [{ title: 'Cupid', percent: 84 }] },
+    })} />)
+    openPanel()
+    expect(screen.getByText('Dune Armour')).toBeTruthy()
+  })
+})

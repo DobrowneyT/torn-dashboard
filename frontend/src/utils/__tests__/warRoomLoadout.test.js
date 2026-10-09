@@ -1,6 +1,6 @@
 // Enemy loadout observation formatting (#528 Part 2).
 import { describe, it, expect } from 'vitest'
-import { loadoutEntries, formatLoadoutTooltip, isLoadoutStale, LOADOUT_STALE_MS, rankedLoadoutEntries, isNotableWeapon, usesNeedles } from '../warRoomLoadout'
+import { loadoutEntries, formatLoadoutTooltip, isLoadoutStale, LOADOUT_STALE_MS, rankedLoadoutEntries, isNotableWeapon, usesNeedles, formatBonusLine} from '../warRoomLoadout'
 
 describe('loadoutEntries', () => {
   it('flattens weapons and armor into a stable, labelled order', () => {
@@ -115,5 +115,51 @@ describe('#616 notable weapons, needles and specials', () => {
     })
     expect(text).toContain('Primary: P90 (Slow)')
     expect(text).toContain('needles')
+  })
+})
+
+describe('formatBonusLine (#929)', () => {
+  it('joins bonuses with their percentages, comma-delimited', () => {
+    expect(formatBonusLine([
+      { title: 'Focus', percent: 16 },
+      { title: '30mW Laser', percent: 4 },
+    ])).toBe('Focus 16%, 30mW Laser 4%')
+  })
+
+  /**
+   * ⚠️ The case that would print "Disarm NaN%". Disarm's description carries no
+   * figure at all, and attachments are frequently flat ("+1.00 Accuracy").
+   */
+  it('renders a bonus with no percentage as its bare title', () => {
+    expect(formatBonusLine([
+      { title: 'Focus', percent: 16 },
+      { title: 'Reflex Sight' },
+      { title: 'Disarm', description: "Disables an opponent's weapon" },
+    ])).toBe('Focus 16%, Reflex Sight, Disarm')
+  })
+
+  /** ⚠️ Absent is not zero: "0%" reads as useless rather than unmeasured. */
+  it('keeps a real zero rather than dropping it', () => {
+    expect(formatBonusLine([{ title: 'Nothing', percent: 0 }])).toBe('Nothing 0%')
+  })
+
+  it('drops a fractional percentage through unchanged', () => {
+    expect(formatBonusLine([{ title: 'Half', percent: 2.5 }])).toBe('Half 2.5%')
+  })
+
+  it('returns an empty string when there is nothing to say', () => {
+    // ⚠️ So the caller can skip the row rather than render a blank line under
+    // every ordinary weapon.
+    expect(formatBonusLine([])).toBe('')
+    expect(formatBonusLine(null)).toBe('')
+    expect(formatBonusLine(undefined)).toBe('')
+  })
+
+  it('ignores a bonus with no title at all', () => {
+    expect(formatBonusLine([{ title: '', percent: 5 }, { title: 'Burn', percent: 37 }])).toBe('Burn 37%')
+  })
+
+  it('ignores a non-numeric percentage rather than printing it', () => {
+    expect(formatBonusLine([{ title: 'Burn', percent: 'loads' }])).toBe('Burn')
   })
 })
