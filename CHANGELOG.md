@@ -18,6 +18,48 @@ surface it automatically.
 
 ---
 
+## [3.207.0] - 2026-10-09
+
+### Fixed
+- ⚠️ **A role change did not reach the UI until the member logged out and back in**
+  (#927). Found by MonChoon after granting `warlead` and watching the War Room's notes
+  clipboard stay hidden.
+  The refresh machinery was never the problem: `/api/auth/refresh` already re-reads
+  `role_assignments` and mints a token with fresh claims, and the client already calls
+  it on every page load and every four hours on an open tab. So the **server** honoured
+  the new role immediately.
+  ⚠️ **But every permission gate reads the cached `user` object, not the token** —
+  `user.isWarLead` and the rest — and `localStorage.setItem('tornUser', …)` happened in
+  exactly one place: inside `login()`. The refresh swapped the token and nothing
+  re-read bootstrap afterwards, so the API allowed the role while the UI kept hiding
+  the controls for it. A successful refresh now adopts the server's view.
+  ⚠️ **The revocation direction was worse.** Removing a role left the controls visible
+  indefinitely; the server correctly 403'd, so nothing unauthorised happened, but the
+  member saw buttons that failed — which reads as the app being broken rather than as
+  access having changed.
+  Landing: **immediate on page load, within four hours on an open tab**. No prompt and
+  no re-login, because a banner would ask somebody to do what the app can do itself.
+
+### Internal
+- `frontend/src/utils/sessionUser.js` — `buildUserFromBootstrap` is now **shared**
+  between login and the refresh. ⚠️ It was inline in `login()`; two copies of that
+  shape would drift, and the symptom of a drift is a permission that works on one path
+  and not the other.
+- ⚠️ `lastLogin` is **carried, not restamped**. The refresh runs on a timer, so
+  rebuilding it would redate a session nobody has logged into — and since it differs on
+  every rebuild, counting it would make the change-detector fire forever. It is
+  excluded from `SESSION_SYNC_FIELDS` and asserted both ways.
+- ⚠️ The comparison is deliberately **wider than the roles**. `consentRequired` has the
+  identical staleness bug: bumping the API Key Usage disclosure would not re-prompt a
+  member with a tab open until their next login, which defeats the point of forcing a
+  re-acceptance. Same mechanism, so it would be strange to leave it broken.
+- ⚠️ The keepalive reads the current user through a **ref**. Keyed on the user object it
+  would push the next check four hours out on every change; closing over a stale user it
+  would compare against a value it had already replaced and rewrite an identical object
+  every four hours forever. I wrote the second version first and caught it in review.
+- 17 tests on the pure module, 7 on the context (its first). Probed: restoring the
+  original bug fails five of the seven, and restamping `lastLogin` fails one.
+
 ## [3.206.0] - 2026-10-07
 
 ### Removed
