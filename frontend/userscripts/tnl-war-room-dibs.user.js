@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.51.0
+// @version      1.52.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -3805,6 +3805,35 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
    * keep both and record what Torn said, rather than filtering to a hard-coded
    * specials list that would silently drop anything Torn adds later.
    */
+  /**
+   * The figure Torn LEADS a bonus description with (#929).
+   *
+   *   "16% increased hit chance for every miss"            → 16
+   *   "37% chance to Burn opponent causing 90% damage…"    → 37
+   *   "+20% ammo per mag"                                  → 20
+   *   "+0.75 Accuracy"                                     → null
+   *   "Disables an opponent's weapon upon a hand or arm…"  → null
+   *
+   * ⚠️ **Null is normal, not a parse failure.** Disarm carries no percentage at
+   * all and attachments are frequently flat values, so anything rendering this
+   * has to omit it rather than print "Disarm null%".
+   *
+   * ⚠️ **Anchored to the START of the string.** "37% chance to Burn opponent
+   * causing 90% damage" holds two percentages and the first is the one Torn is
+   * describing; a loose search would sometimes return the second.
+   *
+   * ⚠️ **Deliberately NOT called a proc chance.** It is a chance on "37% chance
+   * to Burn" and a magnitude on "84% increased Heart damage" — the same field
+   * means different things per bonus, which is why the full description is kept
+   * beside it rather than replaced by it.
+   */
+  function bonusPercent(desc) {
+    const m = /^[+-]?(\d+(?:\.\d+)?)%/.exec(String(desc || '').trim())
+    if (!m) return null
+    const n = Number(m[1])
+    return Number.isFinite(n) ? n : null
+  }
+
   function captureBonuses(el) {
     const out = []
     for (const i of el.querySelectorAll('[data-bonus-attachment-title]')) {
@@ -3813,6 +3842,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const entry = { title }
       const desc = (i.getAttribute('data-bonus-attachment-description') || '').trim()
       if (desc) entry.description = desc
+      const pct = bonusPercent(desc)
+      if (pct !== null) entry.percent = pct
       out.push(entry)
     }
     return out
@@ -3867,8 +3898,45 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const quality = captureQuality(el)
       if (quality.glow) entry.glow = quality.glow
       if (quality.colour) entry.colour = quality.colour
+      const stats = captureWeaponStats(el)
+      if (stats.damage !== undefined) entry.damage = stats.damage
+      if (stats.accuracy !== undefined) entry.accuracy = stats.accuracy
       out[slot] = entry
     }
+    return out
+  }
+
+  /**
+   * The per-weapon damage and accuracy Torn renders under each slot (#929).
+   *
+   * Recorded but NOT displayed — MonChoon, 2026-10-09: *"I would still record
+   * dmg/acc in case we ever decide to display it"*.
+   *
+   * ⚠️ **Never `getElementById`.** Torn ships a DUPLICATE id here: the `<i>`
+   * icon and the value `<span>` both use `accuracy_defender_primary`, so
+   * `getElementById` returns the empty icon and records nothing. Damage happens
+   * to use distinct ids (`damage_…` vs `damage-value_…`), which is exactly what
+   * makes accuracy the one that fails silently. Both are read positionally from
+   * the slot's own bottom row instead.
+   *
+   * ⚠️ These are PER INSTANCE, not per item type: Torn has already folded in
+   * the attachments and the quality tier, so two players carrying the same
+   * rifle do not report the same damage.
+   *
+   * Order is [damage, accuracy] — the two `bonusInfo` spans either side of the
+   * ammo marker, in DOM order.
+   */
+  function captureWeaponStats(el) {
+    const bottom = el.querySelector('[class*="bottom___"]')
+    if (!bottom) return {}
+    const nums = []
+    for (const span of bottom.querySelectorAll('span[class*="bonusInfo___"]')) {
+      const n = Number((span.textContent || '').trim())
+      nums.push(Number.isFinite(n) ? n : null)
+    }
+    const out = {}
+    if (nums[0] !== null && nums[0] !== undefined) out.damage = nums[0]
+    if (nums[1] !== null && nums[1] !== undefined) out.accuracy = nums[1]
     return out
   }
 
@@ -5015,7 +5083,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     parseWeaponAriaLabel, weaponItemIdFromSrc, mapArmorAltToSlot,
     loadoutIsEmpty,
     defenderScopeElement, captureWeapons, captureArmor, captureLoadout,
-    captureBonuses, captureQuality,
+    captureBonuses, captureQuality, captureWeaponStats, bonusPercent,
   }
 })()
 

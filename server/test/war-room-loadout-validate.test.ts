@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateLoadoutPayload, LOADOUT_MAX_BYTES, BONUS_MAX } from '../src/warRoomLoadout.js'
+import { validateLoadoutPayload, LOADOUT_MAX_BYTES, BONUS_MAX, STAT_MAX } from '../src/warRoomLoadout.js'
 
 /**
  * The #616 additions to the loadout payload: weapon bonuses, and the quality
@@ -140,5 +140,129 @@ describe('#616 payload size', () => {
     expect(res.ok, (res as any).error).toBe(true)
     const size = Buffer.byteLength(JSON.stringify((res as any).value.loadout), 'utf8')
     expect(size).toBeLessThan(LOADOUT_MAX_BYTES)
+  })
+})
+
+/**
+ * #929 — damage, accuracy and the bonus percentage.
+ *
+ * ⚠️ Same best-effort rule as everything above. A temporary (a needle) has no
+ * damage row at all and armour has no stats, so absence is ordinary; a
+ * validator that required them would reject most real captures.
+ */
+describe('weapon stats and bonus percentages (#929)', () => {
+  it('accepts the fractional figures Torn actually renders', () => {
+    // ⚠️ NOT rounded. These are Torn's computed values for that item INSTANCE,
+    // with its attachments and quality tier folded in — rounding would discard
+    // the only thing that makes them more useful than the item name.
+    const res = validateLoadoutPayload(base({
+      primary: { name: 'ArmaLite M-15A4', damage: 76.54, accuracy: 61.37 },
+    }))
+    expect(res.ok, (res as any).error).toBe(true)
+    expect((res.value as any).loadout.weapons.primary).toMatchObject({ damage: 76.54, accuracy: 61.37 })
+  })
+
+  it('accepts a weapon with no stats at all', () => {
+    const res = validateLoadoutPayload(base({ temporary: { name: 'Tyrosine' } }))
+    expect(res.ok, (res as any).error).toBe(true)
+    expect((res.value as any).loadout.weapons.temporary).toEqual({ name: 'Tyrosine' })
+  })
+
+  it('refuses a negative or absurd stat', () => {
+    expect(validateLoadoutPayload(base({ primary: { name: 'X', damage: -1 } })).ok).toBe(false)
+    expect(validateLoadoutPayload(base({ primary: { name: 'X', accuracy: STAT_MAX + 1 } })).ok).toBe(false)
+  })
+
+  it('refuses a stat that is not a number', () => {
+    expect(validateLoadoutPayload(base({ primary: { name: 'X', damage: 'lots' } })).ok).toBe(false)
+  })
+
+  it('keeps a bonus percentage beside its description', () => {
+    const res = validateLoadoutPayload(base({
+      secondary: {
+        name: 'Flamethrower',
+        bonuses: [{ title: 'Burn', description: '37% chance to Burn opponent causing 90% damage over 3 turns', percent: 37 }],
+      },
+    }))
+    expect(res.ok, (res as any).error).toBe(true)
+    // ⚠️ BOTH. The percentage is a chance on "37% chance to Burn" and a
+    // magnitude on "84% increased Heart damage", so it cannot replace the
+    // description — only sit beside it.
+    expect((res.value as any).loadout.weapons.secondary.bonuses[0])
+      .toEqual({ title: 'Burn', description: '37% chance to Burn opponent causing 90% damage over 3 turns', percent: 37 })
+  })
+
+  /**
+   * ⚠️ The case that must not be mistaken for a parse failure. Disarm carries
+   * no percentage in its description at all, and attachments are frequently
+   * flat values ("+0.75 Accuracy").
+   */
+  it('accepts a bonus with no percentage', () => {
+    const res = validateLoadoutPayload(base({
+      primary: { name: 'X', bonuses: [{ title: 'Disarm', description: "Disables an opponent's weapon" }] },
+    }))
+    expect(res.ok, (res as any).error).toBe(true)
+    expect((res.value as any).loadout.weapons.primary.bonuses[0]).not.toHaveProperty('percent')
+  })
+
+  it('refuses a nonsense percentage', () => {
+    expect(validateLoadoutPayload(base({
+      primary: { name: 'X', bonuses: [{ title: 'Burn', percent: -5 }] },
+    })).ok).toBe(false)
+    expect(validateLoadoutPayload(base({
+      primary: { name: 'X', bonuses: [{ title: 'Burn', percent: 'loads' }] },
+    })).ok).toBe(false)
+  })
+
+  it('still refuses a field nobody declared', () => {
+    expect(validateLoadoutPayload(base({ primary: { name: 'X', crit: 4 } })).ok).toBe(false)
+  })
+
+  /**
+   * ⚠️ MEASURED. A realistic nine-slot capture with every #929 field populated
+   * came to 1,176 bytes — the ceiling's old comment claimed "a few hundred",
+   * which is how a cap stops being the multiple it reads as.
+   */
+  it('a fully populated realistic capture sits well inside the ceiling', () => {
+    const res = validateLoadoutPayload({
+      target_id: 90200,
+      loadout: {
+        weapons: {
+          primary: { name: 'ArmaLite M-15A4', item_id: 391, glow: 'yellow', colour: 'orange', damage: 76.54, accuracy: 61.37,
+            bonuses: [
+              { title: '30mW Laser', description: '+4% critical hit rate', percent: 4 },
+              { title: 'Reflex Sight', description: '+1.00 Accuracy' },
+              { title: 'Focus', description: '16% increased hit chance for every miss', percent: 16 },
+            ] },
+          secondary: { name: 'Flamethrower', glow: 'default', damage: 67.5, accuracy: 42.7,
+            bonuses: [{ title: 'Burn', description: '37% chance to Burn opponent causing 90% damage over 3 turns', percent: 37 }] },
+          melee: { name: 'Macana', glow: 'orange', damage: 66.11, accuracy: 73.76,
+            bonuses: [
+              { title: 'Cupid', description: '84% increased Heart damage', percent: 84 },
+              { title: 'Achilles', description: '50% increased Foot damage', percent: 50 },
+            ] },
+          temporary: { name: 'Tyrosine', glow: 'default' },
+        },
+        armor: {
+          helmet: { name: 'Assault Helmet' }, chest: { name: 'Dune Armour' }, pants: { name: 'Combat Pants' },
+          boots: { name: 'Combat Boots' }, gloves: { name: 'Combat Gloves' },
+        },
+      },
+    })
+    expect(res.ok, (res as any).error).toBe(true)
+    const size = Buffer.byteLength(JSON.stringify((res.value as any).loadout), 'utf8')
+    expect(size).toBeLessThan(LOADOUT_MAX_BYTES / 2)
+  })
+
+  it('still refuses a payload stuffed past the ceiling', () => {
+    const bonuses = Array.from({ length: BONUS_MAX }, () => ({
+      title: 'T'.repeat(100), description: 'd'.repeat(200), percent: 100,
+    }))
+    const weapons = Object.fromEntries(['primary', 'secondary', 'melee', 'temporary'].map((s) => [s,
+      { name: 'N'.repeat(100), damage: 999, accuracy: 999, bonuses }]))
+    // ⚠️ Every field here is individually legal; the WHOLE payload is not. That
+    // gap is deliberate — per-field limits describe one honest value, the
+    // ceiling describes an honest capture.
+    expect(validateLoadoutPayload({ target_id: 90200, loadout: { weapons } }).ok).toBe(false)
   })
 })

@@ -18,6 +18,62 @@ surface it automatically.
 
 ---
 
+## [3.208.0] - 2026-10-09
+
+### Added
+- **Weapon bonuses now appear in the War Room** (#929). Each weapon in the loadout
+  shield lists its bonuses underneath it, comma-delimited with the percentage Torn
+  leads the description with — `Focus 16%, 30mW Laser 4%, Reflex Sight`.
+  ⚠️ **The data had been captured correctly for a month with nothing showing it.**
+  #616 (3.93.0) built `formatLoadoutTooltip`, `rankedLoadoutEntries`,
+  `isNotableWeapon` and `usesNeedles`, unit-tested them, and **never imported any of
+  them from a component**. `git log -p` on `LoadoutShieldIcon.jsx` confirms it had
+  never referenced a bonus in any revision, so that changelog's "Display: notable
+  weapons first" line described helpers rather than a display. Found by MonChoon
+  looking at the War Room and seeing no specials anywhere.
+  ⚠️ **A bonus with no percentage renders as its bare title.** Disarm carries no
+  figure at all and attachments are frequently flat values (`+1.00 Accuracy`), so
+  appending one unconditionally prints `Disarm undefined%` on a real capture —
+  probed, and it fails three tests. Absent is never shown as `0%`, which would read
+  as useless rather than unmeasured.
+  ⚠️ **Specials and attachments stay mixed**, because Torn's DOM does not distinguish
+  them — Burn and Reflex Sight are identical markup with identical attributes. The
+  only discriminator is which side of the slot's `topMarker` they sit on, which the
+  capture does not record. MonChoon saw the mixed list and approved it.
+  ⚠️ The bonuses render on their **own row** under the weapon, not appended to the
+  name cell: a special belongs to that specific item instance, and on one line the
+  two run together while a long list shoves the right-aligned names out of column.
+
+### Changed
+- **Damage, accuracy and the bonus percentage are now captured** — recorded, not
+  displayed. MonChoon: *"I would still record dmg/acc in case we ever decide to
+  display it"*. Carried through `loadoutEntries` so surfacing them later is a
+  one-line change rather than a re-plumb, and asserted NOT to appear in the panel.
+  ⚠️ **Read positionally, never by id.** Torn ships a duplicate id: the `<i>` icon and
+  the value `<span>` both use `accuracy_defender_primary`, so `getElementById`
+  returns the empty icon and records nothing. Damage uses distinct ids and works,
+  which is exactly what makes accuracy the one that fails silently — probed by
+  switching to the id-based read, which fails five tests.
+  ⚠️ These are **per item instance, not per item type**: Torn has already folded in
+  the attachments and the quality tier, so two players carrying the same rifle do not
+  report the same damage. Stored unrounded for that reason.
+  ⚠️ The percentage is **not a proc chance** despite looking like one — a chance on
+  `37% chance to Burn`, a magnitude on `84% increased Heart damage`. The full
+  description is kept beside it rather than replaced by it. Anchored to the start of
+  the string, because `37% chance to Burn … causing 90% damage` holds two.
+- ⚠️ `LOADOUT_MAX_BYTES` 4,000 → 8,000, **measured rather than estimated**. The old
+  comment claimed a capture was "a few hundred bytes"; a realistic nine-slot capture
+  with every new field is **1,176**. It stays deliberately below what the per-field
+  limits allow (~12,600 at the extremes): per-field limits describe one honest value,
+  the ceiling describes an honest capture, and only a modified script satisfies the
+  first and not the second.
+
+### Internal
+- Userscript `@version` 1.52.0. Both new helpers exported for test.
+- Verified by replaying MonChoon's two real DOM captures (2026-10-09) through the
+  shipped capture functions: 7 bonuses, both quality tokens, damage 57–77, accuracy
+  42–74, the two-bonus Macana, and a populated vs empty temporary slot.
+
 ## [3.207.0] - 2026-10-09
 
 ### Fixed

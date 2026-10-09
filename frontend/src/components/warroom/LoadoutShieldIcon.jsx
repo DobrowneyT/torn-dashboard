@@ -12,9 +12,10 @@
 // sparse-by-nature framing). The Flags-column 🎯 flag (warRoomFlags.js) still
 // carries the same information in the scan-the-flags reading of the row;
 // this is the same fact placed where a lead is already looking at the name.
+import { Fragment } from 'react'
 import { Shield } from 'lucide-react'
 import InfoTooltip from '../InfoTooltip'
-import { loadoutEntries, loadoutFreshness } from '../../utils/warRoomLoadout'
+import { loadoutEntries, loadoutFreshness, formatBonusLine } from '../../utils/warRoomLoadout'
 import { fmtAgo } from '../../utils/time'
 
 export default function LoadoutShieldIcon({ loadoutRow }) {
@@ -41,14 +42,36 @@ export default function LoadoutShieldIcon({ loadoutRow }) {
       className="inline-flex shrink-0"
     >
       <div className="min-w-[160px]">
+        {/* ⚠️ #929 — the bonuses go on their OWN row under the weapon, not
+            appended to the name cell. A special belongs to that specific item
+            instance, so "Burn 37%" has to read as a property of the Flamethrower
+            above it; on one line the two run together and a long bonus list
+            pushes the right-aligned names out of their column.
+            MonChoon: "show the weapons, and then the bonuses underneath that,
+            comma-delimited". */}
         <table className="font-mono w-full">
           <tbody>
-            {entries.map((e) => (
-              <tr key={e.slot}>
-                <td className="pr-3 text-gray-500 dark:text-gray-400">{e.label}</td>
-                <td className="text-right text-gray-900 dark:text-gray-100">{e.name}</td>
-              </tr>
-            ))}
+            {entries.map((e) => {
+              const bonusLine = formatBonusLine(e.bonuses)
+              return (
+                <Fragment key={e.slot}>
+                  <tr>
+                    <td className="pr-3 text-gray-500 dark:text-gray-400 align-top">{e.label}</td>
+                    <td className="text-right text-gray-900 dark:text-gray-100">{e.name}</td>
+                  </tr>
+                  {/* Skipped entirely when there is nothing to say, rather than
+                      rendering a blank line under every ordinary weapon. */}
+                  {bonusLine && (
+                    <tr>
+                      <td />
+                      <td className="pb-1 text-right text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+                        {bonusLine}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
         <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 text-[10px] text-right whitespace-nowrap">

@@ -18,14 +18,29 @@ const NAME_MAX = 100
 /** Torn item ids are small positive integers; this is a sanity ceiling, not
  *  an attempt to track Torn's actual catalog size. */
 const ITEM_ID_MAX = 10_000_000
-/** Whole-payload ceiling (bytes, via JSON.stringify) — a real capture is a
- *  few hundred bytes (nine slots at most); this catches a client trying to
- *  stuff the jsonb column rather than constraining honest use. */
-export const LOADOUT_MAX_BYTES = 4_000
+/** Whole-payload ceiling (bytes, via JSON.stringify) — this catches a client
+ *  trying to stuff the jsonb column rather than constraining honest use.
+ *
+ *  ⚠️ MEASURED, not estimated. The comment here used to say "a few hundred
+ *  bytes"; #929's damage/accuracy and bonus percentages took a realistic
+ *  nine-slot capture to **1,176 bytes**, so the old 4,000 had stopped being the
+ *  comfortable multiple it reads as. 8,000 restores roughly 7× headroom.
+ *
+ *  ⚠️ It is deliberately BELOW what the per-field limits allow. Eight bonuses
+ *  per slot at `NAME_MAX` + `DESCRIPTION_MAX` would reach ~12,600 bytes — every
+ *  field individually legal, the whole thing refused. That gap is the point:
+ *  the per-field limits describe one honest value, this one describes an honest
+ *  capture, and only a modified script produces something that satisfies the
+ *  first and not the second. */
+export const LOADOUT_MAX_BYTES = 8_000
 /** Four bonus containers render per weapon in the observed DOM; allow headroom. */
 export const BONUS_MAX = 8
 /** Torn's own bonus descriptions run to about 60 chars ("26% chance to Slow…"). */
 export const DESCRIPTION_MAX = 200
+/** Ceiling for a weapon's damage/accuracy and a bonus percentage (#929).
+ *  Observed: damage 57–77, accuracy 42–74, percentages 3–84. A sanity bound
+ *  against a modified script, not an attempt to model Torn's real ranges. */
+export const STAT_MAX = 1000
 
 /** Per-member rate limit, mirroring feedback.ts's in-process pattern. A
  *  legitimate capture happens once per fight (the userscript dedupes by
@@ -71,9 +86,8 @@ function validateSlotMap(raw: unknown, allowedSlots: readonly string[]): Record<
   for (const [slot, entry] of Object.entries(raw)) {
     if (!allowedSlots.includes(slot)) return `unknown slot "${slot}"`
     if (!isPlainObject(entry)) return `slot "${slot}" must be an object`
-    const extraKeys = Object.keys(entry).filter(
-      (k) => k !== 'name' && k !== 'item_id' && k !== 'bonuses' && k !== 'glow' && k !== 'colour'
-    )
+    const ALLOWED = ['name', 'item_id', 'bonuses', 'glow', 'colour', 'damage', 'accuracy']
+    const extraKeys = Object.keys(entry).filter((k) => !ALLOWED.includes(k))
     if (extraKeys.length > 0) return `slot "${slot}" has unexpected field(s): ${extraKeys.join(', ')}`
     const name = entry.name
     if (typeof name !== 'string' || !name.trim()) return `slot "${slot}" needs a non-empty name`
@@ -109,6 +123,20 @@ function validateSlotMap(raw: unknown, allowedSlots: readonly string[]): Record<
         if (typeof title !== 'string' || !title.trim()) return `slot "${slot}" bonus needs a title`
         if (title.length > NAME_MAX) return `slot "${slot}" bonus title exceeds ${NAME_MAX} chars`
         const cleanBonus: Record<string, unknown> = { title: title.trim() }
+        // ⚠️ #929 — the figure Torn LEADS the description with. Absent is
+        // normal: Disarm carries no percentage at all and attachments are often
+        // flat values ("+0.75 Accuracy"), so a bonus without one is ordinary.
+        //
+        // ⚠️ Not a proc chance, despite looking like one. It is a chance on
+        // "37% chance to Burn" and a magnitude on "84% increased Heart damage",
+        // which is why `description` is kept beside it rather than replaced.
+        if (b.percent !== undefined && b.percent !== null) {
+          const pct = Number(b.percent)
+          if (!Number.isFinite(pct) || pct < 0 || pct > STAT_MAX) {
+            return `slot "${slot}" bonus percent must be a number between 0 and ${STAT_MAX}`
+          }
+          cleanBonus.percent = pct
+        }
         if (b.description !== undefined && b.description !== null) {
           const d = b.description
           if (typeof d !== 'string') return `slot "${slot}" bonus description must be a string`
@@ -133,6 +161,25 @@ function validateSlotMap(raw: unknown, allowedSlots: readonly string[]): Record<
       if (typeof v !== 'string' || !v.trim()) return `slot "${slot}" ${key} must be a non-empty string`
       if (!/^[a-z]{1,20}$/.test(v.trim())) return `slot "${slot}" ${key} must be a simple token`
       clean[key] = v.trim()
+    }
+
+    // ⚠️ #929 — recorded, NOT displayed. MonChoon: "I would still record dmg/acc
+    // in case we ever decide to display it". Best-effort like everything else
+    // here: armour has no stats at all, and a temporary (a needle) has no
+    // damage row, so their absence is ordinary rather than a failed capture.
+    //
+    // ⚠️ Fractional on purpose (75.38, 61.10) — these are Torn's computed
+    // figures for that ITEM INSTANCE, with its attachments and quality tier
+    // already folded in, so rounding them would discard the only thing that
+    // makes them more informative than the item name.
+    for (const key of ['damage', 'accuracy'] as const) {
+      const v = entry[key]
+      if (v === undefined || v === null) continue
+      const n = Number(v)
+      if (!Number.isFinite(n) || n < 0 || n > STAT_MAX) {
+        return `slot "${slot}" ${key} must be a number between 0 and ${STAT_MAX}`
+      }
+      clean[key] = n
     }
 
     out[slot] = clean
