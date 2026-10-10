@@ -108,19 +108,30 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
       // auto-drop countdown — dibs_expiry_seconds out — so a claim the holder
       // never converts frees up. A target still in hospital gets no claim-time
       // deadline; the #106 hospital-exit window governs that case instead.
+      // ⚠️ #935 — `last_action` comes along for the ride. The status read was
+      // already here for `targetAlive`, so recording whether the target was AT
+      // THE KEYBOARD costs nothing extra, and a claim taken on an already-green
+      // target never reserved anything.
       const ctx = await dbc.query(
         `SELECT (SELECT dibs_expiry_seconds FROM war_room_config_v2 WHERE id = 1) AS secs,
-                (SELECT state->'status'->>'state' FROM war_room_state_v2 WHERE member_id = $1) AS status`,
+                (SELECT state->'status'->>'state' FROM war_room_state_v2 WHERE member_id = $1) AS status,
+                (SELECT state->'last_action'->>'status' FROM war_room_state_v2 WHERE member_id = $1) AS online`,
         [targetId]
       )
       const expirySecs = Number(ctx.rows[0]?.secs ?? DIBS_EXPIRY_SECONDS)
       const targetAlive = ctx.rows[0]?.status === 'Okay'
       const inserted = await dbc.query(
-        `INSERT INTO war_room_dibs_v2 (target_id, claimed_by, claimed_name, war_id, auto_expire_at)
+        // ⚠️ #935 — `claim_state` / `claim_online` are stored AS OBSERVED, never
+        // as a verdict. `claimKind()` interprets them, so the rule can change
+        // without a migration and without rewriting history.
+        `INSERT INTO war_room_dibs_v2
+           (target_id, claimed_by, claimed_name, war_id, auto_expire_at, claim_state, claim_online)
          VALUES ($1, $2, $3, $4,
-                 CASE WHEN $5 THEN now() + make_interval(secs => $6) ELSE NULL END)
+                 CASE WHEN $5 THEN now() + make_interval(secs => $6) ELSE NULL END,
+                 $7, $8)
          RETURNING *`,
-        [targetId, userId, name, body?.war_id ?? null, targetAlive, expirySecs]
+        [targetId, userId, name, body?.war_id ?? null, targetAlive, expirySecs,
+         ctx.rows[0]?.status ?? null, ctx.rows[0]?.online ?? null]
       )
       await dbc.query('COMMIT')
       hub.broadcast('dibs', [...tombstoned.rows, ...inserted.rows], await serverNow())

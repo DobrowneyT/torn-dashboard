@@ -9,6 +9,7 @@ import { startTestStack, TEST_FACTION, TEST_KEY_ENCRYPTION_KEY, type TestStack }
 import { createKeyPool } from '../src/scraper/keyPool.js'
 import { createTornClient } from '../src/scraper/tornClient.js'
 import { dibsSummaryJob } from '../src/scraper/jobs/dibsSummary.js'
+import { DIBS_SUMMARY_VERSION } from '../src/warDibsSummary.js'
 
 let stack: TestStack
 const US = Number(TEST_FACTION.tornFactionId)
@@ -136,7 +137,13 @@ describe('dibs-summary job', () => {
     // ⚠️ Stored WITH the numbers: if the grace window is ever retuned, two wars
     // computed under different values are not comparable, and a figure with no
     // record of its inputs cannot be defended to the member it describes.
-    expect(state.rows[0]).toMatchObject({ claims_seen: 1, grace_seconds: 5, summary_version: 1 })
+    // ⚠️ Against the CONSTANT, not a literal. The stored version exists so a
+    // rule change recomputes rather than leaving stale numbers, and #935 bumped
+    // it to 2 — a test pinning `1` would have to be edited on every rule change,
+    // which trains whoever is editing it to stop reading why.
+    expect(state.rows[0]).toMatchObject({
+      claims_seen: 1, grace_seconds: 5, summary_version: DIBS_SUMMARY_VERSION,
+    })
   })
 
   it('is idempotent — an already-summarised war is not looked at again', async () => {

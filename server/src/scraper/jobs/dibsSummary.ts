@@ -84,10 +84,13 @@ export async function dibsSummaryJob({ db }: JobDeps): Promise<RunResult> {
     // key — a claim taken from a client that did not send it would vanish from
     // its own war. Falling back to the claim's timestamp inside the war window.
     const claims = await db.query(
+      // ⚠️ #935 — the green observations come along, because `classifyClaim`
+      // needs them to decide whether a hit could have been a steal at all.
       `SELECT id, target_id, claimed_by, claimed_name,
               extract(epoch FROM claimed_at) AS claimed_at,
               extract(epoch FROM deleted_at) AS deleted_at,
-              release_reason
+              release_reason, claim_state, claim_online, surfaced_online,
+              extract(epoch FROM surfaced_at) AS surfaced_at
        FROM war_room_dibs_v2
        WHERE war_id = $1
           OR (war_id IS NULL AND claimed_at >= to_timestamp($2) AND claimed_at <= to_timestamp($3))
@@ -127,12 +130,14 @@ export async function dibsSummaryJob({ db }: JobDeps): Promise<RunResult> {
           `INSERT INTO war_dibs_summary (
              war_id, member_id, member_name, claims, converted, attempted,
              taken_from, no_swing, outside, released, hopped, overridden,
-             board_reset, still_open, unknown, swung, took_from_others)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+             board_reset, still_open, unknown, swung, took_from_others,
+             green_means_go)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
           [
             war.id, m.member_id, m.member_name, m.claims, m.converted, m.attempted,
             m.takenFrom, m.noSwing, m.outside, m.released, m.hopped, m.overridden,
             m.boardReset, m.open, m.unknown, m.swung, m.tookFromOthers,
+            m.greenMeansGo,
           ]
         )
         written += 1

@@ -21,6 +21,7 @@
 // have no reason at all (`unknown`).
 import { WIN_RESULTS } from './warOverview/summary.js'
 import { isDibsReleaseReason, DIBS_RELEASE_REASONS } from './warDibsReasons.js'
+import { canBeStolen, claimKind, CLAIM_KINDS, type GreenObservations } from './warDibsGreen.js'
 
 /**
  * How a claim ended, one bucket per claim, mutually exclusive.
@@ -55,6 +56,13 @@ export const CLAIM_OUTCOMES = {
   /** No reason recorded and no attack to go on — pre-0072 history. ⚠️ Visibly
    *  unexplained rather than quietly bucketed. */
   unknown: 'unknown',
+  /** The target was GREEN (Okay + Online) while the claim was live, so the
+   *  claim never reserved anything and nobody can have stolen it (#935).
+   *  ⚠️ BLAMELESS on both axes. MonChoon: "we really dont care too much about
+   *  the person that claimed it" — so a green claim the holder did not convert
+   *  is NOT a failure to follow through, because there was no reservation to
+   *  follow through on. */
+  greenMeansGo: 'green-means-go',
 } as const
 
 export type ClaimOutcome = typeof CLAIM_OUTCOMES[keyof typeof CLAIM_OUTCOMES]
@@ -72,7 +80,7 @@ export type ClaimOutcome = typeof CLAIM_OUTCOMES[keyof typeof CLAIM_OUTCOMES]
  */
 export const STEAL_GRACE_SECONDS = 5
 
-interface ClaimRow {
+interface ClaimRow extends GreenObservations {
   id: number
   target_id: number
   claimed_by: number
@@ -176,14 +184,26 @@ export function classifyClaim({
     // hospital, so the claim is still live and the holder has lost nothing.
     if (!isWin(a.result)) continue
     if (started < from + Number(graceSeconds)) { raced = true; continue }
+    // ⚠️ #935 — a GREEN target is outside the dibs system entirely, so this hit
+    // cannot be a steal however it looks. Checked HERE rather than when
+    // bucketing, so the offender's `tookFromOthers` tally never sees it either:
+    // that column is the accusation, and clearing the victim while still
+    // charging the hitter would be the worst of both.
+    if (!canBeStolen(claim)) continue
     if (takenBy == null) takenBy = Number(a.attacker_id)
   }
 
   const holderSwung = holderWin || holderLoss
   let outcome: ClaimOutcome
+  // ⚠️ A conversion is still a conversion: the holder did the thing, and green
+  // or not they deserve the credit.
   if (holderWin) outcome = CLAIM_OUTCOMES.converted
   else if (takenBy != null) outcome = CLAIM_OUTCOMES.taken
   else if (holderLoss) outcome = CLAIM_OUTCOMES.attempted
+  // ⚠️ #935 — ahead of the release reason, which would otherwise file this as
+  // `no-swing`. The target was fair game, so "they had their window and did not
+  // use it" is the wrong accusation: there was no reservation to honour.
+  else if (claimKind(claim) === CLAIM_KINDS.greenMeansGo) outcome = CLAIM_OUTCOMES.greenMeansGo
   else outcome = outcomeFromReason(claim.release_reason, stillHeld)
 
   return {
@@ -211,6 +231,9 @@ export interface MemberDibsRow {
   boardReset: number
   open: number
   unknown: number
+  /** Claims on a target who was green while they were live (#935). ⚠️ Counted,
+   *  never blamed — it explains why a claim produced nothing. */
+  greenMeansGo: number
   /** Claims where the holder attacked the target at all. */
   swung: number
   /** ⚠️ The OTHER axis: finishing hits this member landed on somebody else's
@@ -222,7 +245,7 @@ export interface MemberDibsRow {
 const emptyRow = (member_id: number, member_name: string | null): MemberDibsRow => ({
   member_id, member_name, claims: 0, converted: 0, attempted: 0, takenFrom: 0,
   noSwing: 0, outside: 0, released: 0, hopped: 0, overridden: 0, boardReset: 0,
-  open: 0, unknown: 0, swung: 0, tookFromOthers: 0,
+  open: 0, unknown: 0, greenMeansGo: 0, swung: 0, tookFromOthers: 0,
 })
 
 /** ⚠️ Narrowed to the COUNT fields only. `keyof MemberDibsRow` includes
@@ -245,6 +268,7 @@ const OUTCOME_FIELD: Record<ClaimOutcome, CountField> = {
   [CLAIM_OUTCOMES.boardReset]: 'boardReset',
   [CLAIM_OUTCOMES.open]: 'open',
   [CLAIM_OUTCOMES.unknown]: 'unknown',
+  [CLAIM_OUTCOMES.greenMeansGo]: 'greenMeansGo',
 }
 
 /**
@@ -351,5 +375,10 @@ export function warAttacksSettled({
 
 /** Bumped when the classifier's rules change, so older summaries recompute
  *  instead of sitting stale. ⚠️ Raise this in the SAME commit as any change to
- *  `classifyClaim`, or the fleet keeps numbers produced by the old rules. */
-export const DIBS_SUMMARY_VERSION = 1
+ *  `classifyClaim`, or the fleet keeps numbers produced by the old rules.
+ *
+ *  2 — #935: a green target is outside the dibs system, so a hit on one is no
+ *  longer a steal on either axis. Every already-summarised war is recomputed,
+ *  which is the point: wars counted under rule 1 contain steals that this rule
+ *  says never happened, and leaving them would keep an accusation standing. */
+export const DIBS_SUMMARY_VERSION = 2
