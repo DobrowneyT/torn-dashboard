@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.53.0
+// @version      1.54.0
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -35,6 +35,22 @@ const TNLDibs = (function () {
   const SETTING_CHAIN = 'tnl-dibs-chain'
   const SETTING_DIBS_HOSPITAL_ALERT = 'tnl-dibs-hosp-alert'
   /**
+   * The three FEATURES, as opposed to the cosmetic toggles above (#934).
+   *
+   * Pickles_616: *"could you release a 'lite' version of the script that does
+   * the loadout scraping without the rest of the war page modifications?"* —
+   * which was impossible, because every existing setting gated a decoration on
+   * the roster and none of them gated a feature. Turning all eight off still
+   * left dibs, the assist overlay and the scraper running.
+   *
+   * ⚠️ All three default TRUE. A new setting that defaults off would silently
+   * take dibs away from the whole faction on the next script update, which
+   * reads as an outage rather than as a preference.
+   */
+  const SETTING_DIBS = 'tnl-dibs-feature-dibs'
+  const SETTING_ASSIST = 'tnl-dibs-feature-assist'
+  const SETTING_LOADOUT = 'tnl-dibs-feature-loadout'
+  /**
    * Deliberately outside SETTING_DEFAULTS/settings.on() and never surfaced in
    * the settings panel — tenants.json is production-only by design (staging
    * is excluded from it, see deploy/update.sh), so there is no ordinary way
@@ -53,6 +69,10 @@ const TNLDibs = (function () {
     [SETTING_MEMBER_COUNT]: true,
     [SETTING_CHAIN]: true,
     [SETTING_DIBS_HOSPITAL_ALERT]: true,
+    // ⚠️ True, and they must stay true — see the note on the keys.
+    [SETTING_DIBS]: true,
+    [SETTING_ASSIST]: true,
+    [SETTING_LOADOUT]: true,
     [DEBUG_KEY]: false,
   }
 
@@ -112,7 +132,17 @@ const TNLDibs = (function () {
   }
 
   function settingsSignature() {
-    return `${settings.on(SETTING_STATS) ? 1 : 0}${settings.on(SETTING_FF_BOX) ? 1 : 0}${settings.num(SETTING_FF_THRESHOLD)}`
+    // ⚠️ #934 — the feature toggles belong in here too. This string is the
+    // cache key for "has anything that affects the paint changed", so a toggle
+    // missing from it flips the setting and leaves every badge exactly as it
+    // was until some unrelated change happens to bust the signature.
+    return [
+      settings.on(SETTING_STATS) ? 1 : 0,
+      settings.on(SETTING_FF_BOX) ? 1 : 0,
+      settings.num(SETTING_FF_THRESHOLD),
+      settings.on(SETTING_DIBS) ? 1 : 0,
+      settings.on(SETTING_ASSIST) ? 1 : 0,
+    ].join('')
   }
 
   function paintSignature(state, stats, settingsSig, mineTotal) {
@@ -4110,6 +4140,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
 
   async function checkLoadoutCapture() {
     if (!isAttackPage() || !rt.session) return
+    // ⚠️ #934 — the whole point of the toggle. Checked before the DOM read, so
+    // "off" means nothing is captured rather than captured-then-discarded.
+    if (!settings.on(SETTING_LOADOUT)) return
     const targetId = attackTargetId(typeof location !== 'undefined' ? location.search : '')
     if (!targetId) return
     if (rt.loadoutTarget !== targetId) { rt.loadoutTarget = targetId; rt.loadoutSent = false }
@@ -4202,7 +4235,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     // overrides (`.white-grad`, `[class*="tableHeader"]`, …) that are Torn
     // component classes reused across pages, so running the faction-page body
     // there risks breaking Torn's own attack-page layout, not just no-op.
-    if (isAttackPage()) { renderAssistOverlay(); return }
+    // ⚠️ #934 — with the overlay off the attack page renders nothing of ours,
+    // which is exactly the "loadout scraping only" shape that was asked for.
+    if (isAttackPage()) { if (settings.on(SETTING_ASSIST)) renderAssistOverlay(); return }
     if (!isFactionPage()) return   // unrecognised page: degrade to nothing
     // The launcher and its status light belong to the whole faction page, not
     // to the war tab: it is how you reach settings and how you tell whether
@@ -4233,6 +4268,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     let attached = 0     // badges that actually exist in the DOM
     let repainted = 0    // rows whose state actually changed
     const settingsSig = settingsSignature()   // loop-invariant; read once
+    // Loop-invariant too — read once rather than per row (#934).
+    const dibsOn = settings.on(SETTING_DIBS)
+    const assistOn = settings.on(SETTING_ASSIST)
     const nowMs = Date.now()
     const sigs = new Map()
     eachRow((playerId, anchor, row) => {
@@ -4250,17 +4288,37 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       painted++
       let entry = sigs.get(playerId)
       if (!entry) {
-        const state = badgeState(rt.dibs.get(playerId), rt.assists.get(playerId), playerId, rt.session?.userId, rt.isAdmin)
+        // ⚠️ #934 — the toggles are applied by withholding the INPUTS rather
+        // than by flags inside badgeState. One cell carries both features and
+        // `mode: 'assist'` wins over the dibs control, so feeding it null is
+        // the only way to turn one off without teaching the view model about
+        // settings it has no other reason to know.
+        const state = badgeState(
+          dibsOn ? rt.dibs.get(playerId) : null,
+          assistOn ? rt.assists.get(playerId) : null,
+          playerId, rt.session?.userId, rt.isAdmin
+        )
         entry = { state, sig: paintSignature(state, rt.stats.get(playerId), settingsSig, rt.mine?.total) }
         sigs.set(playerId, entry)
       }
       const { dibsCell, bsCell } = ensureColumns(row)
-      if (badgeFor(dibsCell, playerId)) attached++
+      // With dibs off the cell still exists for a live assist marker, because
+      // that is a separate feature with its own toggle. Neither wanted it ⇒
+      // nothing is drawn.
+      const wantsBadge = dibsOn || entry.state.mode === 'assist'
+      if (wantsBadge) {
+        if (badgeFor(dibsCell, playerId)) attached++
+      } else {
+        // ⚠️ Actively REMOVED, not merely skipped: toggling dibs off mid-session
+        // would otherwise leave the last painted badge sitting there, still
+        // clickable, for a feature the member just switched off.
+        dibsCell.querySelector(`.${BADGE_CLASS}`)?.remove()
+      }
       if (dibsCell.dataset.tnlSig === entry.sig) return
       dibsCell.dataset.tnlSig = entry.sig
       bsCell.dataset.tnlSig = entry.sig
       repainted++
-      paintDibs(dibsCell.querySelector(`.${BADGE_CLASS}`), entry.state)
+      if (wantsBadge) paintDibs(dibsCell.querySelector(`.${BADGE_CLASS}`), entry.state)
       paintStats(bsCell, playerId)
     })
     if (painted !== rt.painted || attached !== rt.attached) {
@@ -4815,20 +4873,109 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     box.appendChild(back)
   }
 
+  /**
+   * The settings, in groups, with bulk controls (#934).
+   *
+   * ⚠️ Grouped by WHERE each one acts, not by what it is. The request behind
+   * this was "loadout scraping without the rest of the war page modifications"
+   * — a question about pages — and a member deciding what to run is asking the
+   * same thing: what does this do to the page I am on?
+   */
+  const SETTING_GROUPS = [
+    {
+      title: 'Faction / war page',
+      rows: [
+        [SETTING_DIBS, 'Dibs', 'Claim and release targets on the war roster. \u26a0\ufe0f Off also hides the assist markers on the roster rows \u2014 one cell carries both \u2014 but the attack-page overlay has its own switch below.'],
+        [SETTING_STATS, 'Battle stats column', 'Off leaves the dibs control alone.'],
+        [SETTING_FF_BOX, 'Highlight high fair fight', 'A green box at or above the threshold below.'],
+        [SETTING_STATUS, 'Live status column', 'Hospital countdown, travel ETA and last action, in Torn\u2019s own Status cell.'],
+        [SETTING_TINT, 'Tint names by activity', 'Green online, amber idle, grey offline.'],
+        [SETTING_MEMBER_COUNT, 'Online/idle count', 'A Warline-style count on each Members header.'],
+        [SETTING_CHAIN, 'Chain timer', 'Live countdown, next bonus hit, and the save claim.'],
+        [SETTING_DIBS_HOSPITAL_ALERT, 'Alert when a dibs target leaves hospital', 'A toast when a target you hold dibs on is discharged.'],
+      ],
+    },
+    {
+      title: 'Attack page',
+      rows: [
+        [SETTING_ASSIST, 'Assist overlay', 'The draggable panel for asking teammates for smoke, tear or help mid-fight.'],
+        [SETTING_LOADOUT, 'Loadout capture', 'Records the weapons, armour and specials the defender revealed once the fight started. \u26a0\ufe0f This is what fills the gear shields in the dashboard\u2019s War Room \u2014 with it off, nobody sees what that target was carrying.'],
+      ],
+    },
+  ]
+
+  /** Every feature a member can switch, for the bulk controls. */
+  function groupKeys(group) { return group.rows.map(([key]) => key) }
+
+  function setMany(keys, on) {
+    for (const key of keys) settings.set(key, on)
+    log(`settings bulk: ${keys.length} key(s) = ${on}`)
+    // ⚠️ `panel()` then `render()`, matching settingToggle: the first redraws
+    // the checkboxes from storage, the second repaints the roster. Neither
+    // substitutes for the other — without render() the page keeps whatever was
+    // last painted for features that were just switched off.
+    panel()
+    render()
+  }
+
+  /** `All` / `None` for one group, or for everything. */
+  function bulkRow(label, keys) {
+    const row = document.createElement('div')
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin:6px 0 2px'
+    const name = document.createElement('div')
+    name.textContent = label
+    name.style.cssText = 'flex:1;font-weight:700;opacity:.85'
+    row.appendChild(name)
+    for (const [text, on] of [['All', true], ['None', false]]) {
+      const b = document.createElement('button')
+      b.textContent = text
+      b.style.cssText = 'padding:1px 7px;border-radius:5px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer;font-size:11px'
+      b.addEventListener('click', () => setMany(keys, on))
+      row.appendChild(b)
+    }
+    return row
+  }
+
   function settingsView(box) {
     const title = document.createElement('div')
     title.textContent = 'Settings'
     title.style.cssText = 'font-weight:700;margin-bottom:2px'
     box.appendChild(title)
 
-    box.appendChild(settingToggle(SETTING_STATS, 'Show battle stats', 'Off leaves the dibs control alone.'))
-    box.appendChild(settingToggle(SETTING_FF_BOX, 'Highlight high fair fight', 'A green box at or above the threshold below.'))
-    box.appendChild(settingNumber(SETTING_FF_THRESHOLD, 'FF highlight threshold', 'FF saturates around 0.75 defender/attacker \u2014 the useful range is below an even fight.', { min: 1, max: 3, step: 0.1 }))
-    box.appendChild(settingToggle(SETTING_STATUS, 'Live status column', 'Hospital countdown, travel ETA and last action, in Torn\u2019s own Status cell.'))
-    box.appendChild(settingToggle(SETTING_TINT, 'Tint names by activity', 'Green online, amber idle, grey offline.'))
-    box.appendChild(settingToggle(SETTING_MEMBER_COUNT, 'Online/idle count', 'A Warline-style count on each Members header.'))
-    box.appendChild(settingToggle(SETTING_CHAIN, 'Chain timer on the faction page', 'Live countdown, next bonus hit, and the save claim.'))
-    box.appendChild(settingToggle(SETTING_DIBS_HOSPITAL_ALERT, 'Alert when a dibs target leaves hospital', 'A toast when a target you hold dibs on is discharged.'))
+    const everything = SETTING_GROUPS.flatMap(groupKeys)
+
+    /**
+     * ⚠️ The answer to #934, as one click. Pickles_616 asked for a separate
+     * "lite" script; a preset does the same job without a second file to keep
+     * in step with this one — and a second copy of the capture logic is the
+     * last thing worth duplicating.
+     */
+    const preset = document.createElement('button')
+    preset.textContent = 'Loadout capture only'
+    preset.style.cssText = 'width:100%;margin-bottom:4px;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
+    preset.title = 'Turns everything off except the loadout capture on the attack page.'
+    preset.addEventListener('click', () => {
+      for (const key of everything) settings.set(key, false)
+      settings.set(SETTING_LOADOUT, true)
+      log('settings preset: loadout capture only')
+      panel()
+      render()
+    })
+    box.appendChild(preset)
+    box.appendChild(bulkRow('Everything', everything))
+
+    for (const group of SETTING_GROUPS) {
+      box.appendChild(bulkRow(group.title, groupKeys(group)))
+      for (const [key, label, help] of group.rows) {
+        box.appendChild(settingToggle(key, label, help))
+        // The threshold belongs under the toggle it qualifies.
+        if (key === SETTING_FF_BOX) {
+          box.appendChild(settingNumber(SETTING_FF_THRESHOLD, 'FF highlight threshold', 'FF saturates around 0.75 defender/attacker \u2014 the useful range is below an even fight.', { min: 1, max: 3, step: 0.1 }))
+        }
+      }
+    }
+
+    box.appendChild(bulkRow('Diagnostics', [DEBUG_KEY]))
     box.appendChild(settingToggle(DEBUG_KEY, 'Debug log (console)', 'Reload to trace startup.'))
 
     const back = document.createElement('button')
@@ -4875,7 +5022,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     }
 
     const title = document.createElement('div')
-    title.style.cssText = 'display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px'
+    title.style.cssText = 'display:flex;align-items:baseline;gap:8px;margin-bottom:4px'
     const name = document.createElement('span')
     name.textContent = LAUNCHER_NAME
     name.style.cssText = 'font-weight:700'
@@ -4898,6 +5045,35 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       tag.textContent = transport === 'none' ? '\u26A0 no HTTP bridge' : transport
       tag.style.cssText = `font-weight:400;font-size:11px;color:${transport === 'none' ? '#f59e0b' : '#9ca3af'}`
       title.appendChild(tag)
+
+    /**
+     * Minimise, top-right (#934).
+     *
+     * ⚠️ This was a full-width "Hide" button sitting in a flex row NEXT TO
+     * "Sign out", which is why nobody could tell what it did: placed as a
+     * sibling of signing out, it reads as something that hides YOU rather than
+     * the box. MonChoon: *"there was already confusion when opening the
+     * mini-page with what function the 'hide' button does"*. A minimise glyph in
+     * the corner is the convention every window on the member's screen already
+     * uses, and it leaves "Sign out" alone and unambiguous on its row.
+     *
+     * ⚠️ Padded to a real tap target rather than sized to the glyph — the panel
+     * is used on phones, where a 12px dash is not hittable.
+     */
+    const spacer = document.createElement('span')
+    spacer.style.cssText = 'flex:1'
+    title.appendChild(spacer)
+    const min = document.createElement('button')
+    min.textContent = '\u2014'
+    min.title = 'Minimise'
+    min.setAttribute('aria-label', 'Minimise')
+    min.style.cssText = 'border:0;background:transparent;color:#9ca3af;cursor:pointer;font:700 13px/1 system-ui,sans-serif;padding:4px 6px;margin:-4px -4px -4px 0;border-radius:5px'
+    min.addEventListener('mouseenter', () => { min.style.color = '#e5e7eb' })
+    min.addEventListener('mouseleave', () => { min.style.color = '#9ca3af' })
+    min.addEventListener('click', () => {
+      rt.expanded = false; rt.settingsOpen = false; rt.feedbackOpen = false; panel()
+    })
+    title.appendChild(min)
     }
     box.appendChild(title)
 
@@ -4938,11 +5114,9 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       const row = document.createElement('div')
       row.style.cssText = 'display:flex;gap:6px'
 
-      const hide = document.createElement('button')
-      hide.textContent = 'Hide'
-      hide.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
-      hide.addEventListener('click', () => { rt.expanded = false; rt.settingsOpen = false; rt.feedbackOpen = false; panel() })
-
+      // ⚠️ "Hide" used to sit here, sharing the row with "Sign out" — which is
+      // precisely what made it unreadable. It is the minimise glyph in the
+      // title bar now (#934), and Sign out has the row to itself.
       const out = document.createElement('button')
       out.textContent = 'Sign out'
       out.style.cssText = 'flex:1;padding:5px;border-radius:6px;border:1px solid #4b5563;background:transparent;color:#e5e7eb;cursor:pointer'
@@ -4956,7 +5130,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       who.style.cssText = 'opacity:.7;margin-bottom:6px'
       who.textContent = `Signed in as ${rt.session.userId} \u00B7 ${rt.session.host}`
       box.insertBefore(who, box.lastChild)
-      row.appendChild(hide)
       row.appendChild(out)
       box.appendChild(row)
 
@@ -5082,6 +5255,8 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
     checkDibsHospitalAlerts, checkChainAlert, showToast,
     TENANTS_URL, STORE_KEY, BADGE_CLASS,
     SETTING_DEFAULTS, SETTING_STATS, SETTING_FF_BOX, SETTING_STATUS, SETTING_TINT,
+    // #934 — the three FEATURE toggles, as opposed to the roster decorations.
+    SETTING_DIBS, SETTING_ASSIST, SETTING_LOADOUT, SETTING_GROUPS,
     SETTING_MEMBER_COUNT, DEBUG_KEY,
     FLIGHT_SECONDS, PLANE_TYPE_METHOD,
     // #528 Part 2: enemy loadout capture — the pure parse/dedupe seam, plus

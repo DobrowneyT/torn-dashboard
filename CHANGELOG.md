@@ -18,6 +18,62 @@ surface it automatically.
 
 ---
 
+## [3.211.0] - 2026-10-10
+
+### Added
+- **Three new userscript settings — Dibs, Assist overlay and Loadout capture — so a
+  member can run only the parts they want** (#934). Requested by Pickles_616 via
+  in-app feedback: *"could you release a 'lite' version of the script that does the
+  loadout scraping without the rest of the war page modifications?"*
+  ⚠️ **That was impossible before this.** All eight existing settings gated a
+  DECORATION on the war roster — battle stats, the FF box, the status cell, tinting,
+  the member count, the chain badge, the hospital toast. **None gated a feature.** A
+  member could switch every checkbox off and still have dibs, the assist overlay and
+  the loadout scraper running, so the request could not be met by configuration.
+  ⚠️ **All three default ON.** A new setting defaulting off would silently take dibs
+  away from the whole faction on the next script update, which reads as an outage
+  rather than a preference. Probed: flipping the defaults fails a test.
+  ⚠️ **No separate "lite" script.** A second file means a second update URL and a
+  second copy of the capture logic to keep in step — and the capture is the delicate
+  part. A **"Loadout capture only"** preset does the same job in one click and cannot
+  drift.
+
+### Changed
+- **The settings panel is grouped by the page each setting acts on** — *Faction / war
+  page* and *Attack page* — with `All` / `None` per group and for everything.
+  ⚠️ Grouped by WHERE rather than by what: the request was a question about pages,
+  and a member deciding what to run is asking the same thing. Probed: moving loadout
+  capture out of the attack-page group fails two tests, because that grouping *is*
+  the answer to the issue.
+- ⚠️ **"Hide" is now a minimise glyph in the panel's top-right corner.** MonChoon:
+  *"there was already confusion when opening the mini-page with what function the
+  'hide' button does"* — and the reason is placement: it was a full-width button
+  sharing a flex row with **Sign out**, so it read as something that hides *you*
+  rather than the box. A minimise glyph in the corner is the convention every window
+  on the screen already uses, and "Sign out" now has its row to itself. Padded to a
+  real tap target rather than sized to the glyph, because the panel gets used on
+  phones.
+- Userscript `@version` **1.54.0**.
+
+### Fixed
+- ⚠️ **The repaint cache key now includes the feature toggles.** `settingsSignature()`
+  is what `paintSignature` uses to decide whether anything affecting the paint has
+  changed, and it covered only three of the settings. A toggle missing from it flips
+  the setting and leaves every badge on screen exactly as it was until some unrelated
+  change happens to bust the signature. Probed: omitting them fails a test.
+- ⚠️ Switching Dibs off now **removes** any badge already painted, rather than merely
+  skipping the next paint — otherwise the last badge sits there, still clickable, for
+  a feature the member just turned off.
+
+### Notes
+- ⚠️ One coupling worth knowing: the roster's dibs cell carries the assist markers
+  too, and `mode: 'assist'` wins over the dibs control. So turning **Dibs** off also
+  hides those markers on the roster rows. The attack-page overlay is unaffected and
+  has its own switch; the toggle's help text says so.
+- ⚠️ Turning **Loadout capture** off stops feeding the War Room's gear shields. The
+  help text says that out loud, because it is a choice with a consequence for other
+  people rather than only for the member making it.
+
 ## [3.210.0] - 2026-10-09
 
 ### Added
