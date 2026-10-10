@@ -4660,3 +4660,162 @@ describe('requestAssist / clearAssist', () => {
     expect(S.assistsIndex().has(90200)).toBe(true)
   })
 })
+
+/**
+ * #934 — the three FEATURE toggles.
+ *
+ * Pickles_616 asked for a "lite" script that scrapes loadouts without the war
+ * page modifications. That was impossible: all eight existing settings gated a
+ * DECORATION on the roster, and none gated a feature, so turning every one off
+ * still left dibs, the assist overlay and the scraper running.
+ */
+describe('feature toggles (#934)', () => {
+  it('⚠️ every new toggle defaults ON', () => {
+    // A new setting that defaults off would silently take dibs away from the
+    // whole faction on the next script update — which reads as an outage, not
+    // as a preference.
+    const { S } = loadScript()
+    for (const key of [S.SETTING_DIBS, S.SETTING_ASSIST, S.SETTING_LOADOUT]) {
+      expect(S.SETTING_DEFAULTS[key], key).toBe(true)
+    }
+  })
+
+  it('groups the settings by the page they act on', () => {
+    const { S } = loadScript()
+    const titles = S.SETTING_GROUPS.map((g) => g.title)
+    expect(titles).toEqual(['Faction / war page', 'Attack page'])
+  })
+
+  /**
+   * ⚠️ The loadout capture and the assist overlay must be in the ATTACK PAGE
+   * group. That grouping is the answer to #934 — "turn off the faction-page
+   * group, keep loadout capture" — and a key in the wrong group makes the
+   * bulk buttons do the opposite of what the member intends.
+   */
+  it('puts loadout capture and the assist overlay on the attack page', () => {
+    const { S } = loadScript()
+    const attack = S.SETTING_GROUPS.find((g) => g.title === 'Attack page')
+    const keys = attack.rows.map(([k]) => k)
+    expect(keys).toContain(S.SETTING_LOADOUT)
+    expect(keys).toContain(S.SETTING_ASSIST)
+    expect(keys).not.toContain(S.SETTING_DIBS)
+  })
+
+  it('puts dibs on the faction page group', () => {
+    const { S } = loadScript()
+    const faction = S.SETTING_GROUPS.find((g) => g.title === 'Faction / war page')
+    expect(faction.rows.map(([k]) => k)).toContain(S.SETTING_DIBS)
+  })
+
+  /**
+   * ⚠️ Every feature a member can switch has to appear in a group, or the
+   * All/None buttons silently miss it and "None" leaves something running.
+   */
+  it('lists every feature key in exactly one group', () => {
+    const { S } = loadScript()
+    const grouped = S.SETTING_GROUPS.flatMap((g) => g.rows.map(([k]) => k))
+    expect(new Set(grouped).size).toBe(grouped.length)
+    for (const key of [S.SETTING_DIBS, S.SETTING_ASSIST, S.SETTING_LOADOUT,
+      S.SETTING_STATS, S.SETTING_FF_BOX, S.SETTING_STATUS, S.SETTING_TINT]) {
+      expect(grouped, `${key} is not in any group`).toContain(key)
+    }
+  })
+
+  it('gives every grouped row a label and a hint', () => {
+    const { S } = loadScript()
+    for (const group of S.SETTING_GROUPS) {
+      for (const [key, label, hint] of group.rows) {
+        expect(typeof label, key).toBe('string')
+        expect(label.length, key).toBeGreaterThan(0)
+        // A toggle whose effect is not spelled out is the "Hide" button again.
+        expect(typeof hint, key).toBe('string')
+        expect(hint.length, key).toBeGreaterThan(10)
+      }
+    }
+  })
+
+  /**
+   * ⚠️ The repaint cache key must include the feature toggles. `paintSignature`
+   * uses it to decide "has anything that affects the paint changed", so a
+   * toggle missing from it flips the setting and leaves every badge on screen
+   * exactly as it was until some unrelated change busts the signature.
+   */
+  it('includes the feature toggles in the repaint signature', () => {
+    const i = source.indexOf('function settingsSignature(')
+    expect(i).toBeGreaterThan(-1)
+    const body = source.slice(i, source.indexOf('\n  }', i))
+    expect(body).toContain('SETTING_DIBS')
+    expect(body).toContain('SETTING_ASSIST')
+  })
+})
+
+/**
+ * The minimise control must sit at the top level of the title bar (#934).
+ *
+ * ⚠️ A regression guard for a bug I shipped into the PR. The button was
+ * inserted immediately after `title.appendChild(tag)` — which sits INSIDE
+ * `if (transport !== 'GM') { … }`. On a desktop Tampermonkey install
+ * `transport === 'GM'`, so the branch never runs and the button was never
+ * created. It would have appeared only on a phone or a browser with no GM
+ * bridge: the exact opposite of the common case. MonChoon found it in a
+ * screenshot — "I dont see the minimize button?"
+ *
+ * ⚠️ The title bar has TWO optional branches — `if (version)` and
+ * `if (transport !== 'GM')` — and landing in either is the same bug. My first
+ * version of this guard only checked the transport one, and a probe that
+ * reintroduced the fault in the version branch sailed past it. Both are
+ * checked now, and so is the indentation, which is what actually distinguishes
+ * "top level of the function" from "inside a branch".
+ *
+ * ⚠️ Source-level rather than rendered, because `panel()` is not exported and
+ * driving it needs the launcher, the placement maths and a far larger fake
+ * document than this file has. A narrow structural check that encodes the
+ * precise mistake beats no check — but it stands in for a render test rather
+ * than replacing one.
+ */
+describe('the minimise control is not nested inside a title branch', () => {
+  /** The body of an `if (…) { … }` opening at `needle`, by brace counting. */
+  function branchBody(needle) {
+    const i = source.indexOf(needle)
+    expect(i, `${needle} not found — has the title bar been rewritten?`).toBeGreaterThan(-1)
+    let depth = 0
+    for (let j = source.indexOf('{', i); j < source.length; j++) {
+      if (source[j] === '{') depth++
+      else if (source[j] === '}') {
+        depth--
+        if (depth === 0) return source.slice(i, j + 1)
+      }
+    }
+    throw new Error(`unbalanced branch at ${needle}`)
+  }
+
+  for (const needle of ["if (transport !== 'GM') {", 'if (version) {']) {
+    it(`⚠️ is not created inside \`${needle}\``, () => {
+      expect(branchBody(needle)).not.toContain('Minimise')
+    })
+  }
+
+  /**
+   * ⚠️ The check that actually generalises. Four spaces is the function body;
+   * six means nested in a branch. Indentation is the only thing that separates
+   * "always runs" from "runs sometimes" here, and it is what both versions of
+   * the bug had wrong.
+   */
+  it('⚠️ is created at the function\'s own indentation, not a branch\'s', () => {
+    expect(source).toContain("\n    const min = document.createElement('button')")
+    expect(source).not.toContain("\n      const min = document.createElement('button')")
+  })
+
+  it('still creates it, and attaches it to the title', () => {
+    // Both halves: unnested AND present. A guard checking only nesting would
+    // pass if the button were deleted outright.
+    expect(source).toContain("min.setAttribute('aria-label', 'Minimise')")
+    expect(source).toContain('title.appendChild(min)')
+  })
+
+  it('⚠️ and the old full-width Hide button is gone', () => {
+    // Sharing a row with "Sign out" is what made it unreadable; if it comes
+    // back, so does the confusion.
+    expect(source).not.toContain("hide.textContent = 'Hide'")
+  })
+})
