@@ -4748,3 +4748,74 @@ describe('feature toggles (#934)', () => {
     expect(body).toContain('SETTING_ASSIST')
   })
 })
+
+/**
+ * The minimise control must sit at the top level of the title bar (#934).
+ *
+ * ⚠️ A regression guard for a bug I shipped into the PR. The button was
+ * inserted immediately after `title.appendChild(tag)` — which sits INSIDE
+ * `if (transport !== 'GM') { … }`. On a desktop Tampermonkey install
+ * `transport === 'GM'`, so the branch never runs and the button was never
+ * created. It would have appeared only on a phone or a browser with no GM
+ * bridge: the exact opposite of the common case. MonChoon found it in a
+ * screenshot — "I dont see the minimize button?"
+ *
+ * ⚠️ The title bar has TWO optional branches — `if (version)` and
+ * `if (transport !== 'GM')` — and landing in either is the same bug. My first
+ * version of this guard only checked the transport one, and a probe that
+ * reintroduced the fault in the version branch sailed past it. Both are
+ * checked now, and so is the indentation, which is what actually distinguishes
+ * "top level of the function" from "inside a branch".
+ *
+ * ⚠️ Source-level rather than rendered, because `panel()` is not exported and
+ * driving it needs the launcher, the placement maths and a far larger fake
+ * document than this file has. A narrow structural check that encodes the
+ * precise mistake beats no check — but it stands in for a render test rather
+ * than replacing one.
+ */
+describe('the minimise control is not nested inside a title branch', () => {
+  /** The body of an `if (…) { … }` opening at `needle`, by brace counting. */
+  function branchBody(needle) {
+    const i = source.indexOf(needle)
+    expect(i, `${needle} not found — has the title bar been rewritten?`).toBeGreaterThan(-1)
+    let depth = 0
+    for (let j = source.indexOf('{', i); j < source.length; j++) {
+      if (source[j] === '{') depth++
+      else if (source[j] === '}') {
+        depth--
+        if (depth === 0) return source.slice(i, j + 1)
+      }
+    }
+    throw new Error(`unbalanced branch at ${needle}`)
+  }
+
+  for (const needle of ["if (transport !== 'GM') {", 'if (version) {']) {
+    it(`⚠️ is not created inside \`${needle}\``, () => {
+      expect(branchBody(needle)).not.toContain('Minimise')
+    })
+  }
+
+  /**
+   * ⚠️ The check that actually generalises. Four spaces is the function body;
+   * six means nested in a branch. Indentation is the only thing that separates
+   * "always runs" from "runs sometimes" here, and it is what both versions of
+   * the bug had wrong.
+   */
+  it('⚠️ is created at the function\'s own indentation, not a branch\'s', () => {
+    expect(source).toContain("\n    const min = document.createElement('button')")
+    expect(source).not.toContain("\n      const min = document.createElement('button')")
+  })
+
+  it('still creates it, and attaches it to the title', () => {
+    // Both halves: unnested AND present. A guard checking only nesting would
+    // pass if the button were deleted outright.
+    expect(source).toContain("min.setAttribute('aria-label', 'Minimise')")
+    expect(source).toContain('title.appendChild(min)')
+  })
+
+  it('⚠️ and the old full-width Hide button is gone', () => {
+    // Sharing a row with "Sign out" is what made it unreadable; if it comes
+    // back, so does the confusion.
+    expect(source).not.toContain("hide.textContent = 'Hide'")
+  })
+})

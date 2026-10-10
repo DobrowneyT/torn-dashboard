@@ -53,7 +53,20 @@ surface it automatically.
   on the screen already uses, and "Sign out" now has its row to itself. Padded to a
   real tap target rather than sized to the glyph, because the panel gets used on
   phones.
-- Userscript `@version` **1.54.0**.
+- Userscript `@version` **1.54.1**.
+
+### Fixed before release
+- ⚠️ **The minimise button never appeared on desktop.** It was inserted directly
+  after `title.appendChild(tag)` — which sits inside `if (transport !== 'GM')`. On a
+  Tampermonkey desktop install `transport === 'GM'`, so the branch never runs and the
+  button was never created; it would have shown only on a phone or a browser with no
+  GM bridge, the exact opposite of the common case. Caught by MonChoon from a
+  screenshot before this shipped.
+  ⚠️ The title bar has **two** optional branches — `if (version)` and the transport
+  one — and landing in either is the same bug. My first regression guard checked only
+  the transport branch, and a probe that reintroduced the fault in the version branch
+  walked straight past it. The guard now checks both, plus the indentation, which is
+  what actually separates "runs always" from "runs sometimes".
 
 ### Fixed
 - ⚠️ **The repaint cache key now includes the feature toggles.** `settingsSignature()`

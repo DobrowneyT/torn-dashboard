@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TNL War Room — Dibs
 // @namespace    https://monchoon.me/
-// @version      1.54.0
+// @version      1.54.1
 // @description  War Room dibs, battle stats, live status, roster intel, assist requests and passive enemy loadout capture on the Torn faction and attack pages.
 // @author       TNL
 // @match        https://www.torn.com/factions.php*
@@ -5045,6 +5045,7 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       tag.textContent = transport === 'none' ? '\u26A0 no HTTP bridge' : transport
       tag.style.cssText = `font-weight:400;font-size:11px;color:${transport === 'none' ? '#f59e0b' : '#9ca3af'}`
       title.appendChild(tag)
+    }
 
     /**
      * Minimise, top-right (#934).
@@ -5074,7 +5075,6 @@ html.${NO_BS_CLASS} .${BS_CLASS} { display: none; }
       rt.expanded = false; rt.settingsOpen = false; rt.feedbackOpen = false; panel()
     })
     title.appendChild(min)
-    }
     box.appendChild(title)
 
     panelStatus = document.createElement('div')
