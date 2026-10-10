@@ -18,6 +18,67 @@ surface it automatically.
 
 ---
 
+## [3.210.0] - 2026-10-09
+
+### Added
+- **A green target — Okay AND online — is outside the dibs system, and hitting one
+  is no longer recorded as a steal** (#935). MonChoon: *"Whenever a player is online
+  and okay they are fair game and not beholden to the farming/dibs system… We dont
+  want them to try flying away or making them unavailable in anyway, so its
+  encouraged to hit them ASAP."*
+  ⚠️ **Claim-time status alone cannot answer this, and the first design was wrong
+  because of it.** The sequence that actually happens: target in hospital and
+  OFFLINE → somebody claims them, a real reservation → target logs in, still in
+  hospital → they surface Okay and online → a teammate hits them. At claim time they
+  were Hospital + Offline, so a claim-time-only rule calls that hit a steal — the
+  exact dispute this exists to settle. Probed: restricting the rule to claim time
+  fails nine tests.
+  ⚠️ So the condition is recorded at **two** moments: `claim_state`/`claim_online` at
+  the insert, and `surfaced_online`/`surfaced_at` when the dibs sweep observes the
+  target leaving hospital — which it already detects within about a second to arm the
+  #106 countdown.
+  ⚠️ **The hitter is cleared on BOTH axes.** Not `taken_from` for the holder and not
+  `took_from_others` for the teammate — that second column is the accusation, and
+  clearing the victim while still charging the hitter would be the worst of both.
+  Probed: dropping the gate fails two tests.
+  ⚠️ **Claims predating this keep behaving exactly as before.** An unobserved claim
+  can still be stolen, so promoting this does not retroactively clear a month of
+  recorded steals. Probed: defaulting the unknown case to green fails twenty-six.
+  ⚠️ A green claim the holder did not convert is **blameless** — bucketed as
+  `green-means-go` rather than `no-swing`, because there was no reservation to follow
+  through on. MonChoon: *"we really dont care too much about the person that claimed
+  it."* A conversion still counts as a conversion.
+  ⚠️ **`Idle` is not green** — Torn gives Online / Idle / Offline, and this is a
+  stated tunable (`GREEN_ONLINE_STATES`) defaulting to Online alone. MonChoon's call;
+  including Idle would widen the free-for-all by 8 of 190 on the live roster.
+  ⚠️ The surfacing is stamped **once**. Farm mode cycles hospital → out → hit →
+  hospital, and a later offline surfacing must not erase an earlier online one — that
+  fact is what clears the teammate.
+
+- **A `Green` column on the War Overview dibs table**, with `explainGreen()` behind
+  it producing the sentence a lead can actually argue with: *"Target came out of
+  hospital at 14:32:07 while online — green, so the claim no longer applied."*
+  MonChoon: *"sometimes members claim 'my dibs was taken' or 'someone stole my kill'
+  and we need to justify it that they were online."*
+  ⚠️ Its **own** column rather than folded into `Other`, even though that keeps the
+  table at ten. Buried in `Other` it settles no argument, and settling that argument
+  is why the data is collected.
+
+### Changed
+- `DIBS_SUMMARY_VERSION` 1 → 2, so **every already-summarised war recomputes**. Wars
+  counted under rule 1 contain steals this rule says never happened, and leaving them
+  would keep an accusation standing.
+- ⚠️ The job's version assertion now reads the exported constant instead of a literal
+  `1`. A test pinning the number has to be edited on every rule change, which trains
+  whoever edits it to stop reading why.
+
+### Internal
+- Migration **0075** — four columns on `war_room_dibs_v2` plus `green_means_go` on
+  `war_dibs_summary`. Additive, `ADD COLUMN IF NOT EXISTS`, mirrored into the template
+  and verified by the parity guard.
+- 19 tests on the rule, 8 on the classifier, 6 against real Postgres for the sweep
+  stamp, 4 on the column. Three probes run and reverted.
+
 ## [3.209.0] - 2026-10-09
 
 ### Fixed
