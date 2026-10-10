@@ -760,7 +760,15 @@ CREATE TABLE public.war_room_dibs_v2 (
   -- #530: why the claim ended — see server/src/warDibsReasons.ts for the
   -- vocabulary. ⚠️ NULL on every row released before 0072, which the summary
   -- reads as "unknown" rather than as a zero.
-  release_reason text
+  release_reason text,
+  -- #935: was the target GREEN (Okay + Online) while this claim was live? Two
+  -- pairs, because claim-time status alone cannot answer it — a target claimed
+  -- in hospital while offline can still surface online, which is the usual
+  -- shape. Stored as observed; `claimKind()` interprets.
+  claim_state     text,
+  claim_online    text,
+  surfaced_online boolean,
+  surfaced_at     timestamptz
 );
 
 CREATE TABLE IF NOT EXISTS public.war_dibs_summary (
@@ -793,6 +801,9 @@ CREATE TABLE IF NOT EXISTS public.war_dibs_summary (
   -- taken FROM a holder, and taken BY an offender. The top-offenders question
   -- needs this one, and a member can be on both sides in the same war.
   took_from_others integer NOT NULL DEFAULT 0,
+  -- #935: claims on a target who was GREEN (Okay + Online) while they were
+  -- live, so no steal was possible. ⚠️ Counted, never blamed.
+  green_means_go integer NOT NULL DEFAULT 0,
 
   PRIMARY KEY (war_id, member_id)
 );

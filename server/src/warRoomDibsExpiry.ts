@@ -5,6 +5,7 @@
 // this reads only the handful of dibbed targets, before and after the sync.
 import type pg from 'pg'
 import { DIBS_RELEASE_REASONS } from './warDibsReasons.js'
+import { isGreenOnline } from './warDibsGreen.js'
 
 /** Hospital status as stored in war_room_state_v2.state->'status'. */
 interface TargetStatus {
@@ -67,7 +68,14 @@ export async function sweepDibsExpiry(
   if (Number(expirySeconds) <= 0) return []
 
   const live = await db.query(
-    `SELECT d.id, d.target_id, d.auto_expire_at, s.state->'status' AS status
+    // ⚠️ #935 — `last_action` is selected so the surfacing branch below can
+    // record whether the target was AT THE KEYBOARD when they came out. That is
+    // the moment claim-time status cannot see: a target claimed in hospital
+    // while offline can still log in before they surface, and once they are
+    // Okay and online they are fair game.
+    `SELECT d.id, d.target_id, d.auto_expire_at, d.surfaced_online,
+            s.state->'status' AS status,
+            s.state->'last_action'->>'status' AS online
      FROM war_room_dibs_v2 d
      LEFT JOIN war_room_state_v2 s ON s.member_id = d.target_id
      WHERE d.deleted_at IS NULL`
@@ -80,6 +88,10 @@ export async function sweepDibsExpiry(
   const dropSpent: number[] = []
   const schedule: number[] = []
   const disarm: number[] = []
+  // ⚠️ #935 — claims whose target surfaced WHILE ONLINE. Collected separately
+  // from `schedule` because the two answer different questions: schedule is
+  // "start the countdown", this is "this claim stopped reserving anything".
+  const surfacedGreen: number[] = []
   for (const row of live.rows) {
     const prev = prevStatus.get(Number(row.target_id)) ?? null
     const next = (row.status as TargetStatus) ?? null
@@ -149,6 +161,14 @@ export async function sweepDibsExpiry(
       dropSpent.push(row.id)
     } else if (wasHospital && next?.state === 'Okay' && row.auto_expire_at == null) {
       schedule.push(row.id) // #106
+      // ⚠️ #935 — the moment that settles "my dibs was taken". The target just
+      // came out of hospital; if they are at the keyboard they are fair game and
+      // a teammate hitting them has stolen nothing.
+      //
+      // ⚠️ Stamped ONCE, on the first surfacing. A farm-mode target cycles
+      // hospital → out → hit → hospital, and a later offline surfacing must not
+      // erase the fact that they were online for an earlier one.
+      if (row.surfaced_online == null && isGreenOnline(row.online)) surfacedGreen.push(row.id)
     }
   }
 
@@ -158,6 +178,17 @@ export async function sweepDibsExpiry(
     await db.query(
       `UPDATE war_room_dibs_v2 SET auto_expire_at = NULL, updated_at = now() WHERE id = ANY($1)`,
       [disarm]
+    )
+  }
+
+  // ⚠️ Before the tombstone sweep, so a claim released in this same tick still
+  // carries the reason it was never really a reservation.
+  if (surfacedGreen.length > 0) {
+    await db.query(
+      `UPDATE war_room_dibs_v2
+          SET surfaced_online = true, surfaced_at = now(), updated_at = now()
+        WHERE id = ANY($1) AND surfaced_online IS NULL`,
+      [surfacedGreen]
     )
   }
 

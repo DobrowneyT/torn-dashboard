@@ -6,12 +6,13 @@
 // column being visible rather than folded into a failure.
 import { afterEach, describe, expect, it } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
-import DibsSummaryPanel, { otherCount } from '../DibsSummaryPanel'
+import DibsSummaryPanel, { otherCount, greenCount } from '../DibsSummaryPanel'
 
 const row = (over = {}) => ({
   member_id: 1001, member_name: 'Holder', claims: 0, converted: 0, attempted: 0,
   taken_from: 0, no_swing: 0, outside: 0, released: 0, hopped: 0, overridden: 0,
-  board_reset: 0, still_open: 0, unknown: 0, swung: 0, took_from_others: 0, ...over,
+  board_reset: 0, still_open: 0, unknown: 0, swung: 0, took_from_others: 0,
+  green_means_go: 0, ...over,
 })
 
 const state = (over = {}) => ({
@@ -64,7 +65,7 @@ describe('DibsSummaryPanel', () => {
     })
     render(<DibsSummaryPanel members={[r]} state={state()} />)
     const sum = r.converted + r.attempted + r.no_swing + r.taken_from
-      + r.outside + otherCount(r)
+      + r.outside + otherCount(r) + greenCount(r)
     expect(sum).toBe(r.claims)
     // And the rendered Other cell is the one carrying the remainder.
     expect(otherCount(r)).toBe(2)
@@ -141,5 +142,40 @@ describe('DibsSummaryPanel', () => {
 
   it('renders without a state row at all rather than throwing', () => {
     expect(() => render(<DibsSummaryPanel />)).not.toThrow()
+  })
+})
+
+/**
+ * #935 — green targets. ⚠️ Its own column rather than folded into `Other`,
+ * because this is the number a lead points at when somebody says their dibs was
+ * taken. Buried in `Other` it settles no argument.
+ */
+describe('the Green column', () => {
+  afterEach(cleanup)
+
+  it('shows green claims in their own column', () => {
+    render(<DibsSummaryPanel state={state()} members={[
+      row({ member_id: 7, member_name: 'Holder', claims: 3, converted: 1, green_means_go: 2 }),
+    ]} />)
+    expect(screen.getByRole('button', { name: /Sort by Green/ })).toBeTruthy()
+    expect(cells()[0]).toContain('2')
+  })
+
+  it('keeps the row adding up with green in it', () => {
+    const r = row({ claims: 5, converted: 1, taken_from: 1, green_means_go: 3 })
+    const sum = r.converted + r.attempted + r.no_swing + r.taken_from
+      + r.outside + otherCount(r) + greenCount(r)
+    expect(sum).toBe(r.claims)
+  })
+
+  it('reads a missing green count as zero rather than NaN', () => {
+    // Rows summarised before #935 have no such field.
+    const { green_means_go: _omitted, ...withoutGreen } = row({ claims: 1 })
+    expect(greenCount(withoutGreen)).toBe(0)
+  })
+
+  it('does not fold green into Other', () => {
+    // ⚠️ The whole point of the column: it has to be separately readable.
+    expect(otherCount(row({ green_means_go: 4 }))).toBe(0)
   })
 })

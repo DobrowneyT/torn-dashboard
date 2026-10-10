@@ -280,7 +280,7 @@ describe('summariseWarDibs', () => {
     // every claim lands in exactly one.
     const bucketed = m.converted + m.attempted + m.takenFrom + m.noSwing
       + m.outside + m.released + m.hopped + m.overridden + m.boardReset
-      + m.open + m.unknown
+      + m.open + m.unknown + m.greenMeansGo
     expect(bucketed).toBe(m.claims)
     expect(m.claims).toBe(reasons.length)
   })
@@ -339,5 +339,102 @@ describe('warAttacksSettled', () => {
 
   it('is not settled when we know nothing', () => {
     expect(settled({})).toBe(false)
+  })
+})
+
+/**
+ * #935 — a green (Okay + Online) target is outside the dibs system.
+ *
+ * ⚠️ These are the cases where the obvious implementation accuses somebody who
+ * did exactly what the faction asks: hit a target who is at their keyboard
+ * before they can fly out.
+ */
+describe('green targets cannot be stolen (#935)', () => {
+  const greenAfterSurfacing = (over = {}) => claim({
+    claim_state: 'Hospital', claim_online: 'Offline',
+    surfaced_online: true, surfaced_at: 1500, ...over,
+  })
+
+  /**
+   * ⚠️ THE case. Claimed in hospital while offline — a real reservation — then
+   * the target logged in and surfaced online, so a teammate's hit is legitimate.
+   * A claim-time-only design calls this a steal.
+   */
+  it('a teammate finishing a target who surfaced online is NOT a steal', () => {
+    const c = classify(greenAfterSurfacing(), [attack({ attacker_id: MATE, started: 1600 })])
+    expect(c.outcome).not.toBe(CLAIM_OUTCOMES.taken)
+    expect(c.takenBy).toBeNull()
+  })
+
+  /**
+   * ⚠️ And the offender's tally must not see it either. `took_from_others` is
+   * the accusation; clearing the victim while still charging the hitter would
+   * be the worst of both outcomes.
+   */
+  it('does not charge the hitter on the other axis either', () => {
+    const out = summariseWarDibs({
+      claims: [greenAfterSurfacing({ claimed_by: HOLDER, target_id: 90100 })],
+      attacks: [attack({ attacker_id: MATE, name: 'Mate', defender_id: 90100, started: 1600 })],
+      ourFactionId: US, warEndTs: 9999,
+    })
+    const holder = out.members.find((r) => r.member_id === HOLDER)
+    const mate = out.members.find((r) => r.member_id === MATE)
+    expect(holder?.takenFrom).toBe(0)
+    expect(mate?.tookFromOthers ?? 0).toBe(0)
+  })
+
+  it('buckets an unconverted green claim as green-means-go, not no-swing', () => {
+    // ⚠️ "we really dont care too much about the person that claimed it" — the
+    // claim was never a reservation, so "had their window and did not use it"
+    // is the wrong reading.
+    const c = classify(greenAfterSurfacing({ release_reason: 'window' }), [])
+    expect(c.outcome).toBe(CLAIM_OUTCOMES.greenMeansGo)
+  })
+
+  it('still credits the holder who converted a green target', () => {
+    const c = classify(greenAfterSurfacing(), [attack({ started: 1600 })])
+    expect(c.outcome).toBe(CLAIM_OUTCOMES.converted)
+    expect(c.holderSwung).toBe(true)
+  })
+
+  it('counts a claim taken on an already-green target the same way', () => {
+    const c = classify(
+      claim({ claim_state: 'Okay', claim_online: 'Online', release_reason: 'window' }), []
+    )
+    expect(c.outcome).toBe(CLAIM_OUTCOMES.greenMeansGo)
+  })
+
+  /** ⚠️ A genuine reservation still produces a steal — the rule must not clear
+   *  everything. */
+  it('leaves a real steal alone when the target surfaced offline', () => {
+    const c = classify(
+      claim({ claim_state: 'Hospital', claim_online: 'Offline', surfaced_online: false }),
+      [attack({ attacker_id: MATE, started: 1600 })]
+    )
+    expect(c.outcome).toBe(CLAIM_OUTCOMES.taken)
+    expect(c.takenBy).toBe(MATE)
+  })
+
+  /**
+   * ⚠️ Claims predating #935 keep behaving exactly as before, so promoting this
+   * does not retroactively clear a month of recorded steals.
+   */
+  it('does not change an unobserved claim from the back-history', () => {
+    const c = classify(claim(), [attack({ attacker_id: MATE, started: 1600 })])
+    expect(c.outcome).toBe(CLAIM_OUTCOMES.taken)
+  })
+
+  it('still sums to the claim count with the new bucket', () => {
+    const out = summariseWarDibs({
+      claims: [
+        greenAfterSurfacing({ id: 1, target_id: 90100, release_reason: 'window' }),
+        claim({ id: 2, target_id: 90101, release_reason: 'window', surfaced_online: false }),
+      ],
+      attacks: [], ourFactionId: US, warEndTs: 9999,
+    })
+    const m = out.members.find((r) => r.member_id === HOLDER)!
+    expect(m.greenMeansGo).toBe(1)
+    expect(m.noSwing).toBe(1)
+    expect(m.greenMeansGo + m.noSwing).toBe(m.claims)
   })
 })

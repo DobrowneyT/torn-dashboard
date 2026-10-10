@@ -37,6 +37,7 @@ const COLUMNS = [
   { key: 'taken_from', kind: 'number', accessor: (r) => r.taken_from },
   { key: 'outside', kind: 'number', accessor: (r) => r.outside },
   { key: 'other', kind: 'number', accessor: (r) => otherCount(r) },
+  { key: 'green', kind: 'number', accessor: (r) => greenCount(r) },
   { key: 'took_from_others', kind: 'number', accessor: (r) => r.took_from_others },
 ]
 
@@ -52,6 +53,20 @@ const COLUMNS = [
 export function otherCount(r) {
   return (r.released ?? 0) + (r.hopped ?? 0) + (r.overridden ?? 0)
     + (r.board_reset ?? 0) + (r.still_open ?? 0) + (r.unknown ?? 0)
+}
+
+/**
+ * Claims on a target who was GREEN — Okay and online — while they were live
+ * (#935).
+ *
+ * ⚠️ Its OWN column rather than folded into `Other`, even though that keeps the
+ * table at nine. This is the number a lead points at when somebody says their
+ * dibs was taken: a green target is outside the dibs system, so the claim had
+ * stopped reserving them. Buried in `Other` it answers nothing, and settling
+ * that argument is the reason the data is collected.
+ */
+export function greenCount(r) {
+  return r.green_means_go ?? 0
 }
 
 const HELP = {
@@ -72,6 +87,13 @@ const HELP = {
   other: 'Released deliberately, swapped for another target, released by a '
     + 'lead, cleared with the board at war setup, still held when the war '
     + 'ended, or — for claims from before this was recorded — simply unknown.',
+  green: 'The target was Okay AND online while this claim was live — either '
+    + 'when it was taken, or by the time they came out of hospital. ⚠️ A green '
+    + 'player is outside the dibs system: they are at their keyboard and can '
+    + 'fly out or hospital themselves, so hitting them fast is encouraged. '
+    + 'Nobody can steal a green target, so these claims count against no one '
+    + 'on either side — and this is the column to point at when somebody says '
+    + 'their dibs was taken.',
   took_from_others: 'Finishing hits this member landed on somebody ELSE\'s '
     + 'called target. ⚠️ A different question from "Taken from", not its '
     + 'mirror: this is the one that answers who takes other people\'s targets.',
@@ -151,6 +173,7 @@ export default function DibsSummaryPanel({ members = [], state = null, loading =
                 {th('taken_from', 'Taken from', HELP.taken_from)}
                 {th('outside', 'Outside', HELP.outside)}
                 {th('other', 'Other', HELP.other)}
+                {th('green', 'Green', HELP.green)}
                 {th('took_from_others', 'Took from others', HELP.took_from_others)}
               </tr>
             </thead>
@@ -174,6 +197,9 @@ export default function DibsSummaryPanel({ members = [], state = null, loading =
                   {/* ⚠️ Deliberately NOT toned as a problem — nobody's fault. */}
                   <Num v={r.outside} tone="text-gray-500 dark:text-gray-400" />
                   <Num v={otherCount(r)} tone="text-gray-500 dark:text-gray-400" />
+                  {/* ⚠️ Toned as information, not as a problem — a green claim
+                      is nobody's fault and often nobody's mistake either. */}
+                  <Num v={greenCount(r)} tone="text-sky-600 dark:text-sky-400" />
                   <Num v={r.took_from_others} tone="text-orange-600 dark:text-orange-400" />
                 </tr>
               ))}

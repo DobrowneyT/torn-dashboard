@@ -26,11 +26,11 @@ function tickerDeps(extra: Record<string, unknown> = {}) {
 }
 
 // One enemy member the fixture returns with a controllable status.
-function enemyPayload(status: Record<string, unknown>) {
+function enemyPayload(status: Record<string, unknown>, lastAction = 'Idle') {
   return {
     members: [{
       id: Number(TARGET), name: 'Foe', level: 55, position: 'Soldier',
-      last_action: { status: 'Idle', timestamp: 1752200000 },
+      last_action: { status: lastAction, timestamp: 1752200000 },
       status, is_revivable: false,
     }],
   }
@@ -609,5 +609,137 @@ describe('assist-request sweep rides the same ticker tick as the dibs sweep', ()
     expect(frame.rows.some((r: any) => Number(r.target_id) === TARGET)).toBe(true)
 
     client.ws.close()
+  })
+})
+
+/**
+ * #935 — the moment that settles "my dibs was taken".
+ *
+ * MonChoon's description of what actually happens: somebody claims a target in
+ * hospital while they are OFFLINE — a real reservation — the target logs in
+ * while still in hospital, then comes out Okay and online, and a teammate hits
+ * them. That hit is legitimate: a green player is at their keyboard and can fly
+ * out, so hitting fast is encouraged.
+ *
+ * ⚠️ Only the sweep can see this. It is the thing that observes the
+ * hospital→Okay transition, within about a second of it happening; claim-time
+ * status cannot answer it, because at claim time they were Hospital + Offline.
+ */
+describe('green surfacing (#935)', () => {
+  it('⚠️ stamps a claim whose target came out of hospital ONLINE', async () => {
+    await seedDib({ state: 'Hospital', until: 1752200500 })
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`,
+      () => enemyPayload({ state: 'Okay', until: null }, 'Online'))
+
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    await createWarRoomTicker(tickerDeps()).tick()
+
+    const row = await stack.db.query(
+      `SELECT surfaced_online, surfaced_at FROM war_room_dibs_v2
+        WHERE target_id = ${TARGET} ORDER BY id DESC LIMIT 1`
+    )
+    expect(row.rows[0].surfaced_online).toBe(true)
+    // ⚠️ The timestamp is the evidence half — a bucket cannot settle an
+    // argument, a time can.
+    expect(row.rows[0].surfaced_at).toBeTruthy()
+  })
+
+  it('records false-by-absence when they surfaced OFFLINE', async () => {
+    await seedDib({ state: 'Hospital', until: 1752200500 })
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`,
+      () => enemyPayload({ state: 'Okay', until: null }, 'Offline'))
+
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    await createWarRoomTicker(tickerDeps()).tick()
+
+    const row = await stack.db.query(
+      `SELECT surfaced_online FROM war_room_dibs_v2
+        WHERE target_id = ${TARGET} ORDER BY id DESC LIMIT 1`
+    )
+    // ⚠️ Left NULL rather than written false: the claim is still live and the
+    // target may surface again. `claimKind` reads a null surfacing alongside a
+    // recorded claim state as a reservation, which is the right answer here.
+    expect(row.rows[0].surfaced_online).toBeNull()
+  })
+
+  /**
+   * ⚠️ `Idle` is NOT green. MonChoon, 2026-10-09: "For now lets go with Online
+   * only, not idle." An idle player is often still present, so this is the
+   * tunable to argue about — but it must not drift silently.
+   */
+  it('does not treat an Idle surfacing as green', async () => {
+    await seedDib({ state: 'Hospital', until: 1752200500 })
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`,
+      () => enemyPayload({ state: 'Okay', until: null }, 'Idle'))
+
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    await createWarRoomTicker(tickerDeps()).tick()
+
+    const row = await stack.db.query(
+      `SELECT surfaced_online FROM war_room_dibs_v2
+        WHERE target_id = ${TARGET} ORDER BY id DESC LIMIT 1`
+    )
+    expect(row.rows[0].surfaced_online).toBeNull()
+  })
+
+  /**
+   * ⚠️ Stamped ONCE. Farm mode cycles hospital → out → hit → hospital → out,
+   * and a later offline surfacing must not erase the fact that they were online
+   * for an earlier one — that fact is what clears the teammate who hit them.
+   */
+  it('keeps the first online surfacing across a farm cycle', async () => {
+    await seedDib({ state: 'Hospital', until: 1752200500 })
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`,
+      () => enemyPayload({ state: 'Okay', until: null }, 'Online'))
+    const { createWarRoomTicker } = await import('../src/warRoomTicker.js')
+    const ticker = createWarRoomTicker(tickerDeps())
+    await ticker.tick()
+
+    const first = await stack.db.query(
+      `SELECT surfaced_at FROM war_room_dibs_v2 WHERE target_id = ${TARGET} ORDER BY id DESC LIMIT 1`
+    )
+    expect(first.rows[0].surfaced_at).toBeTruthy()
+
+    // Back into hospital, then out again while offline.
+    await stack.db.query(
+      `UPDATE war_room_dibs_v2 SET deleted_at = NULL, auto_expire_at = NULL
+        WHERE target_id = ${TARGET}`
+    )
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`,
+      () => enemyPayload({ state: 'Hospital', until: 1752209999 }, 'Offline'))
+    await ticker.tick()
+    stack.torn.setHandler(`/v2/faction/${ENEMY}/members`,
+      () => enemyPayload({ state: 'Okay', until: null }, 'Offline'))
+    await ticker.tick()
+
+    const after = await stack.db.query(
+      `SELECT surfaced_online, surfaced_at FROM war_room_dibs_v2
+        WHERE target_id = ${TARGET} ORDER BY id DESC LIMIT 1`
+    )
+    expect(after.rows[0].surfaced_online).toBe(true)
+    expect(String(after.rows[0].surfaced_at)).toBe(String(first.rows[0].surfaced_at))
+  })
+
+  it('records the target condition at claim time too', async () => {
+    // Catches somebody claiming an already-green target, which the surfacing
+    // stamp never sees because there is no hospital exit to observe.
+    await stack.db.query(`DELETE FROM war_room_dibs_v2 WHERE target_id = ${TARGET}`)
+    await stack.db.query(
+      `INSERT INTO war_room_state_v2 (member_id, faction_id, member_name, level, state)
+       VALUES (${TARGET}, ${ENEMY}, 'Foe', 55, $1)
+       ON CONFLICT (member_id) DO UPDATE SET state = EXCLUDED.state, deleted_at = NULL`,
+      [JSON.stringify({ status: { state: 'Okay', until: null }, last_action: { status: 'Online' } })]
+    )
+    const res = await fetch(`${stack.baseUrl}/api/war-room/dibs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ target_id: TARGET }),
+    })
+    expect(res.status).toBe(200)
+    const row = await stack.db.query(
+      `SELECT claim_state, claim_online FROM war_room_dibs_v2
+        WHERE target_id = ${TARGET} AND deleted_at IS NULL`
+    )
+    expect(row.rows[0]).toMatchObject({ claim_state: 'Okay', claim_online: 'Online' })
   })
 })
