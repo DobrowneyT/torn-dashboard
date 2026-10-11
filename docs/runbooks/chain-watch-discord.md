@@ -126,10 +126,14 @@ credential for that faction. `/chain tenant add` deliberately takes no token
 
 ## Rotating
 
-Rotating `FLEET_METRICS_SECRET` changes **every** token — fleet metrics and
-chain watch, all tenants — at once. Re-run both writers and restart every `api-*`
-service, then update the bot. A partial rotation leaves some tenants 401ing,
-which the bot reports as a stale board rather than an outage.
+See [`bot-tokens.md`](bot-tokens.md) for the whole family — the bot holds three
+per faction now, and `MEMBER_THREADS_TOKEN` (#942) is the only one that writes.
+
+Rotating `FLEET_METRICS_SECRET` changes **every** token — fleet metrics, chain
+watch, war overview and member threads, all tenants — at once. Re-run every
+writer and restart every `api-*` service, then update the bot. A partial
+rotation leaves some tenants 401ing, which the bot reports as a stale board
+rather than an outage.
 
 ## Checking it works
 

@@ -18,6 +18,85 @@ surface it automatically.
 
 ---
 
+## [3.212.0] - 2026-10-11
+
+### Added
+- **Member threads: the dashboard half** (#942, first slice of PRD #941). A registry
+  of one Discord forum thread per member, plus the outbox Choonbot drains — a note
+  when somebody joins the faction, another when they leave.
+  ⚠️ **The bot POLLS this; the dashboard never calls the bot.** Chain Watch already
+  works that way across five factions, and the bot is a Discord gateway client with
+  no inbound HTTP server at all — pushing would mean a web server, an exposed port, a
+  new token scope and dashboard-side handling of the bot being down. MonChoon:
+  *"basically a mailbox from the dashboard that there are updates waiting to be
+  posted."*
+  ⚠️ **The first sweep queues NOTHING.** It records the moment this faction started
+  being watched and stops. The roster sitting there is ~94 people whose real join
+  dates nobody recorded — stints are only observed from #284 — so queuing them would
+  write invented dates into permanent records and create 94 threads in one burst.
+  Probed: removing the watermark fails three tests.
+  ⚠️ **A fixed watermark, not an advancing one.** An advancing watermark has a race —
+  a stint written between the read and the advance is skipped for ever — and the
+  unique index on `(member_id, kind, subject)` already gives idempotency, so the
+  advance buys nothing.
+  ⚠️ **Keyed on the STINT, not the member.** A rejoin is a second stint for the same
+  person and must produce a second note in the same thread; keying on the member
+  swallows it as a duplicate and the log never shows they came back. Probed: it fails
+  a test.
+  ⚠️ **A leave is logged even when the join was not** — somebody who was here before
+  we started watching still really left. It is the one place "no backfill" and "log
+  what happens" disagree, and the observed event wins.
+  ⚠️ Claims are a timestamp rather than a flag, so a crashed drain's rows can be
+  reclaimed after a timeout instead of being stranded for ever — the quietest possible
+  failure for a feature whose entire job is keeping a record.
+  ⚠️ Its own token scope (`MEMBER_THREADS_TOKEN` = `HMAC(FLEET_METRICS_SECRET,
+  "member-threads:<slug>")`), like the War Overview's: the same bot holds several, and
+  keeping them apart stops a leak of one surrendering the rest. ⚠️ **This is the only
+  one of the bot's three that grants WRITES** — its holder marks outbox rows posted
+  against a permanent per-member record — so it is the most sensitive of them, not
+  merely the newest.
+  ⚠️ **The forum channel is NOT stored here.** It is the bot's setting, editable from
+  Discord per tenant exactly like Chain Watch's board and ping channels.
+  `chain_settings` draws that line in its own header: what the bot owns is *how it
+  talks* — *"which channel things land in"* — while the dashboard owns facts about
+  the faction. My first version kept a copy in `faction_settings`, which is precisely
+  the "two places authoritative for one number" that note warns about, and the one
+  that drifts is always the one nobody is looking at.
+
+- **Somewhere to actually get that token from** (#942). The env var was wired but
+  nothing issued it, which made the slice undeployable — `node
+  db/member-threads-token.mjs [slug] [--write]`, the same three forms the other three
+  tokens take, plus `MEMBER_THREADS_TOKEN` registered in the override rewriter, which
+  **fails closed** on a variable it has no comment for.
+  ⚠️ **The bot does not need it pasted at all.** `GET /api/internal/tenants?tokens=1`
+  now derives and returns `member_threads_token` beside the other two, so a faction
+  provisioned after the bot last restarted is reachable the moment its database
+  exists — the thing that made `/chain tenant add` a retyping exercise that drifted.
+  ⚠️ A test holds the scope string in `tenantRegistry.ts` against the module the CLI
+  issues from, byte for byte. A drifted scope is a 401 with no hint which side is
+  wrong, and another asserts all three tokens differ.
+  New runbook `docs/runbooks/bot-tokens.md` tabulates the four tokens, what each
+  reads, which one writes, and that ⚠️ `claim` is not a read — curling it against
+  production hides the pending rows from the bot for ten minutes.
+
+### Fixed
+- ⚠️ **The queue ordered every join before every leave, which writes a false log.**
+  For a rejoin — a leave from an old stint and a join from a new one in one batch —
+  that produced *"joined · joined · left"* when what happened was join → leave → join.
+  Now ordered by when each event actually occurred.
+  ⚠️ **A unit test had enshrined the wrong rule**, and an integration test against
+  real rows is what caught it. The unit test now asserts the chronological order and
+  says why it used to say the opposite. Probed: restoring joins-first fails two.
+
+### Internal
+- Migration **0076** — `member_threads` and `member_thread_outbox`, additive, mirrored
+  into the template and verified by the parity guard.
+- `member-thread-sweep` runs every five minutes and costs **zero Torn API calls**.
+- ⚠️ Timestamps compare at millisecond resolution and a collision with the watermark
+  reads as pre-existing: under-report by at most one event in a window nothing real
+  occupies, rather than invent a join date for somebody already on the roster.
+- 13 unit tests on the planner, 14 against real Postgres for the mailbox.
+
 ## [3.211.0] - 2026-10-10
 
 ### Added

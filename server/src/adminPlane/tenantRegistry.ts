@@ -25,14 +25,22 @@ import { discoverTenants } from './statusCollector.js'
 /**
  * The scopes the Discord bot's own credentials are derived under.
  *
- * ⚠️ These strings must match `db/chainWatchTokenLib.mjs` and
- * `db/warOverviewTokenLib.mjs` byte for byte — they are what each tenant
+ * ⚠️ These strings must match `db/chainWatchTokenLib.mjs`,
+ * `db/warOverviewTokenLib.mjs` and `db/memberThreadsTokenLib.mjs` byte for
+ * byte — they are what each tenant
  * container was issued with. A mismatch is a 401 with no hint as to which side
  * is wrong, which is why the test imports those modules and asserts equality
  * rather than trusting this copy.
  */
 export const chainWatchScope = (slug: string) => `chain-watch:${slug}`
 export const warOverviewScope = (slug: string) => `war-overview:${slug}`
+/**
+ * ⚠️ #942 — the only one of the three that grants WRITES: its holder drains the
+ * member-report outbox and marks rows posted, against a permanent roll-call log
+ * the faction's leadership reads. Neither of the read-only credentials above
+ * may confer it.
+ */
+export const memberThreadsScope = (slug: string) => `member-threads:${slug}`
 
 export interface TenantRecord {
   slug: string
@@ -41,6 +49,7 @@ export interface TenantRecord {
   /** Present only when the caller asked for them AND a fleet secret exists. */
   chain_watch_token?: string
   war_overview_token?: string
+  member_threads_token?: string
 }
 
 /**
@@ -82,6 +91,7 @@ export function buildRegistry(
     if (fleetSecret) {
       record.chain_watch_token = deriveTenantToken(fleetSecret, chainWatchScope(slug))
       record.war_overview_token = deriveTenantToken(fleetSecret, warOverviewScope(slug))
+      record.member_threads_token = deriveTenantToken(fleetSecret, memberThreadsScope(slug))
     }
     return record
   })

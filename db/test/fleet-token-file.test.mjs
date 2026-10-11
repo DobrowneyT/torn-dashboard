@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest'
 import { setOverrideTokens } from '../fleetTokenFile.mjs'
 import { chainWatchScope } from '../chainWatchTokenLib.mjs'
+import { warOverviewScope } from '../warOverviewTokenLib.mjs'
+import { memberThreadsScope } from '../memberThreadsTokenLib.mjs'
 
 const HEX_A = 'a'.repeat(64)
 const HEX_B = 'b'.repeat(64)
@@ -153,5 +155,58 @@ describe('chainWatchScope', () => {
     // ever equalled the bare slug, every bot would silently hold fleet metrics.
     expect(chainWatchScope('forge')).toBe('chain-watch:forge')
     expect(chainWatchScope('forge')).not.toBe('forge')
+  })
+})
+
+// #942 — the fourth variable, for the member-report outbox the bot drains.
+describe('setOverrideTokens with MEMBER_THREADS_TOKEN', () => {
+  it('coexists with all three of the others', () => {
+    // ⚠️ Four hex values per service, one per line, similar names. Each pass
+    // must touch only its own key — a rewriter that clobbered a neighbour would
+    // 401 a feature nobody was deploying, which is the hardest kind to trace.
+    let text = OVERRIDE
+    for (const [name, value] of [
+      ['CHAIN_WATCH_TOKEN', HEX_A],
+      ['WAR_OVERVIEW_TOKEN', HEX_B],
+      ['MEMBER_THREADS_TOKEN', 'c'.repeat(64)],
+    ]) {
+      const r = setOverrideTokens(text, { forge: value }, name)
+      expect(r.missing).toEqual([])
+      text = r.text
+    }
+    const forge = text.slice(text.indexOf('api-forge'), text.indexOf('api-tnl'))
+    expect(forge).toContain(`FLEET_METRICS_TOKEN: ${'0'.repeat(64)}`)
+    expect(forge).toContain(`CHAIN_WATCH_TOKEN: ${HEX_A}`)
+    expect(forge).toContain(`WAR_OVERVIEW_TOKEN: ${HEX_B}`)
+    expect(forge).toContain(`MEMBER_THREADS_TOKEN: ${'c'.repeat(64)}`)
+  })
+
+  it('replaces an existing MEMBER_THREADS_TOKEN in place', () => {
+    const once = setOverrideTokens(OVERRIDE, { forge: HEX_A }, 'MEMBER_THREADS_TOKEN')
+    const twice = setOverrideTokens(once.text, { forge: HEX_B }, 'MEMBER_THREADS_TOKEN')
+    expect(twice.updated).toEqual(['forge'])
+    expect(twice.added).toEqual([])
+    expect(twice.text).toContain(`MEMBER_THREADS_TOKEN: ${HEX_B}`)
+    expect(twice.text).not.toContain(HEX_A)
+  })
+
+  it('names the regenerating command in the comment it writes', () => {
+    // ⚠️ The file is hand-edited for years. A bare hex value with no note is a
+    // value nobody dares rotate.
+    const r = setOverrideTokens(OVERRIDE, { forge: HEX_A }, 'MEMBER_THREADS_TOKEN')
+    expect(r.text).toContain('node db/member-threads-token.mjs forge')
+  })
+})
+
+describe('memberThreadsScope', () => {
+  it('⚠️ is distinct from every other bot scope', () => {
+    // This is the only one of the bot's credentials that WRITES. If it ever
+    // equalled another scope, a read-only leak would confer write access to a
+    // permanent per-member record.
+    const scopes = new Set([
+      chainWatchScope('forge'), warOverviewScope('forge'), memberThreadsScope('forge'), 'forge',
+    ])
+    expect(memberThreadsScope('forge')).toBe('member-threads:forge')
+    expect(scopes.size).toBe(4)
   })
 })

@@ -87,6 +87,7 @@ const app = await buildServer({
   // Printed by db/chain-watch-token.mjs. Absent leaves the endpoint unregistered.
   chainWatchToken: process.env.CHAIN_WATCH_TOKEN || undefined,
   warOverviewToken: process.env.WAR_OVERVIEW_TOKEN || undefined,
+  memberThreadsToken: process.env.MEMBER_THREADS_TOKEN || undefined,
   tornBaseUrl,
   jwtSecret,
   keyEncryptionKey,
