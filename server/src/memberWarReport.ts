@@ -72,6 +72,20 @@ export interface MemberWarReport {
     our_score: number
     opponent_score: number
     is_termed: boolean
+    /**
+     * What the leads set this war to in the War Room: `real`, `termed`,
+     * `race`, or **null when nobody set it**.
+     *
+     * ⚠️ Null is NOT "real". `war_room_notes_v2.war_type` is the setting the
+     * leads actually choose, and three of forge's eleven wars have none. The
+     * report says nothing rather than asserting a type nobody picked — which
+     * is the mistake the old title made in reverse, rendering every unlabelled
+     * war as an ordinary one.
+     *
+     * ⚠️ Distinct from `is_termed`, which is a separate hand toggle on RW
+     * History and cannot express `race` at all.
+     */
+    war_type: 'real' | 'termed' | 'race' | null
   }
   member: { id: number; name: string | null }
   score: MemberWarScore | null
@@ -163,8 +177,8 @@ export async function collectMemberWarReport(
   const fromTs = Number(w.start_at)
   const toTs = Number(w.end_at)
 
-  const [attacksRes, revivesRes, dibsRes, dibsStateRes, dibsJobRes, rollRes, stacksRes, nameRes] =
-    await Promise.all([
+  const [attacksRes, revivesRes, dibsRes, dibsStateRes, dibsJobRes, rollRes, stacksRes,
+         nameRes, noteRes] = await Promise.all([
       db.query(
         `SELECT started, result, chain, respect_gain, is_ranked_war,
                 attacker_id, attacker_name, attacker_faction_id, attacker_faction_name,
@@ -216,6 +230,9 @@ export async function collectMemberWarReport(
         [war, member],
       ),
       db.query('SELECT member_name FROM members WHERE member_id = $1', [String(member)]),
+      // The War Room's own setting for this war. ⚠️ A LEFT-ish read: most wars
+      // have a note row, some do not, and the absence is meaningful.
+      db.query('SELECT war_type FROM war_room_notes_v2 WHERE war_id = $1', [war]),
     ])
 
   const attacks = attacksRes.rows
@@ -257,6 +274,7 @@ export async function collectMemberWarReport(
       // *"on a termed war most people do participate"*, and a war where nobody
       // turned up is keep-or-kick evidence, not noise.
       is_termed: !!w.is_termed,
+      war_type: normaliseWarType(noteRes.rows[0]?.war_type, !!w.is_termed),
     },
     member: { id: member, name },
     score: scoreMemberWar(attacks, member, ourFactionId),
@@ -339,6 +357,29 @@ function shapeStacks(row: Record<string, any> | null): MemberStacks | null {
     overdosed: row.od_flagged_prewar === true,
     captured_ms: row.captured_ms == null ? null : Number(row.captured_ms),
   }
+}
+
+/** The three types the War Room offers. */
+const WAR_TYPES = new Set(['real', 'termed', 'race'])
+
+/**
+ * The war's type, or null when nobody set one.
+ *
+ * ⚠️ **`is_termed` only promotes to `termed`, never to `real`.** Somebody
+ * ticking "Set Termed" on RW History is a positive signal worth honouring when
+ * the War Room note is missing; the untoggled default is just a default, and
+ * reading it as "real" asserts a choice nobody made.
+ *
+ * ⚠️ An unrecognised value becomes null rather than being passed through. The
+ * column has no CHECK constraint, and a typo reaching a permanent per-member
+ * record as a war type is worse than saying nothing.
+ */
+export function normaliseWarType(
+  raw: unknown, isTermed: boolean,
+): 'real' | 'termed' | 'race' | null {
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  if (WAR_TYPES.has(value)) return value as 'real' | 'termed' | 'race'
+  return isTermed ? 'termed' : null
 }
 
 /** The job whose `enabled` flag decides between `disabled` and `pending`. */
