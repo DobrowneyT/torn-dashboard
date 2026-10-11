@@ -49,8 +49,12 @@ surface it automatically.
   ⚠️ Claims are a timestamp rather than a flag, so a crashed drain's rows can be
   reclaimed after a timeout instead of being stranded for ever — the quietest possible
   failure for a feature whose entire job is keeping a record.
-  ⚠️ Its own token scope (`MEMBER_THREADS_TOKEN`), like the War Overview's: the same
-  bot holds several, and keeping them apart stops a leak of one surrendering the rest.
+  ⚠️ Its own token scope (`MEMBER_THREADS_TOKEN` = `HMAC(FLEET_METRICS_SECRET,
+  "member-threads:<slug>")`), like the War Overview's: the same bot holds several, and
+  keeping them apart stops a leak of one surrendering the rest. ⚠️ **This is the only
+  one of the bot's three that grants WRITES** — its holder marks outbox rows posted
+  against a permanent per-member record — so it is the most sensitive of them, not
+  merely the newest.
   ⚠️ **The forum channel is NOT stored here.** It is the bot's setting, editable from
   Discord per tenant exactly like Chain Watch's board and ping channels.
   `chain_settings` draws that line in its own header: what the bot owns is *how it
@@ -58,6 +62,22 @@ surface it automatically.
   the faction. My first version kept a copy in `faction_settings`, which is precisely
   the "two places authoritative for one number" that note warns about, and the one
   that drifts is always the one nobody is looking at.
+
+- **Somewhere to actually get that token from** (#942). The env var was wired but
+  nothing issued it, which made the slice undeployable — `node
+  db/member-threads-token.mjs [slug] [--write]`, the same three forms the other three
+  tokens take, plus `MEMBER_THREADS_TOKEN` registered in the override rewriter, which
+  **fails closed** on a variable it has no comment for.
+  ⚠️ **The bot does not need it pasted at all.** `GET /api/internal/tenants?tokens=1`
+  now derives and returns `member_threads_token` beside the other two, so a faction
+  provisioned after the bot last restarted is reachable the moment its database
+  exists — the thing that made `/chain tenant add` a retyping exercise that drifted.
+  ⚠️ A test holds the scope string in `tenantRegistry.ts` against the module the CLI
+  issues from, byte for byte. A drifted scope is a 401 with no hint which side is
+  wrong, and another asserts all three tokens differ.
+  New runbook `docs/runbooks/bot-tokens.md` tabulates the four tokens, what each
+  reads, which one writes, and that ⚠️ `claim` is not a read — curling it against
+  production hides the pending rows from the bot for ten minutes.
 
 ### Fixed
 - ⚠️ **The queue ordered every join before every leave, which writes a false log.**

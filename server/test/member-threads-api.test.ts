@@ -98,6 +98,17 @@ describe('claiming and finishing', () => {
     expect(bare.status).toBe(401)
   })
 
+  it('the scope is its own, not one of the read-only bot tokens', async () => {
+    // ⚠️ This is the one credential of the bot's that WRITES — it marks rows
+    // posted against a permanent per-member record. Reusing chain-watch's or
+    // war-overview's would mean a leak of a read-only board credential also
+    // confers that (#609).
+    const { memberThreadsScope } = await import('../../db/memberThreadsTokenLib.mjs')
+    expect(memberThreadsScope('forge')).toBe('member-threads:forge')
+    expect(memberThreadsScope('forge')).not.toContain('chain-watch')
+    expect(memberThreadsScope('forge')).not.toContain('war-overview')
+  })
+
   it('hands out the pending rows and the registry', async () => {
     const res = await api('/api/internal/member-threads/claim')
     const body = await res.json() as any
