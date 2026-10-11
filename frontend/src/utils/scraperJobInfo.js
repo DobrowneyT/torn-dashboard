@@ -98,6 +98,15 @@ export const SCRAPER_JOB_INFO = {
     'actually SEEN in a crime slot, because Torn never reports a departure — ' +
     'every "left at" elsewhere is inferred. Feeds the payout page\'s observed ' +
     'time. 1 API call per minute (~1,440/day).',
+  'member-thread-sweep':
+    'Queues membership notes for the per-member Discord threads — a note when ' +
+    'somebody joins the faction, and another when they leave. ⚠️ Costs ZERO ' +
+    'Torn API calls: it reads the faction-stints table members-sync already ' +
+    'maintains and writes to an outbox the Discord bot polls. The bot is never ' +
+    'called by the dashboard. ⚠️ The FIRST run deliberately queues nothing — ' +
+    'it only records the moment this faction started being watched, because ' +
+    'the roster sitting there has no recorded join dates and inventing ~90 of ' +
+    'them would write fiction into permanent records.',
   'dibs-summary':
     'Freezes each finished war\'s dibs activity into a per-member summary — ' +
     'claims taken, converted, lost to a teammate, and taken from others. ' +
