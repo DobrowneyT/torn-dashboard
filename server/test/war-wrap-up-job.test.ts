@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_KEY_ENCRYPTION_KEY, type TestStack } from './harness.js'
 import { warWrapUpJob } from '../src/scraper/jobs/warWrapUp.js'
 import { WRAP_UP_SETTING } from '../src/warWrapUp.js'
+import { INSTALL_KEY } from '../src/scraper/jobs/warWrapUp.js'
 import { createKeyPool } from '../src/scraper/keyPool.js'
 import { createTornClient } from '../src/scraper/tornClient.js'
 
@@ -83,6 +84,12 @@ beforeEach(async () => {
   await stack.db.query('DELETE FROM faction_attacks')
   await stack.db.query('DELETE FROM ranked_wars')
   await stack.db.query(`DELETE FROM faction_settings WHERE key = $1`, [WRAP_UP_SETTING])
+  // ⚠️ Most tests are about a war that ended AFTER the job was switched on, so
+  // the watermark is stamped well in the past. The no-backfill tests below
+  // clear it deliberately.
+  await stack.db.query(
+    `INSERT INTO faction_settings (key, value) VALUES ($1, to_jsonb('1'::text))
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [INSTALL_KEY])
   await setDibsJob(false)
 })
 
@@ -258,5 +265,77 @@ describe('refusing to queue', () => {
     expect(res.details).toMatchObject({ window_minutes: 1 })
     expect((await stack.db.query(
       'SELECT state FROM war_wrap_up_state WHERE war_id = $1', [WAR])).rows[0].state).toBe('failed')
+  })
+})
+
+describe('⚠️ no backfill: switching the job on must not retro-post old wars', () => {
+  it('the first run stamps a watermark and queues nothing', async () => {
+    // ⚠️ THE guard. Without it the first run finds every war ever fought with
+    // no state row and wraps up the three most recent — measured on forge,
+    // ~282 permanent messages across three old wars that nobody asked for and
+    // which cannot be unposted. Same lesson as #942's install watermark.
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = $1`, [INSTALL_KEY])
+    await addWar(); await addContributions(); await addAttack()
+
+    const res = await warWrapUpJob(deps())
+    expect(res.details).toMatchObject({ installed: true, wars: 0 })
+    const out = await stack.db.query('SELECT count(*)::int AS n FROM member_thread_outbox')
+    expect(out.rows[0].n).toBe(0)
+    // ...and the watermark is now set, so the next run behaves normally.
+    const mark = await stack.db.query(
+      `SELECT value FROM faction_settings WHERE key = $1`, [INSTALL_KEY])
+    expect(mark.rowCount).toBe(1)
+  })
+
+  it('a war that ended BEFORE the watermark is never picked up', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value)
+       VALUES ($1, to_jsonb((${END + 1})::text))
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [INSTALL_KEY])
+    await addWar(); await addContributions(); await addAttack()
+
+    const res = await warWrapUpJob(deps())
+    expect(res.details).toMatchObject({ wars: 0 })
+    const out = await stack.db.query('SELECT count(*)::int AS n FROM member_thread_outbox')
+    expect(out.rows[0].n).toBe(0)
+  })
+
+  it('a war that ended AFTER the watermark is picked up', async () => {
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value)
+       VALUES ($1, to_jsonb((${START - 1})::text))
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [INSTALL_KEY])
+    await addWar(); await addContributions(); await addAttack()
+
+    const res = await warWrapUpJob(deps())
+    expect(res.rows).toBe(4)
+  })
+
+  it('⚠️ an EXPLICIT request runs an old war regardless of the watermark', async () => {
+    // How the admin trigger works, and why it needs no second code path: a
+    // `waiting` state row IS the request. This is the only way to wrap up a war
+    // that ended before the job was switched on.
+    await stack.db.query(
+      `INSERT INTO faction_settings (key, value)
+       VALUES ($1, to_jsonb((${END + 100000})::text))
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [INSTALL_KEY])
+    await addWar(); await addContributions(); await addAttack()
+    await stack.db.query(
+      `INSERT INTO war_wrap_up_state (war_id, state) VALUES ($1, 'waiting')`, [WAR])
+
+    const res = await warWrapUpJob(deps())
+    expect(res.rows).toBe(4)
+  })
+
+  it('an explicit request works even on the very first run', async () => {
+    // Somebody enabling the job in order to wrap up one specific old war should
+    // not have to wait for a second tick.
+    await stack.db.query(`DELETE FROM faction_settings WHERE key = $1`, [INSTALL_KEY])
+    await addWar(); await addContributions(); await addAttack()
+    await stack.db.query(
+      `INSERT INTO war_wrap_up_state (war_id, state) VALUES ($1, 'waiting')`, [WAR])
+
+    const res = await warWrapUpJob(deps())
+    expect(res.rows).toBe(4)
   })
 })

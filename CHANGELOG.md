@@ -62,6 +62,22 @@ surface it automatically.
   The retry window is a **stated tunable** (`faction_settings.war_wrap_up.retry_window_minutes`,
   default 120), floored at a minute and capped at a week — zero would fail every war
   instantly and unbounded would reinstate the silent wait.
+  ⚠️ **NO BACKFILL — the first run stamps a watermark and queues nothing.** Caught before
+  this shipped: without it, switching the job on finds every war ever fought with no state
+  row and wraps up the three most recent. On forge that is **~282 permanent messages**
+  across `Romania Elite Kommando`, `Sport Club` and `Damage Inc`, and with two tenants
+  enabled roughly 560 — none of them asked for, none of them unpostable. Exactly the
+  lesson #942's watermark already taught. **Probed:** removing the gate fails all 19 tests.
+
+- **Wrap up one named war on demand** (#945). `POST /api/admin/war-wrap-up { war_id }`,
+  admin-guarded, which puts that war into `waiting` and runs the job at once.
+  ⚠️ **This is the only way to wrap up a war that ended before the job was enabled**, and
+  it is deliberately by id with no "latest" shorthand — it queues the whole roster.
+  ⚠️ The mechanism is the same one a retry uses: a `waiting` state row IS the request, and
+  `warsNeedingWrapUp` admits it regardless of the watermark. No second code path to keep
+  in step. **Probed:** gating explicit rows by the watermark too fails 2 tests.
+  ⚠️ It resets `first_seen_at`, restarting the retry window. Without that a war whose row
+  is hours old fails on the first pass and the operator sees `failed` having had no retry.
 
 ## [3.214.0] - 2026-10-11
 

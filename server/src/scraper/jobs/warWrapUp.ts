@@ -26,6 +26,43 @@ import { DIBS_SUMMARY_JOB } from '../../memberWarReport.js'
 /** How many wars one run will wrap up. More than one ends at once only after an outage. */
 const MAX_WARS_PER_RUN = 3
 
+/**
+ * `faction_settings` key holding the moment this job started watching.
+ *
+ * ⚠️ **No backfill, for the same reason #942 has a watermark.** Without this,
+ * the first run finds every war ever fought with no state row and wraps up the
+ * three most recent — measured on forge, that is ~282 permanent posts across
+ * three old wars, and on a fleet with two tenants enabled, ~560. Nobody asked
+ * for those, and they cannot be unposted.
+ *
+ * ⚠️ The watermark gates AUTO-DISCOVERY only. A `war_wrap_up_state` row in
+ * `waiting` is an explicit request — that is how the admin trigger re-runs an
+ * old war on purpose, and why it needs no second mechanism.
+ */
+export const INSTALL_KEY = 'war_wrap_up_installed_at'
+
+/**
+ * When this faction started wrapping up wars, epoch SECONDS, or null on the
+ * very first run after stamping it.
+ *
+ * Seconds because `ranked_wars.end_at` is epoch seconds, and converting in one
+ * place beats converting at every comparison.
+ */
+async function installedAt(db: pg.Pool): Promise<number | null> {
+  const res = await db.query(
+    `SELECT (value #>> '{}')::bigint AS at FROM faction_settings WHERE key = $1`,
+    [INSTALL_KEY],
+  )
+  if (res.rowCount && res.rows[0].at != null) return Number(res.rows[0].at)
+  await db.query(
+    `INSERT INTO faction_settings (key, value)
+     VALUES ($1, to_jsonb(extract(epoch from now())::bigint::text))
+     ON CONFLICT (key) DO NOTHING`,
+    [INSTALL_KEY],
+  )
+  return null
+}
+
 export interface WrapUpDeps extends JobDeps {
   /**
    * Runs another registered job by name, as the admin "run now" does.
@@ -44,17 +81,22 @@ export interface WrapUpDeps extends JobDeps {
  * here. ⚠️ And `state = 'queued'` is excluded, which is what makes a re-run
  * safe: a war that already succeeded is never looked at again.
  */
-async function warsNeedingWrapUp(db: pg.Pool) {
+async function warsNeedingWrapUp(db: pg.Pool, since: number) {
   const res = await db.query(
     `SELECT w.id, w.end_at, s.state, s.attempts,
             (extract(epoch from s.first_seen_at) * 1000)::bigint AS first_seen_ms
        FROM ranked_wars w
        LEFT JOIN war_wrap_up_state s ON s.war_id = w.id
       WHERE w.end_at IS NOT NULL AND w.end_at > 0
-        AND (s.state IS NULL OR s.state = 'waiting')
+        AND (
+          -- An explicit request: somebody asked for this war, whenever it ended.
+          s.state = 'waiting'
+          -- ...or a war that ended since we started watching.
+          OR (s.state IS NULL AND w.end_at > $2)
+        )
       ORDER BY w.end_at DESC
       LIMIT $1`,
-    [MAX_WARS_PER_RUN],
+    [MAX_WARS_PER_RUN, since],
   )
   return res.rows
 }
@@ -141,7 +183,19 @@ async function record(
 
 export async function warWrapUpJob(deps: WrapUpDeps): Promise<RunResult> {
   const { db, runJob } = deps
-  const wars = await warsNeedingWrapUp(db)
+
+  // ⚠️ The first run stamps the watermark and does nothing else, so enabling
+  // this job never retro-posts old wars. An explicitly requested war still
+  // runs, because `warsNeedingWrapUp` admits a `waiting` row regardless.
+  const since = await installedAt(db)
+  if (since === null) {
+    const forced = await warsNeedingWrapUp(db, Number.MAX_SAFE_INTEGER)
+    if (forced.length === 0) {
+      return { rows: 0, details: { installed: true, wars: 0 } }
+    }
+  }
+
+  const wars = await warsNeedingWrapUp(db, since ?? Number.MAX_SAFE_INTEGER)
   if (wars.length === 0) return { rows: 0, details: { wars: 0 } }
 
   const window = retryWindowMinutes(await settingFor(db))
