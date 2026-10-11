@@ -15,6 +15,9 @@ const OPP = 20747
 const WAR = 777
 const ME = 101
 const QUIET = 202          // on the roster, no hits, nothing measured
+// ⚠️ Touched by NOTHING. The absence tests need a member no other test can
+// give a row to — sharing QUIET made "never answered" depend on test order.
+const ABSENT = 303
 const START = 1_790_000_000
 const END = START + 7200
 
@@ -211,8 +214,28 @@ describe('⚠️ absence is never zero', () => {
   })
 
   it('roll call is null when they never answered', async () => {
-    const b = await report(`?war=${WAR}&member=${QUIET}`)
+    const b = await report(`?war=${WAR}&member=${ABSENT}`)
     expect(b.roll_call).toBeNull()
+  })
+
+  it('⚠️ roll call says responded:true — the field the FORMATTER reads', async () => {
+    // THE bug this test exists for. The first version returned the raw
+    // `war_room_roll_call_v2` row, and the bot's `roll_call_line` reads
+    // `responded` — so a member who had answered, with on_at_start=true and
+    // availability='on_time' sitting in the database, was rendered in their own
+    // permanent thread as "no answer recorded". Shipping raw column names makes
+    // the bot responsible for a schema it cannot see.
+    await stack.db.query(
+      `INSERT INTO war_room_roll_call_v2 (war_id, member_id, member_name, on_at_start, availability)
+       VALUES ($1, $2, 'Quiet', true, 'on_time')`,
+      [WAR, QUIET])
+    const b = await report(`?war=${WAR}&member=${QUIET}`)
+    expect(b.roll_call.responded).toBe(true)
+    // ⚠️ And a first-action offset, which the formatter reads to say whether
+    // they turned up. Null here is "no attack to measure", never "did not show".
+    expect(b.roll_call).toHaveProperty('first_action_offset_sec')
+    expect(b.roll_call.on_at_start).toBe(true)
+    expect(b.roll_call.availability).toBe('on_time')
   })
 
   it('⚠️ roll call distinguishes "never answered" from "said no"', async () => {
@@ -222,15 +245,20 @@ describe('⚠️ absence is never zero', () => {
       [WAR, ME],
     )
     const said = await report(`?war=${WAR}&member=${ME}`)
-    const never = await report(`?war=${WAR}&member=${QUIET}`)
+    const never = await report(`?war=${WAR}&member=${ABSENT}`)
     // Said no: a row, with false in it. Never answered: no row at all.
     expect(said.roll_call.on_at_start).toBe(false)
     expect(said.roll_call.availability).toBe('unavailable')
     expect(never.roll_call).toBeNull()
   })
 
-  it('stacks is null with no snapshot, and keeps has_reading when there is one', async () => {
-    expect((await report(`?war=${WAR}&member=${QUIET}`)).stacks).toBeNull()
+  it('⚠️ unreadable stacks send energy NULL, not 0', async () => {
+    // The sibling of the roll-call bug, and the sharper one: the first version
+    // sent `energy_current` — which the formatter does not read — so it printed
+    // "0 energy" for a member whose real energy was 965. `has_reading` exists
+    // precisely because a blank energy cell reads as zero in a spreadsheet, and
+    // sending 0 here reproduces that error in a permanent per-member record.
+    expect((await report(`?war=${WAR}&member=${ABSENT}`)).stacks).toBeNull()
     await stack.db.query(
       `INSERT INTO war_stacks_snapshot
          (war_id, member_id, member_name, energy_current, energy_maximum,
@@ -239,18 +267,78 @@ describe('⚠️ absence is never zero', () => {
       [WAR, ME],
     )
     const b = await report(`?war=${WAR}&member=${ME}`)
-    // ⚠️ energy 0 with has_reading false is "we could not read it", NOT "they
-    // turned up on empty". A blank cell reads as zero; this is why the column
-    // exists.
     expect(b.stacks.has_reading).toBe(false)
-    expect(b.stacks.energy_current).toBe(0)
+    expect(b.stacks.energy).toBeNull()
   })
 
+  it('readable stacks send the real energy under the key the formatter reads', async () => {
+    await stack.db.query(
+      `INSERT INTO war_stacks_snapshot
+         (war_id, member_id, member_name, energy_current, energy_maximum,
+          has_reading, od_flagged_prewar, captured_at)
+       VALUES ($1, $2, 'Quiet', 965, 150, true, true, now())`,
+      [WAR, QUIET],
+    )
+    const b = await report(`?war=${WAR}&member=${QUIET}`)
+    expect(b.stacks.energy).toBe(965)
+    expect(b.stacks.has_reading).toBe(true)
+    expect(b.stacks.overdosed).toBe(true)
+  })
   it('a member with no hits at all has a null score, not a zeroed one', async () => {
     const b = await report(`?war=${WAR}&member=999999`)
     expect(b.score).toBeNull()
     // ...and the report is still served, because a war where somebody did
     // nothing is keep-or-kick evidence rather than an error.
     expect(b.war.id).toBe(WAR)
+  })
+})
+
+
+// ⚠️ THE test that would have caught the field-name mismatch that shipped.
+//
+// The formatter in `torn-discord-bot` reads specific keys. Its own 23 tests all
+// passed, because they exercise the MOCK's shape — nothing asserted that what
+// this endpoint actually sends matches what the formatter actually reads. Two
+// mismatches reached production: `responded` and `energy`.
+describe('⚠️ the contract the bot formatter reads', () => {
+  // Kept in step by hand with member_report_format.py. A literal list, because
+  // the whole failure was a key that existed on one side and not the other.
+  const ROLL_CALL_KEYS = [
+    'responded', 'on_at_start', 'availability', 'can_self_hospital',
+    'needs_merc', 'revised', 'first_action_offset_sec',
+  ]
+  const STACKS_KEYS = ['energy', 'has_reading', 'overdosed']
+
+  it('roll_call carries every key the formatter reads', async () => {
+    const b = await report(`?war=${WAR}&member=${ME}`)
+    expect(b.roll_call).not.toBeNull()
+    for (const k of ROLL_CALL_KEYS) expect(b.roll_call).toHaveProperty(k)
+  })
+
+  it('stacks carries every key the formatter reads', async () => {
+    const b = await report(`?war=${WAR}&member=${QUIET}`)
+    expect(b.stacks).not.toBeNull()
+    for (const k of STACKS_KEYS) expect(b.stacks).toHaveProperty(k)
+  })
+
+  it('⚠️ does NOT leak raw column names the formatter would ignore', async () => {
+    // `energy_current` reaching the bot is how "965 energy" became "0 energy":
+    // the formatter looked for `energy`, found nothing, and printed a zero.
+    const b = await report(`?war=${WAR}&member=${QUIET}`)
+    expect(b.stacks).not.toHaveProperty('energy_current')
+    expect(b.stacks).not.toHaveProperty('od_flagged_prewar')
+  })
+
+  it('carries a binned chart the bot can draw', async () => {
+    const b = await report(`?war=${WAR}&member=${ME}`)
+    expect(b.summary).not.toBeNull()
+    expect(b.chart).not.toBeNull()
+    expect(b.chart.bin_seconds).toBeGreaterThan(0)
+    expect(Array.isArray(b.chart.x_ms)).toBe(true)
+    expect(Array.isArray(b.chart.panels)).toBe(true)
+    // ⚠️ Member-scoped: the point is one member's attacks over time, not the
+    // faction's. A faction-wide chart in a personal thread is the wrong picture
+    // beside the right numbers.
+    expect(b.chart.panels.length).toBeGreaterThan(0)
   })
 })
