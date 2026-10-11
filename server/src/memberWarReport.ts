@@ -34,6 +34,7 @@
 // legitimate — is non-null only when that state is `measured`.
 import type pg from 'pg'
 import { summariseWindow, type Summary } from './warOverview/summary.js'
+import { buildChart, resolveBinSeconds, type Chart } from './warOverview/series.js'
 import { scoreMemberWar, type MemberWarScore } from './warMemberScore.js'
 
 /**
@@ -75,8 +76,51 @@ export interface MemberWarReport {
   score: MemberWarScore | null
   summary: Summary | null
   dibs: MemberDibs
-  roll_call: Record<string, unknown> | null
-  stacks: Record<string, unknown> | null
+  roll_call: MemberRollCall | null
+  stacks: MemberStacks | null
+  /** Pre-binned series for the bot's chart, member-scoped. Null when empty. */
+  chart: Chart | null
+}
+
+/**
+ * ⚠️ **A deliberate contract, NOT the raw `war_room_roll_call_v2` row.**
+ *
+ * The first version of this returned the row as it came out of Postgres, and
+ * the formatter — which reads `responded` — rendered *"no answer recorded"* for
+ * somebody who had answered. The dashboard selects, the bot renders; shipping
+ * raw column names makes the bot responsible for a schema it cannot see.
+ */
+export interface MemberRollCall {
+  /** ⚠️ True because a ROW EXISTS. Answering "no" is still answering. */
+  responded: true
+  on_at_start: boolean
+  availability: string | null
+  can_self_hospital: boolean | null
+  needs_merc: boolean | null
+  revised: boolean
+  submitted_ms: number | null
+  /**
+   * Seconds between the war starting and this member's first attack, or null.
+   *
+   * ⚠️ Null means "no attack to measure against", NOT "did not turn up" — it
+   * is also true of somebody who spent the war being revived.
+   */
+  first_action_offset_sec: number | null
+}
+
+export interface MemberStacks {
+  /**
+   * ⚠️ Null when `has_reading` is false. Energy 0 and "we could not read their
+   * energy" are different facts, and the column exists because a blank cell
+   * reads as zero. Sending 0 here is the absence-as-zero failure the whole
+   * design is about — which is exactly what the first version did.
+   */
+  energy: number | null
+  energy_max: number | null
+  /** False when the member had no readable pooled key at capture time. */
+  has_reading: boolean
+  overdosed: boolean
+  captured_ms: number | null
 }
 
 export type ReportError = { error: string }
@@ -185,6 +229,10 @@ export async function collectMemberWarReport(
     ? fromAttacks?.attacker_name
     : fromAttacks?.defender_name) ?? nameRes.rows[0]?.member_name ?? null
 
+  // Faction names for the chart's legend, from the rows themselves.
+  const factionNames: Record<number, string> = {}
+  if (w.opponent_id && w.opponent_name) factionNames[Number(w.opponent_id)] = w.opponent_name
+
   const summary = summariseWindow({
     attacks, revives, fromTs, toTs, ourFactionId,
     selectedFactionIds: null, mode: 'member', memberId: member,
@@ -217,8 +265,74 @@ export async function collectMemberWarReport(
       state: dibsStateRes.rows[0] ?? null,
       row: dibsRes.rows[0] ?? null,
     }),
-    roll_call: rollRes.rows[0] ?? null,
-    stacks: stacksRes.rows[0] ?? null,
+    roll_call: shapeRollCall(rollRes.rows[0] ?? null, attacks, member, fromTs),
+    stacks: shapeStacks(stacksRes.rows[0] ?? null),
+    // ⚠️ Member-scoped, and the same binner the page and `/rw overview` use —
+    // a second implementation of "which bin does this attack fall in" is what
+    // `warOverview/series.ts` exists to prevent.
+    chart: attacks.length === 0 && revives.length === 0 ? null : buildChart({
+      attacks, revives, fromTs, toTs, ourFactionId,
+      selectedFactionIds: null, mode: 'member', memberId: member,
+      factionNames, binSeconds: resolveBinSeconds(toTs - fromTs, 'auto').seconds,
+    }),
+  }
+}
+
+/**
+ * The roll-call row as the report needs it.
+ *
+ * ⚠️ `responded: true` whenever a row exists. "Did not answer" is not "said
+ * no", and the absence of a row is the only thing that means silence.
+ */
+function shapeRollCall(
+  row: Record<string, any> | null, attacks: any[], memberId: number, fromTs: number,
+): MemberRollCall | null {
+  if (row === null) return null
+
+  // ⚠️ Their FIRST outgoing attack in the window, which is what "turned up"
+  // measures. Computed here rather than in SQL because the attack rows are
+  // already loaded, and a second query asking the same question is a second
+  // definition of it.
+  let firstStarted: number | null = null
+  for (const a of attacks) {
+    if (Number(a.attacker_id) !== memberId) continue
+    const started = Number(a.started)
+    if (!Number.isFinite(started)) continue
+    if (firstStarted === null || started < firstStarted) firstStarted = started
+  }
+
+  return {
+    responded: true,
+    on_at_start: row.on_at_start === true,
+    availability: row.availability ?? null,
+    can_self_hospital: row.can_self_hospital ?? null,
+    needs_merc: row.needs_merc ?? null,
+    revised: row.revised === true,
+    submitted_ms: row.submitted_ms == null ? null : Number(row.submitted_ms),
+    // ⚠️ Null when they never attacked — "not measured", never 0, which would
+    // read as "turned up instantly".
+    first_action_offset_sec: firstStarted === null
+      ? null
+      : Math.max(0, firstStarted - fromTs),
+  }
+}
+
+/**
+ * The stacks snapshot as the report needs it.
+ *
+ * ⚠️ **`energy` is null when `has_reading` is false.** The column exists
+ * precisely because a blank energy cell reads as zero in a spreadsheet, and
+ * sending 0 here reproduces that error in a permanent per-member record.
+ */
+function shapeStacks(row: Record<string, any> | null): MemberStacks | null {
+  if (row === null) return null
+  const hasReading = row.has_reading === true
+  return {
+    energy: hasReading ? Number(row.energy_current ?? 0) : null,
+    energy_max: row.energy_maximum == null ? null : Number(row.energy_maximum),
+    has_reading: hasReading,
+    overdosed: row.od_flagged_prewar === true,
+    captured_ms: row.captured_ms == null ? null : Number(row.captured_ms),
   }
 }
 

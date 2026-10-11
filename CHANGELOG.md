@@ -18,6 +18,33 @@ surface it automatically.
 
 ---
 
+## [3.216.0] - 2026-10-11
+
+### Fixed
+- ⚠️ **The member report published two facts as their opposites** (#943). The payload
+  returned raw `war_room_roll_call_v2` and `war_stacks_snapshot` rows; the bot's formatter
+  reads `responded` and `energy`. So a member who HAD answered the roll call — `on_at_start`
+  true, `availability` `on_time`, sitting in the database — was published in his own
+  permanent thread as *"no answer recorded"*, and 965 energy as *"0 energy"*.
+  ⚠️ **Every test passed.** The formatter's 23 exercise a mock whose shape was invented
+  before this endpoint existed, and nothing asserted that what the dashboard sends matches
+  what the bot reads. Two keys drifted and the suites on both sides stayed green.
+  The payload is now a stated contract (`MemberRollCall`, `MemberStacks`) rather than
+  whatever the columns happen to be called, with `responded`, `energy`, `overdosed` and a
+  derived `first_action_offset_sec`. New tests assert every key the formatter reads is
+  present **and** that raw column names are absent. **Probed:** restoring the raw rows
+  fails 6 tests.
+  ⚠️ **`energy` is null when `has_reading` is false**, never 0. The column exists precisely
+  because a blank energy cell reads as zero in a spreadsheet; sending 0 reproduced that
+  error in a permanent per-member record. **Probed:** 1 test.
+
+### Added
+- **The member report carries its own chart** (#943). Binned attack/revive series, member-
+  scoped, from the same `warOverview/series.ts` the page and `/rw overview` use — a second
+  implementation of "which bin does this attack fall in" is what that module exists to
+  prevent. MonChoon: *"I also want the graphs to be shown so I can see the incoming/outgoing
+  attacks and revives over time in their bins."*
+
 ## [3.215.0] - 2026-10-11
 
 ### Added
