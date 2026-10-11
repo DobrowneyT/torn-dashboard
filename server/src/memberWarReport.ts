@@ -35,6 +35,7 @@
 import type pg from 'pg'
 import { summariseWindow, type Summary } from './warOverview/summary.js'
 import { buildChart, resolveBinSeconds, type Chart } from './warOverview/series.js'
+import { resolveFactionNames } from './warOverview/factionNames.js'
 import { scoreMemberWar, type MemberWarScore } from './warMemberScore.js'
 
 /**
@@ -166,8 +167,8 @@ export async function collectMemberWarReport(
     await Promise.all([
       db.query(
         `SELECT started, result, chain, respect_gain, is_ranked_war,
-                attacker_id, attacker_name, attacker_faction_id,
-                defender_id, defender_name, defender_faction_id
+                attacker_id, attacker_name, attacker_faction_id, attacker_faction_name,
+                defender_id, defender_name, defender_faction_id, defender_faction_name
            FROM faction_attacks
           WHERE started >= $1 AND started <= $2`,
         [fromTs, toTs],
@@ -229,9 +230,13 @@ export async function collectMemberWarReport(
     ? fromAttacks?.attacker_name
     : fromAttacks?.defender_name) ?? nameRes.rows[0]?.member_name ?? null
 
-  // Faction names for the chart's legend, from the rows themselves.
-  const factionNames: Record<number, string> = {}
-  if (w.opponent_id && w.opponent_name) factionNames[Number(w.opponent_id)] = w.opponent_name
+  // ⚠️ Every faction the rows mention, not just the opponent — see
+  // `factionNames.ts`. A third faction in the chart legend read as
+  // `faction 21716` in a permanent thread.
+  const factionNames = await resolveFactionNames(
+    db, [...attacks, ...revives],
+    { id: w.opponent_id == null ? null : Number(w.opponent_id), name: w.opponent_name ?? null },
+  )
 
   const summary = summariseWindow({
     attacks, revives, fromTs, toTs, ourFactionId,

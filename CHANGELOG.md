@@ -18,6 +18,26 @@ surface it automatically.
 
 ---
 
+## [3.218.0] - 2026-10-11
+
+### Fixed
+- ⚠️ **A third faction reached Discord as `faction 21716`** while the War Overview page
+  beside it showed the name — the same war, two answers. The page builds its lookup from
+  `attacker_faction_name` / `defender_faction_name` on the attack rows;
+  `warOverviewInternal` built a smaller one from the opponent plus revivers, and
+  `memberWarReport` copied that smaller one. Neither endpoint even SELECTed the name
+  columns.
+  One resolver now serves both — `warOverview/factionNames.ts` — because there were
+  nearly four. ⚠️ Three sources in order of trust: the row's own name (contemporaneous,
+  which is what a post-mortem wants), the `factions` table that `factions-sync` maintains
+  for exactly this, and the opponent from `ranked_wars` last so a stray spelling cannot
+  override the name the war was fought under.
+  ⚠️ **Faction 0 is never named** — it is "no faction", a real filterable id with six
+  figures of rows behind it on the live box. **Probed:** naming it fails a test; dropping
+  the attack rows fails 3; dropping the table backfill fails 1.
+  ⚠️ An id with no name anywhere is **absent**, not guessed — the caller renders
+  `faction <id>`, which is honest.
+
 ## [3.217.0] - 2026-10-11
 
 ### Fixed
