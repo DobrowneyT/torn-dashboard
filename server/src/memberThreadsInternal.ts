@@ -13,6 +13,7 @@
 import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { bearerFrom, tokenMatches } from './fleetMetricsAuth.js'
+import { collectMemberWarReport } from './memberWarReport.js'
 
 /** A drain takes at most this many at once, so one poll cannot run for ever. */
 export const DRAIN_BATCH = 50
@@ -160,5 +161,29 @@ export function registerMemberThreadRoutes(
     )
     if (res.rowCount === 0) return reply.status(404).send({ error: 'Unknown or already posted' })
     return { ok: true }
+  })
+
+  /**
+   * Everything one member's post-war report needs, for one (war, member) (#943).
+   *
+   * ⚠️ **A GET, and it claims nothing.** The bot calls this per member while
+   * rendering, and a drain that had to claim a row to read the facts could not
+   * retry a failed render without the ten-minute wait. The mailbox entry is
+   * what gets claimed; this is just the data.
+   *
+   * ⚠️ **400 on a live or unknown war, never a partial report.** A scoreless
+   * report posted into a permanent record cannot be unposted, and MonChoon was
+   * explicit: *"I don't want it to post scoreless reports because the wrap up
+   * never completed, it should just fail loudly."*
+   */
+  app.get('/api/internal/member-threads/report', async (req, reply) => {
+    if (!authed(req, reply)) return
+    const q = (req.query ?? {}) as Record<string, string | undefined>
+    if (!q.war || !q.member) {
+      return reply.status(400).send({ error: 'war and member are required' })
+    }
+    const out = await collectMemberWarReport(db, q.war, q.member)
+    if ('error' in out) return reply.status(400).send(out)
+    return out
   })
 }

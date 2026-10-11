@@ -451,3 +451,72 @@ describe('branding & identity', () => {
     expect(body.faction.branding.favicon).toBe('/img/fav.ico')
   })
 })
+
+// #943 — queueing one member's war report into the mailbox the bot drains.
+describe('queueing a member war report', () => {
+  const WAR = 4321
+  const START = 1_790_100_000
+  const MEMBER = '7600'
+
+  beforeAll(async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, opponent_name, start_at, end_at,
+                                our_score, opponent_score)
+       VALUES ($1, 20747, 'Them', $2, $3, 100, 90) ON CONFLICT (id) DO NOTHING`,
+      [WAR, START, START + 3600],
+    )
+  })
+
+  it('rejects a non-admin', async () => {
+    // ⚠️ What this queues is a permanent, named performance record in a channel
+    // leadership reads. Leadership can edit settings; only admin queues these.
+    const res = await api('POST', '/api/admin/member-threads/war-report', leadershipToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(res.status).toBe(403)
+  })
+
+  it('queues one entry, keyed on the war', async () => {
+    const res = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(res.status).toBe(200)
+    expect(res.body.queued).toBe(true)
+    const row = await stack.db.query(
+      `SELECT kind, subject FROM member_thread_outbox WHERE member_id = $1`, [MEMBER])
+    expect(row.rows[0]).toMatchObject({ kind: 'war_report', subject: `war:${WAR}` })
+  })
+
+  it('⚠️ queueing the same pair twice does not produce a second post', async () => {
+    // The subject is the WAR, so a re-run is the same mailbox entry and the bot
+    // edits the message it already recorded. Two rows would mean two embeds in
+    // one thread for one war.
+    const again = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(again.status).toBe(200)
+    expect(again.body.queued).toBe(false)
+    const n = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_thread_outbox
+        WHERE member_id = $1 AND kind = 'war_report'`, [MEMBER])
+    expect(n.rows[0].n).toBe(1)
+  })
+
+  it('⚠️ refuses a live war rather than queueing something undrainable', async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, start_at, end_at)
+       VALUES (4322, 20747, $1, NULL) ON CONFLICT (id) DO NOTHING`, [START])
+    const res = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: 4322, member_id: MEMBER })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/has not ended/)
+    // Nothing was queued: a stuck mailbox entry is the failure nobody notices.
+    const n = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_thread_outbox WHERE subject = 'war:4322'`)
+    expect(n.rows[0].n).toBe(0)
+  })
+
+  it('400s without both ids', async () => {
+    expect((await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR })).status).toBe(400)
+    expect((await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { member_id: MEMBER })).status).toBe(400)
+  })
+})
