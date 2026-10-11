@@ -231,3 +231,27 @@ describe('leaves and rejoins', () => {
     expect(new Set(rows.rows.map((r: any) => r.subject)).size).toBe(2)
   })
 })
+
+// #943 — a correction has to reach the bot as an EDIT, not a second post.
+describe('a re-opened entry', () => {
+  it('⚠️ comes back from claim WITH its message id', async () => {
+    // ⚠️ Self-contained: `claim` takes rows for ten minutes, so a test that
+    // claims shared fixture rows starves whichever test runs next. This one
+    // makes its own row and releases everything it touched.
+    await reset()
+    const stint = await addStint('950', "now() - interval '1 hour'")
+    await stack.db.query(
+      `INSERT INTO member_thread_outbox (member_id, kind, subject, payload, message_id)
+       VALUES ('950', 'war_report', 'war:42', '{"war_id":42}'::jsonb, '4242')`,
+      [],
+    )
+    void stint
+
+    const body = await (await api('/api/internal/member-threads/claim')).json() as any
+    const row = body.pending.find((r: any) => r.subject === 'war:42')
+    expect(row).toBeDefined()
+    // Without this field the bot cannot tell a correction from a first post,
+    // and would add a second embed to the thread for the same war.
+    expect(row.message_id).toBe('4242')
+  })
+})

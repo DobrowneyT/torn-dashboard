@@ -18,6 +18,142 @@ surface it automatically.
 
 ---
 
+## [3.215.0] - 2026-10-11
+
+### Added
+- **War wrap-up: collect everything, verify it, then queue the roster** (#945, fourth
+  slice of PRD #941). A `war-wrap-up` job runs every ten minutes, finds wars that have
+  ended and are not finished, drives the final scrapes, confirms every source is actually
+  present, and only then queues every current member's report.
+  ⚠️ **It DRIVES the existing jobs rather than re-implementing them** — `attacks-sync`,
+  `revives-sync`, `wars-sync` and `dibs-summary`, through the scheduler's own `runNow`, so
+  each appears in Global Admin's Recent Runs. Calling the job functions directly would
+  work and would be invisible, which is the worse kind of working.
+  ⚠️ **Sequenced, not parallel.** `dibs-summary` classifies a claim by finding the attack
+  that explains it, so running it before the final attack scrape records real conversions
+  as "no swing" — permanently, in threads with members' names on them. **Probed:** moving
+  it first fails a test.
+  ⚠️ **Every CURRENT member is queued, participants and non-participants alike, termed
+  wars included.** MonChoon: *"on a termed war most people do participate… if no one
+  particiapted thats even more important, since it will determine whether we keep them or
+  kick them."* A zero row is a keep/kick input, not padding. **Probed:** including former
+  members fails 4 tests.
+  ⚠️ **Nothing is queued until every source is confirmed.** Missing contributions inside
+  the window retry; at the end of it the war **fails loudly and queues nothing**. MonChoon:
+  *"I don't want jt to post scoreless reports because the wrap up never completed it should
+  just fail loudly."*
+  ⚠️ **`report_unavailable` fails IMMEDIATELY**, before the window is consulted. Torn is
+  saying *never*, not *not yet*, and burning two hours of retries only delays the message
+  to the human who has to decide what to do.
+  ⚠️ **Attacks are checked separately from contributions.** Contributions come from Torn's
+  war report; the scores in a member's thread come from our own ledger. A war with one and
+  not the other would render every score as absent while the payout sheet showed figures —
+  two sources disagreeing in public.
+  ⚠️ **Dibs blocks only when the job is ENABLED.** It is off on four of five tenants, so
+  blocking on it would mean the wrap-up never completes there; the report endpoint already
+  reports `state: disabled` and the formatter omits the line.
+  ⚠️ **The retry clock runs from FIRST SIGHT**, persisted in `war_wrap_up_state.first_seen_at`.
+  Measured from the current run it would read zero on every pass and the window would never
+  expire — a war waiting for ever with nobody told. **Probed:** 3 tests fail.
+  ⚠️ **Re-runnable without double-queuing.** The roster insert is `DO NOTHING`, deliberately
+  NOT the admin route's `DO UPDATE`: that one re-opens a posted entry because asking for one
+  member's report again means "correct it", whereas a wrap-up re-run means "finish what you
+  could not finish" — and re-opening there would re-post the whole roster. **Probed:** 1 test.
+  The retry window is a **stated tunable** (`faction_settings.war_wrap_up.retry_window_minutes`,
+  default 120), floored at a minute and capped at a week — zero would fail every war
+  instantly and unbounded would reinstate the silent wait.
+  ⚠️ **NO BACKFILL — the first run stamps a watermark and queues nothing.** Caught before
+  this shipped: without it, switching the job on finds every war ever fought with no state
+  row and wraps up the three most recent. On forge that is **~282 permanent messages**
+  across `Romania Elite Kommando`, `Sport Club` and `Damage Inc`, and with two tenants
+  enabled roughly 560 — none of them asked for, none of them unpostable. Exactly the
+  lesson #942's watermark already taught. **Probed:** removing the gate fails all 19 tests.
+
+- **Wrap up one named war on demand** (#945). `POST /api/admin/war-wrap-up { war_id }`,
+  admin-guarded, which puts that war into `waiting` and runs the job at once.
+  ⚠️ **This is the only way to wrap up a war that ended before the job was enabled**, and
+  it is deliberately by id with no "latest" shorthand — it queues the whole roster.
+  ⚠️ The mechanism is the same one a retry uses: a `waiting` state row IS the request, and
+  `warsNeedingWrapUp` admits it regardless of the watermark. No second code path to keep
+  in step. **Probed:** gating explicit rows by the watermark too fails 2 tests.
+  ⚠️ It resets `first_seen_at`, restarting the retry window. Without that a war whose row
+  is hours old fails on the first pass and the operator sees `failed` having had no retry.
+
+## [3.214.0] - 2026-10-11
+
+### Fixed
+- ⚠️ **A correction could never be issued** (#943). `POST /api/admin/member-threads/war-report`
+  used `ON CONFLICT DO NOTHING`, so once an entry had been posted nothing would ever pick
+  it up again — the "edit on re-run" behaviour the whole subject-is-the-war design exists
+  for could not fire at all. A re-queue now **re-opens** the entry (clearing `posted_at`,
+  `claimed_at`, `attempts` and `last_error`) while **keeping `message_id`**, which is what
+  turns the re-run into an edit of the existing post rather than a second embed in the
+  member's thread. MonChoon: *"on a re-run for the same war I would edit the post. on a
+  new war I would append."*
+  The response now says which it did — `requeued` and `editing_message_id` — because an
+  operator issuing a correction wants to see it is going to land on the existing message.
+- ⚠️ **`claim` did not return `message_id`**, so the bot had no way to tell a correction
+  from a first post and would have appended a second embed for the same war. The column
+  is now selected and asserted.
+  ⚠️ My own test had hidden both of these: it asserted "queueing twice makes one row",
+  which was true and useless — one row that nothing will ever drain again. The test now
+  posts the entry first and asserts it is re-opened with its message id intact.
+
+## [3.213.0] - 2026-10-11
+
+### Added
+- **One member's post-war report, the data half** (#943, second slice of PRD #941).
+  `GET /api/internal/member-threads/report?war=&member=` returns everything one
+  member's report needs for one finished war: their score, the outgoing/incoming/revive
+  summary, their dibs record, their roll-call answer and their pre-war stacks snapshot.
+  ⚠️ **One endpoint carrying all five, not the bot calling five routes.** The bot reaches
+  a dashboard through bearer-token internal routes only; roll call, dibs and contributions
+  are session-authed and unreachable to it. Assembling here also keeps the decision about
+  *what belongs in a member report* on the side where the data lives — the bot renders, it
+  does not select.
+  ⚠️ **400 on a live or unknown war, never a partial report.** A scoreless report in a
+  permanent record cannot be unposted. MonChoon: *"I don't want it to post scoreless
+  reports because the wrap up never completed, it should just fail loudly."*
+  ⚠️ **A GET that claims nothing.** The mailbox entry is what gets claimed; this is just
+  the data, so a failed render can be retried without waiting out the ten-minute claim.
+
+- **Both score figures from our own attack ledger** (#943). `scoreMemberWar` returns
+  `raw`, `normalised` and `bonus_reduction` — the normalised figure capping bonus-chain
+  hits at 10, the basis every payout this faction has run.
+  ⚠️ **Never one figure from Torn and the other from us.** The two sources drift, and the
+  *difference* between them is the whole point of printing both: it is what the member
+  lost to bonus caps. A pair taken from two sources has a meaningless difference.
+  ⚠️ `war-member-score-parity.test.ts` runs the server and the payout sheet over one
+  fixture and fails when they disagree — the only thing that makes a fourth copy of "what
+  counts as a hit" survivable, since the bot cannot run browser JS. **Probed** three ways:
+  dropping a chain from the bonus set fails 4 tests, admitting `Special` fails 3, and
+  `Math.min`→`Math.max` fails 5.
+
+- **Queue one report** (#943). `POST /api/admin/member-threads/war-report`, admin-guarded
+  because what it queues is a permanent named performance record in a channel leadership
+  reads. Idempotent on `(member_id, war_report, war:<id>)`, so a re-run is the same entry
+  and the bot edits the message it already recorded rather than posting twice.
+
+### Changed
+- ⚠️ **Dibs has THREE states, not two** (#943). MonChoon, 2026-10-11: *"If dibs summary is
+  disabled we can ship the war reports without it rather than wait. If it's enabled and
+  the war wrap up has finished then we would know any member without a dibs summary row
+  had no history in there."*
+  A missing `war_dibs_summary` row could mean "claimed nothing", "not computed yet" or
+  "this tenant does not run the job" — and those lead to **opposite** actions, so a bare
+  `null` was not good enough:
+  - `disabled` → ship the report now; the formatter omits the line entirely, because the
+    absence says nothing about the member.
+  - `pending` → the wrap-up is unfinished; "not counted yet".
+  - `measured` → a missing row is a genuine zero, "no claims".
+  ⚠️ **`disabled` is tested before `pending`**, because a tenant that does not run the job
+  also has no state row — checking the state row first would report those wars as
+  `pending` for ever, and a wrap-up gated on `pending` would never complete. **Probed:**
+  swapping the two guards fails 2 tests.
+  ⚠️ The difference is live, not hypothetical: `dibs-summary` is enabled on **one of five**
+  tenants, so on the other four every member's missing row means "we never measured".
+  `counts` is the only place in the payload a zero is legitimate.
+
 ## [3.212.0] - 2026-10-11
 
 ### Added

@@ -21,6 +21,14 @@ export const OUTBOX_KINDS = {
   joined: 'joined',
   /** A member left. Appended to their existing thread. */
   left: 'left',
+  /**
+   * One member's performance in one finished war (#943).
+   *
+   * ⚠️ **Appended, never replacing.** One running log per member: a new war
+   * adds a post, and a re-run of the SAME war edits the one already there.
+   * That is why the subject is the war — see `warSubject`.
+   */
+  war_report: 'war_report',
 } as const
 
 export type OutboxKind = typeof OUTBOX_KINDS[keyof typeof OUTBOX_KINDS]
@@ -34,6 +42,16 @@ export type OutboxKind = typeof OUTBOX_KINDS[keyof typeof OUTBOX_KINDS]
  * came back.
  */
 export const stintSubject = (stintId: number | string) => `stint:${stintId}`
+
+/**
+ * The `subject` for a war report.
+ *
+ * ⚠️ The WAR, so the unique index on `(member_id, kind, subject)` makes a
+ * re-run of the same war idempotent — which is what turns "post again" into
+ * "edit the existing post". MonChoon: *"on a re-run for the same war I would
+ * edit the post. on a new war I would append."*
+ */
+export const warSubject = (warId: number | string) => `war:${warId}`
 
 export interface StintRow {
   id: number

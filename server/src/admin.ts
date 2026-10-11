@@ -6,6 +6,8 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { ROLES, type Role } from './auth.js'
 import { requireRole } from './authz.js'
+import { OUTBOX_KINDS, warSubject } from './memberThreads.js'
+import { collectMemberWarReport } from './memberWarReport.js'
 import type { createJobRunner } from './scraper/registerJobs.js'
 import { resolveJobSchedule } from './scraper/scheduleResolution.js'
 import type { FlagResolver } from './featureFlags.js'
@@ -279,6 +281,125 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     if (run === null) return reply.status(404).send({ error: `Unknown scraper job: ${name}` })
     // A failed job is a successful trigger: the failure lives on the run row.
     return { run }
+  })
+
+  /**
+   * Queue one member's war report (#943).
+   *
+   * ⚠️ **One member, deliberately.** The roster-wide run belongs to the war
+   * wrap-up job (#945), which can only queue once every source has actually
+   * landed. This endpoint is how the path gets proven — and how a single
+   * report is re-posted after a correction — without a fan-out that would put
+   * ~94 embeds in flight.
+   *
+   * ⚠️ **Idempotent via the unique index on (member_id, kind, subject).** The
+   * subject is the WAR, so queueing the same pair twice does not produce two
+   * posts: it is the same mailbox entry, and the bot edits the message it
+   * already recorded. MonChoon: *"on a re-run for the same war I would edit the
+   * post. on a new war I would append."*
+   *
+   * ⚠️ **Admin-guarded, not leadership.** What this queues is a permanent,
+   * named performance record in a channel the faction's leadership reads.
+   */
+  app.post('/api/admin/member-threads/war-report', ADMIN_GUARD, async (req, reply) => {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const warId = Number(b.war_id)
+    const memberId = b.member_id == null ? '' : String(b.member_id)
+    if (!Number.isFinite(warId) || warId <= 0 || !memberId) {
+      return reply.status(400).send({ error: 'war_id and member_id are required' })
+    }
+
+    // ⚠️ Refuse here rather than letting the bot discover it at post time. The
+    // report endpoint already refuses a live or unknown war; queueing one would
+    // leave a mailbox entry that can never be drained, and a stuck queue is the
+    // failure nobody notices.
+    const report = await collectMemberWarReport(db, warId, memberId)
+    if ('error' in report) return reply.status(400).send(report)
+
+    // ⚠️ **A re-queue RE-OPENS the existing entry rather than doing nothing.**
+    // `message_id` is deliberately kept, which is what makes the bot EDIT the
+    // post it already made instead of adding a second embed to the thread.
+    // MonChoon: *"on a re-run for the same war I would edit the post. on a new
+    // war I would append."* `DO NOTHING` here would mean a correction could
+    // never be issued at all — the entry is already posted, so nothing would
+    // ever pick it up again.
+    const res = await db.query(
+      `INSERT INTO member_thread_outbox (member_id, kind, subject, payload)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (member_id, kind, subject) DO UPDATE
+          SET posted_at = NULL,
+              claimed_at = NULL,
+              attempts = 0,
+              last_error = NULL,
+              payload = EXCLUDED.payload,
+              queued_at = now()
+       RETURNING id, message_id`,
+      [memberId, OUTBOX_KINDS.war_report, warSubject(warId),
+       { war_id: warId, member_name: report.member.name }],
+    )
+    const row = res.rows[0]
+    return {
+      ok: true,
+      id: row?.id ?? null,
+      // ⚠️ Stated so the caller knows which it got. "Queued" creates a post;
+      // "re-queued" edits one, and an operator issuing a correction wants to
+      // see that it is going to land on the existing message.
+      requeued: row?.message_id != null,
+      editing_message_id: row?.message_id ?? null,
+    }
+  })
+
+  /**
+   * Wrap up ONE named war, now (#945).
+   *
+   * ⚠️ **This is the only way to wrap up a war that ended before the job was
+   * enabled.** Auto-discovery is watermarked so switching the job on never
+   * retro-posts: on forge that would have been ~282 permanent messages across
+   * three old wars. An explicit request is how you say "yes, that one".
+   *
+   * ⚠️ **It queues the WHOLE roster** — ~94 reports for forge, each a permanent
+   * message in a thread with somebody's name on it. The war has to be named by
+   * id; there is no "latest" shorthand on purpose.
+   *
+   * The mechanism is deliberately the same one a retry uses: put the war's
+   * state row into `waiting`, which `warsNeedingWrapUp` admits regardless of
+   * the watermark, then run the job. No second code path to keep in step.
+   */
+  app.post('/api/admin/war-wrap-up', ADMIN_GUARD, async (req, reply) => {
+    if (!scrapers) return reply.status(503).send({ error: 'Scrapers not configured (KEY_ENCRYPTION_KEY)' })
+    const warId = Number((req.body as { war_id?: unknown } | null)?.war_id)
+    if (!Number.isFinite(warId) || warId <= 0) {
+      return reply.status(400).send({ error: 'war_id is required' })
+    }
+
+    const war = await db.query(
+      'SELECT id, opponent_name, end_at FROM ranked_wars WHERE id = $1', [warId],
+    )
+    if (war.rowCount === 0) return reply.status(404).send({ error: `No such war: ${warId}` })
+    // ⚠️ Refused here as well as in the job. A live war has no final scores,
+    // and the operator asking for one should be told now rather than finding a
+    // `failed` row later.
+    if (!war.rows[0].end_at) {
+      return reply.status(400).send({ error: `War ${warId} has not ended` })
+    }
+
+    // ⚠️ `first_seen_at` is reset, which restarts the retry window. Without it
+    // a war whose row is hours old fails instantly on the first pass, and the
+    // operator sees "failed" having had no retry at all.
+    await db.query(
+      `INSERT INTO war_wrap_up_state (war_id, state, first_seen_at, attempts, last_error)
+       VALUES ($1, 'waiting', now(), 0, NULL)
+       ON CONFLICT (war_id) DO UPDATE
+          SET state = 'waiting', first_seen_at = now(), attempts = 0, last_error = NULL`,
+      [warId],
+    )
+
+    const run = await scrapers.runNow('war-wrap-up')
+    return {
+      ok: true,
+      war: { id: warId, opponent_name: war.rows[0].opponent_name ?? null },
+      run,
+    }
   })
 
   // Operator secrets (#105): writes accept the plaintext once; reads expose

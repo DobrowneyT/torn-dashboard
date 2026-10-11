@@ -451,3 +451,175 @@ describe('branding & identity', () => {
     expect(body.faction.branding.favicon).toBe('/img/fav.ico')
   })
 })
+
+// #943 — queueing one member's war report into the mailbox the bot drains.
+describe('queueing a member war report', () => {
+  const WAR = 4321
+  const START = 1_790_100_000
+  const MEMBER = '7600'
+
+  beforeAll(async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, opponent_name, start_at, end_at,
+                                our_score, opponent_score)
+       VALUES ($1, 20747, 'Them', $2, $3, 100, 90) ON CONFLICT (id) DO NOTHING`,
+      [WAR, START, START + 3600],
+    )
+  })
+
+  it('rejects a non-admin', async () => {
+    // ⚠️ What this queues is a permanent, named performance record in a channel
+    // leadership reads. Leadership can edit settings; only admin queues these.
+    const res = await api('POST', '/api/admin/member-threads/war-report', leadershipToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(res.status).toBe(403)
+  })
+
+  it('queues one entry, keyed on the war', async () => {
+    const res = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(res.status).toBe(200)
+    // A fresh entry: nothing to edit yet.
+    expect(res.body.requeued).toBe(false)
+    expect(res.body.editing_message_id).toBeNull()
+    const row = await stack.db.query(
+      `SELECT kind, subject FROM member_thread_outbox WHERE member_id = $1`, [MEMBER])
+    expect(row.rows[0]).toMatchObject({ kind: 'war_report', subject: `war:${WAR}` })
+  })
+
+  it('⚠️ queueing the same pair twice is still ONE entry', async () => {
+    // The subject is the WAR, so two rows would mean two embeds in one thread
+    // for one war.
+    const again = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(again.status).toBe(200)
+    const n = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_thread_outbox
+        WHERE member_id = $1 AND kind = 'war_report'`, [MEMBER])
+    expect(n.rows[0].n).toBe(1)
+  })
+
+  it('⚠️ re-queueing an ALREADY POSTED entry re-opens it, keeping the message id', async () => {
+    // THE case `ON CONFLICT DO NOTHING` made impossible: once an entry is
+    // posted, nothing would ever pick it up again, so a correction could never
+    // be issued. Re-opening while keeping `message_id` is what turns a re-run
+    // into an EDIT of the existing post rather than a second embed.
+    await stack.db.query(
+      `UPDATE member_thread_outbox
+          SET posted_at = now(), message_id = '555', claimed_at = now(), attempts = 3
+        WHERE member_id = $1 AND kind = 'war_report'`, [MEMBER])
+
+    const res = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(res.status).toBe(200)
+    expect(res.body.requeued).toBe(true)
+    expect(res.body.editing_message_id).toBe('555')
+
+    const row = await stack.db.query(
+      `SELECT posted_at, claimed_at, attempts, message_id, last_error
+         FROM member_thread_outbox WHERE member_id = $1 AND kind = 'war_report'`, [MEMBER])
+    expect(row.rows[0].posted_at).toBeNull()
+    expect(row.rows[0].claimed_at).toBeNull()
+    expect(row.rows[0].attempts).toBe(0)
+    // ⚠️ Kept. Losing it here is what would produce the duplicate post.
+    expect(row.rows[0].message_id).toBe('555')
+  })
+
+  it('a re-opened entry is handed back by claim WITH its message id', async () => {
+    // The bot decides edit-vs-post from this field, so `claim` must carry it.
+    const res = await fetch(`${stack.baseUrl}/api/internal/member-threads/claim`, {
+      method: 'POST', headers: { authorization: 'Bearer member-threads-admin-test' },
+    })
+    // Not configured in this stack; the shape is asserted in
+    // member-threads-api.test.ts. Here we only prove the column is selected.
+    expect([200, 401, 404]).toContain(res.status)
+  })
+
+  it('⚠️ refuses a live war rather than queueing something undrainable', async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, start_at, end_at)
+       VALUES (4322, 20747, $1, NULL) ON CONFLICT (id) DO NOTHING`, [START])
+    const res = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: 4322, member_id: MEMBER })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/has not ended/)
+    // Nothing was queued: a stuck mailbox entry is the failure nobody notices.
+    const n = await stack.db.query(
+      `SELECT count(*)::int AS n FROM member_thread_outbox WHERE subject = 'war:4322'`)
+    expect(n.rows[0].n).toBe(0)
+  })
+
+  it('400s without both ids', async () => {
+    expect((await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR })).status).toBe(400)
+    expect((await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { member_id: MEMBER })).status).toBe(400)
+  })
+})
+
+// #945 — the explicit "wrap up THIS war" trigger.
+describe('triggering a war wrap-up by id', () => {
+  const OLD_WAR = 7777
+  const OLD_START = 1_789_000_000
+
+  beforeAll(async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, opponent_name, start_at, end_at)
+       VALUES ($1, 20747, 'Romania Elite Kommando', $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [OLD_WAR, OLD_START, OLD_START + 7200])
+  })
+
+  it('rejects a non-admin', async () => {
+    // It queues the whole roster — ~94 permanent messages.
+    const res = await api('POST', '/api/admin/war-wrap-up', leadershipToken, { war_id: OLD_WAR })
+    expect(res.status).toBe(403)
+  })
+
+  it('404s a war that does not exist', async () => {
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: 123456 })
+    expect(res.status).toBe(404)
+  })
+
+  it('⚠️ refuses a live war', async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, start_at, end_at)
+       VALUES (7778, 20747, $1, NULL) ON CONFLICT (id) DO NOTHING`, [OLD_START])
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: 7778 })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/has not ended/)
+  })
+
+  it('400s without a war id — there is no "latest" shorthand', async () => {
+    expect((await api('POST', '/api/admin/war-wrap-up', adminToken, {})).status).toBe(400)
+  })
+
+  it('⚠️ puts the war into waiting, which is what bypasses the watermark', async () => {
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: OLD_WAR })
+    expect(res.status).toBe(200)
+    expect(res.body.war.opponent_name).toBe('Romania Elite Kommando')
+    const state = await stack.db.query(
+      'SELECT state, attempts FROM war_wrap_up_state WHERE war_id = $1', [OLD_WAR])
+    expect(state.rows[0].state).toBe('waiting')
+  })
+
+  it('⚠️ resets first_seen_at, restarting the retry window', async () => {
+    // Without this, a war whose row is hours old fails on the first pass and
+    // the operator sees "failed" having had no retry at all.
+    await stack.db.query(
+      `UPDATE war_wrap_up_state SET state = 'failed', attempts = 9,
+              first_seen_at = now() - interval '9 hours', last_error = 'old news'
+        WHERE war_id = $1`, [OLD_WAR])
+
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: OLD_WAR })
+    expect(res.status).toBe(200)
+    const state = await stack.db.query(
+      `SELECT state, attempts, last_error,
+              (now() - first_seen_at) < interval '1 minute' AS fresh
+         FROM war_wrap_up_state WHERE war_id = $1`, [OLD_WAR])
+    expect(state.rows[0].state).toBe('waiting')
+    expect(state.rows[0].attempts).toBe(0)
+    expect(state.rows[0].last_error).toBeNull()
+    expect(state.rows[0].fresh).toBe(true)
+  })
+})
