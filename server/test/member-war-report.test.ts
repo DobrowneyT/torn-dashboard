@@ -7,6 +7,7 @@
 // held level with the payout sheet by `war-member-score-parity.test.ts`.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { startTestStack, TEST_FACTION, type TestStack } from './harness.js'
+import { normaliseWarType } from '../src/memberWarReport.js'
 
 let stack: TestStack
 const TOKEN = 'member-threads-report-token'
@@ -343,5 +344,58 @@ describe('⚠️ the contract the bot formatter reads', () => {
     // faction's. A faction-wide chart in a personal thread is the wrong picture
     // beside the right numbers.
     expect(b.chart.panels.length).toBeGreaterThan(0)
+  })
+})
+
+// MonChoon wants the header to say which kind of war it was: (Real), (Termed)
+// or (Race). That is `war_room_notes_v2.war_type` — the setting the leads
+// actually pick — not the `is_termed` boolean, which cannot express "race".
+describe('the war type', () => {
+  it('comes from the War Room note', async () => {
+    await stack.db.query(
+      `INSERT INTO war_room_notes_v2 (war_id, war_type) VALUES ($1, 'race')
+       ON CONFLICT (war_id) DO UPDATE SET war_type = EXCLUDED.war_type`, [WAR])
+    const b = await report(`?war=${WAR}&member=${ME}`)
+    expect(b.war.war_type).toBe('race')
+  })
+
+  it('⚠️ is NULL when nobody set one — not "real"', async () => {
+    // Three of forge's eleven wars have no note. Asserting a type nobody
+    // picked is the mistake the old title made in reverse, rendering every
+    // unlabelled war as an ordinary one.
+    await stack.db.query('DELETE FROM war_room_notes_v2 WHERE war_id = $1', [WAR])
+    const b = await report(`?war=${WAR}&member=${ME}`)
+    expect(b.war.war_type).toBeNull()
+  })
+
+  describe('normaliseWarType', () => {
+    it('passes the three real values through', () => {
+      for (const t of ['real', 'termed', 'race']) {
+        expect(normaliseWarType(t, false)).toBe(t)
+      }
+    })
+
+    it('⚠️ is_termed promotes to "termed" but never to "real"', () => {
+      // Ticking "Set Termed" is a positive signal worth honouring when the note
+      // is missing. The untoggled default is just a default.
+      expect(normaliseWarType(null, true)).toBe('termed')
+      expect(normaliseWarType(null, false)).toBeNull()
+    })
+
+    it('the note wins over the boolean', () => {
+      expect(normaliseWarType('race', true)).toBe('race')
+    })
+
+    it('⚠️ an unrecognised value becomes null, not itself', () => {
+      // The column has no CHECK constraint, and a typo reaching a permanent
+      // per-member record as a war type is worse than saying nothing.
+      expect(normaliseWarType('reeal', false)).toBeNull()
+      expect(normaliseWarType('', false)).toBeNull()
+      expect(normaliseWarType(42, false)).toBeNull()
+    })
+
+    it('tolerates case and padding', () => {
+      expect(normaliseWarType('  Race  ', false)).toBe('race')
+    })
   })
 })

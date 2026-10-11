@@ -19,6 +19,7 @@ import type pg from 'pg'
 import { bearerFrom, tokenMatches } from './fleetMetricsAuth.js'
 import { summariseWindow, factionKey, NO_FACTION_ID } from './warOverview/summary.js'
 import { buildChart, resolveBinSeconds } from './warOverview/series.js'
+import { resolveFactionNames } from './warOverview/factionNames.js'
 
 /** How many wars the picker offers. Enough for a season, not the whole history. */
 export const RECENT_WARS = 25
@@ -89,8 +90,8 @@ export async function collectWarOverview(
   const [attacksRes, revivesRes] = await Promise.all([
     db.query(
       `SELECT started, result, chain, respect_gain,
-              attacker_id, attacker_name, attacker_faction_id,
-              defender_id, defender_name, defender_faction_id
+              attacker_id, attacker_name, attacker_faction_id, attacker_faction_name,
+              defender_id, defender_name, defender_faction_id, defender_faction_name
          FROM faction_attacks
         WHERE started >= $1 AND started <= $2`,
       [fromTs, toTs],
@@ -139,14 +140,14 @@ export async function collectWarOverview(
   // ⚠️ Opt-in. The series are small but not free, and the summary-only path is
   // the common one — `/rw-overview summary_only:true`, and every autocomplete
   // keystroke, which must stay cheap.
-  const factionNames: Record<number, string> = {}
-  if (war.opponent_id && war.opponent_name) factionNames[war.opponent_id] = war.opponent_name
-  for (const r of revives) {
-    const fid = factionKey(r.reviver_faction_id)
-    if (fid && r.reviver_faction_name && !factionNames[fid]) {
-      factionNames[fid] = r.reviver_faction_name
-    }
-  }
+  // ⚠️ From the ATTACK rows too, not just the opponent and revivers. A third
+  // faction that joined in reached Discord as `faction 21716` while the page
+  // beside it showed the name, because the page builds its lookup from
+  // `attacker_faction_name` / `defender_faction_name` and this did not.
+  const factionNames = await resolveFactionNames(
+    db, [...attacks, ...revives],
+    { id: war.opponent_id, name: war.opponent_name },
+  )
   // ⚠️ Resolved even when no chart was asked for. A refused bin width must be
   // reported whether or not it would have been drawn — answering a bad argument
   // with a summary teaches the caller their argument was fine.

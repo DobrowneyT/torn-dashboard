@@ -18,6 +18,43 @@ surface it automatically.
 
 ---
 
+## [3.219.0] - 2026-10-11
+
+### Added
+- **The member report carries the war's TYPE** (#943). `war_room_notes_v2.war_type` — the
+  setting the leads actually pick — which is `real`, `termed` or `race`. MonChoon wants the
+  header to read `MonChoon_616 — Romania Elite Kommando (Real)`.
+  ⚠️ **Not the `is_termed` boolean**, which cannot express `race` at all and is a separate
+  hand toggle on RW History.
+  ⚠️ **Null when nobody set one, and null is NOT "real".** Three of forge's eleven wars
+  have no War Room note; labelling those "(Real)" asserts a choice nobody made. `is_termed`
+  only ever promotes to `termed` — ticking "Set Termed" is a positive signal worth
+  honouring, while the untoggled default is just a default. **Probed:** promoting to
+  `real` fails 3 tests.
+  ⚠️ An unrecognised value becomes null rather than passing through: the column has no
+  CHECK constraint, and a typo reaching a permanent per-member record as a war type is
+  worse than saying nothing.
+
+## [3.218.0] - 2026-10-11
+
+### Fixed
+- ⚠️ **A third faction reached Discord as `faction 21716`** while the War Overview page
+  beside it showed the name — the same war, two answers. The page builds its lookup from
+  `attacker_faction_name` / `defender_faction_name` on the attack rows;
+  `warOverviewInternal` built a smaller one from the opponent plus revivers, and
+  `memberWarReport` copied that smaller one. Neither endpoint even SELECTed the name
+  columns.
+  One resolver now serves both — `warOverview/factionNames.ts` — because there were
+  nearly four. ⚠️ Three sources in order of trust: the row's own name (contemporaneous,
+  which is what a post-mortem wants), the `factions` table that `factions-sync` maintains
+  for exactly this, and the opponent from `ranked_wars` last so a stray spelling cannot
+  override the name the war was fought under.
+  ⚠️ **Faction 0 is never named** — it is "no faction", a real filterable id with six
+  figures of rows behind it on the live box. **Probed:** naming it fails a test; dropping
+  the attack rows fails 3; dropping the table backfill fails 1.
+  ⚠️ An id with no name anywhere is **absent**, not guessed — the caller renders
+  `faction <id>`, which is honest.
+
 ## [3.217.0] - 2026-10-11
 
 ### Fixed
