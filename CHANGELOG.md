@@ -18,6 +18,26 @@ surface it automatically.
 
 ---
 
+## [3.214.0] - 2026-10-11
+
+### Fixed
+- ⚠️ **A correction could never be issued** (#943). `POST /api/admin/member-threads/war-report`
+  used `ON CONFLICT DO NOTHING`, so once an entry had been posted nothing would ever pick
+  it up again — the "edit on re-run" behaviour the whole subject-is-the-war design exists
+  for could not fire at all. A re-queue now **re-opens** the entry (clearing `posted_at`,
+  `claimed_at`, `attempts` and `last_error`) while **keeping `message_id`**, which is what
+  turns the re-run into an edit of the existing post rather than a second embed in the
+  member's thread. MonChoon: *"on a re-run for the same war I would edit the post. on a
+  new war I would append."*
+  The response now says which it did — `requeued` and `editing_message_id` — because an
+  operator issuing a correction wants to see it is going to land on the existing message.
+- ⚠️ **`claim` did not return `message_id`**, so the bot had no way to tell a correction
+  from a first post and would have appended a second embed for the same war. The column
+  is now selected and asserted.
+  ⚠️ My own test had hidden both of these: it asserted "queueing twice makes one row",
+  which was true and useless — one row that nothing will ever drain again. The test now
+  posts the entry first and asserts it is re-opened with its message id intact.
+
 ## [3.213.0] - 2026-10-11
 
 ### Added

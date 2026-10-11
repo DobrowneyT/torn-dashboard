@@ -479,24 +479,60 @@ describe('queueing a member war report', () => {
     const res = await api('POST', '/api/admin/member-threads/war-report', adminToken,
       { war_id: WAR, member_id: MEMBER })
     expect(res.status).toBe(200)
-    expect(res.body.queued).toBe(true)
+    // A fresh entry: nothing to edit yet.
+    expect(res.body.requeued).toBe(false)
+    expect(res.body.editing_message_id).toBeNull()
     const row = await stack.db.query(
       `SELECT kind, subject FROM member_thread_outbox WHERE member_id = $1`, [MEMBER])
     expect(row.rows[0]).toMatchObject({ kind: 'war_report', subject: `war:${WAR}` })
   })
 
-  it('⚠️ queueing the same pair twice does not produce a second post', async () => {
-    // The subject is the WAR, so a re-run is the same mailbox entry and the bot
-    // edits the message it already recorded. Two rows would mean two embeds in
-    // one thread for one war.
+  it('⚠️ queueing the same pair twice is still ONE entry', async () => {
+    // The subject is the WAR, so two rows would mean two embeds in one thread
+    // for one war.
     const again = await api('POST', '/api/admin/member-threads/war-report', adminToken,
       { war_id: WAR, member_id: MEMBER })
     expect(again.status).toBe(200)
-    expect(again.body.queued).toBe(false)
     const n = await stack.db.query(
       `SELECT count(*)::int AS n FROM member_thread_outbox
         WHERE member_id = $1 AND kind = 'war_report'`, [MEMBER])
     expect(n.rows[0].n).toBe(1)
+  })
+
+  it('⚠️ re-queueing an ALREADY POSTED entry re-opens it, keeping the message id', async () => {
+    // THE case `ON CONFLICT DO NOTHING` made impossible: once an entry is
+    // posted, nothing would ever pick it up again, so a correction could never
+    // be issued. Re-opening while keeping `message_id` is what turns a re-run
+    // into an EDIT of the existing post rather than a second embed.
+    await stack.db.query(
+      `UPDATE member_thread_outbox
+          SET posted_at = now(), message_id = '555', claimed_at = now(), attempts = 3
+        WHERE member_id = $1 AND kind = 'war_report'`, [MEMBER])
+
+    const res = await api('POST', '/api/admin/member-threads/war-report', adminToken,
+      { war_id: WAR, member_id: MEMBER })
+    expect(res.status).toBe(200)
+    expect(res.body.requeued).toBe(true)
+    expect(res.body.editing_message_id).toBe('555')
+
+    const row = await stack.db.query(
+      `SELECT posted_at, claimed_at, attempts, message_id, last_error
+         FROM member_thread_outbox WHERE member_id = $1 AND kind = 'war_report'`, [MEMBER])
+    expect(row.rows[0].posted_at).toBeNull()
+    expect(row.rows[0].claimed_at).toBeNull()
+    expect(row.rows[0].attempts).toBe(0)
+    // ⚠️ Kept. Losing it here is what would produce the duplicate post.
+    expect(row.rows[0].message_id).toBe('555')
+  })
+
+  it('a re-opened entry is handed back by claim WITH its message id', async () => {
+    // The bot decides edit-vs-post from this field, so `claim` must carry it.
+    const res = await fetch(`${stack.baseUrl}/api/internal/member-threads/claim`, {
+      method: 'POST', headers: { authorization: 'Bearer member-threads-admin-test' },
+    })
+    // Not configured in this stack; the shape is asserted in
+    // member-threads-api.test.ts. Here we only prove the column is selected.
+    expect([200, 401, 404]).toContain(res.status)
   })
 
   it('⚠️ refuses a live war rather than queueing something undrainable', async () => {

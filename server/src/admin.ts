@@ -316,17 +316,37 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     const report = await collectMemberWarReport(db, warId, memberId)
     if ('error' in report) return reply.status(400).send(report)
 
+    // ⚠️ **A re-queue RE-OPENS the existing entry rather than doing nothing.**
+    // `message_id` is deliberately kept, which is what makes the bot EDIT the
+    // post it already made instead of adding a second embed to the thread.
+    // MonChoon: *"on a re-run for the same war I would edit the post. on a new
+    // war I would append."* `DO NOTHING` here would mean a correction could
+    // never be issued at all — the entry is already posted, so nothing would
+    // ever pick it up again.
     const res = await db.query(
       `INSERT INTO member_thread_outbox (member_id, kind, subject, payload)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (member_id, kind, subject) DO NOTHING
-       RETURNING id`,
+       ON CONFLICT (member_id, kind, subject) DO UPDATE
+          SET posted_at = NULL,
+              claimed_at = NULL,
+              attempts = 0,
+              last_error = NULL,
+              payload = EXCLUDED.payload,
+              queued_at = now()
+       RETURNING id, message_id`,
       [memberId, OUTBOX_KINDS.war_report, warSubject(warId),
        { war_id: warId, member_name: report.member.name }],
     )
-    // ⚠️ Already queued is a success, not a 409. The caller asked for this
-    // member to get a report for this war, and they are going to.
-    return { ok: true, queued: res.rowCount === 1, id: res.rows[0]?.id ?? null }
+    const row = res.rows[0]
+    return {
+      ok: true,
+      id: row?.id ?? null,
+      // ⚠️ Stated so the caller knows which it got. "Queued" creates a post;
+      // "re-queued" edits one, and an operator issuing a correction wants to
+      // see that it is going to land on the existing message.
+      requeued: row?.message_id != null,
+      editing_message_id: row?.message_id ?? null,
+    }
   })
 
   // Operator secrets (#105): writes accept the plaintext once; reads expose

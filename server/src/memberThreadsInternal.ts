@@ -62,6 +62,11 @@ export function registerMemberThreadRoutes(
            FOR UPDATE SKIP LOCKED
         )
       RETURNING o.id, o.member_id, o.kind, o.subject, o.payload, o.attempts,
+                -- ⚠️ **The message we posted LAST time, if there was one.** Its
+                -- presence is what turns a re-queued entry into an EDIT rather
+                -- than a second embed in the same thread. A re-run of a war is
+                -- a correction; two posts for one war is the bug.
+                o.message_id,
                 (extract(epoch from o.queued_at) * 1000)::bigint AS queued_ms`,
       [CLAIM_STALE_MS / 1000, DRAIN_BATCH],
     )
