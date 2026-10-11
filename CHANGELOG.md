@@ -18,6 +18,19 @@ surface it automatically.
 
 ---
 
+## [3.217.0] - 2026-10-11
+
+### Fixed
+- ⚠️ **A real zero was published as "not recorded"** (#943). `scoreMemberWar` returned
+  null whenever a member had no scoring hits, so somebody who genuinely scored nothing
+  appeared as *"Score · not recorded"*. MonChoon: *"if they had a 0, we should just show 0,
+  not recorded makes it seem like a weird data loss issue."* He is right — it reads as a
+  broken scraper rather than a quiet war.
+  The discriminator is the **ledger**, not the member: no attack rows for the window means
+  we can say nothing about anybody; rows present and this member absent from them means
+  they scored nothing. The war wrap-up already refuses to queue until attacks have landed,
+  so by the time a report posts the ledger is known complete. **Probed:** 3 tests.
+
 ## [3.216.0] - 2026-10-11
 
 ### Fixed

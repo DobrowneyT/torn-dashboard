@@ -284,11 +284,14 @@ describe('⚠️ absence is never zero', () => {
     expect(b.stacks.has_reading).toBe(true)
     expect(b.stacks.overdosed).toBe(true)
   })
-  it('a member with no hits at all has a null score, not a zeroed one', async () => {
+  it('⚠️ a member with no hits scored ZERO — the ledger is populated', async () => {
+    // Not null. "Score · not recorded" reads as a broken scraper; this member
+    // simply did not attack, which is keep-or-kick evidence rather than an
+    // error. MonChoon: "if they had a 0, we should just show 0."
     const b = await report(`?war=${WAR}&member=999999`)
-    expect(b.score).toBeNull()
-    // ...and the report is still served, because a war where somebody did
-    // nothing is keep-or-kick evidence rather than an error.
+    expect(b.score).not.toBeNull()
+    expect(b.score.raw).toBe(0)
+    expect(b.score.hits).toBe(0)
     expect(b.war.id).toBe(WAR)
   })
 })
