@@ -109,6 +109,31 @@ export const SCRAPER_JOB_INFO = {
     'it only records the moment this faction started being watched, because ' +
     'the roster sitting there has no recorded join dates and inventing ~90 of ' +
     'them would write fiction into permanent records.',
+  'war-wrap-up':
+    'When a ranked war ends: drives the final attacks, revives and war-report ' +
+    'scrapes, checks every source is actually there, then queues one war ' +
+    'report per CURRENT member into the Discord outbox. ' +
+    '\u26a0\ufe0f It makes no Torn API calls of its OWN \u2014 the calls are ' +
+    'whatever attacks-sync, revives-sync and wars-sync each cost, charged once ' +
+    'per finished war rather than on their usual schedule. The ten-minute ' +
+    'cadence costs nothing on its own: with no war waiting it is two queries ' +
+    'and stops. ' +
+    '\u26a0\ufe0f Every member is queued, participants and non-participants ' +
+    'alike, on termed wars too \u2014 a member who did nothing is a keep-or-kick ' +
+    'input, not padding. ' +
+    '\u26a0\ufe0f It queues NOTHING unless every source is present. Missing ' +
+    'contributions are retried for a couple of hours (tunable), then the war ' +
+    'FAILS LOUDLY rather than posting scoreless reports into permanent ' +
+    'per-member records. ' +
+    '\u26a0\ufe0f If Torn says the war report is permanently unavailable it ' +
+    'fails straight away instead of waiting the window out, because waiting ' +
+    'provably cannot help. ' +
+    '\u26a0\ufe0f dibs-summary runs LAST, after the final attack scrape \u2014 ' +
+    'run earlier it would record real conversions as "no swing". A tenant with ' +
+    'dibs-summary switched off still gets reports; the dibs line is simply ' +
+    'omitted. ' +
+    'A war that failed can be re-run once a human has sorted out what was ' +
+    'missing, and will not double-post anything already sent.',
   'dibs-summary':
     'Freezes each finished war\'s dibs activity into a per-member summary — ' +
     'claims taken, converted, lost to a teammate, and taken from others. ' +
