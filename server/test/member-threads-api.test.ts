@@ -106,7 +106,11 @@ describe('claiming and finishing', () => {
     // ⚠️ The registry comes with it, so the bot knows which members still need
     // a thread CREATED rather than discovering it one failure at a time.
     expect(body).toHaveProperty('threads')
-    expect(body).toHaveProperty('forum_channel_id')
+    // ⚠️ And the forum channel does NOT, because the bot owns it. Chain Watch
+    // settles this: "which channel things land in" is the bot's, editable from
+    // Discord per tenant, while the dashboard owns facts about the faction.
+    // Two authoritative copies of one channel id is how they drift.
+    expect(body).not.toHaveProperty('forum_channel_id')
   })
 
   it('⚠️ a second claim does not hand out the same row', async () => {

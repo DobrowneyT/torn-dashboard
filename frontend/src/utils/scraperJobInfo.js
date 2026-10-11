@@ -103,7 +103,9 @@ export const SCRAPER_JOB_INFO = {
     'somebody joins the faction, and another when they leave. ⚠️ Costs ZERO ' +
     'Torn API calls: it reads the faction-stints table members-sync already ' +
     'maintains and writes to an outbox the Discord bot polls. The bot is never ' +
-    'called by the dashboard. ⚠️ The FIRST run deliberately queues nothing — ' +
+    'called by the dashboard, and the forum channel is the BOT\u2019s setting, ' +
+    'changed from Discord. ' +
+    '⚠️ The FIRST run deliberately queues nothing — ' +
     'it only records the moment this faction started being watched, because ' +
     'the roster sitting there has no recorded join dates and inventing ~90 of ' +
     'them would write fiction into permanent records.',

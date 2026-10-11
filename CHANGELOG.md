@@ -51,6 +51,13 @@ surface it automatically.
   failure for a feature whose entire job is keeping a record.
   ⚠️ Its own token scope (`MEMBER_THREADS_TOKEN`), like the War Overview's: the same
   bot holds several, and keeping them apart stops a leak of one surrendering the rest.
+  ⚠️ **The forum channel is NOT stored here.** It is the bot's setting, editable from
+  Discord per tenant exactly like Chain Watch's board and ping channels.
+  `chain_settings` draws that line in its own header: what the bot owns is *how it
+  talks* — *"which channel things land in"* — while the dashboard owns facts about
+  the faction. My first version kept a copy in `faction_settings`, which is precisely
+  the "two places authoritative for one number" that note warns about, and the one
+  that drifts is always the one nobody is looking at.
 
 ### Fixed
 - ⚠️ **The queue ordered every join before every leave, which writes a false log.**

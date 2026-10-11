@@ -73,15 +73,14 @@ export function registerMemberThreadRoutes(
     for (const t of threads.rows) {
       byMember[String(t.member_id)] = { thread_id: t.thread_id, channel_id: t.channel_id }
     }
-    const forum = await db.query(
-      `SELECT value #>> '{}' AS channel_id FROM faction_settings
-        WHERE key = 'member_threads_forum_channel_id'`,
-    )
-    return {
-      forum_channel_id: forum.rows[0]?.channel_id ?? null,
-      threads: byMember,
-      pending: res.rows,
-    }
+    // ⚠️ **The forum channel is NOT returned, and is not stored here.** It is
+    // the bot's setting, editable from Discord per tenant like Chain Watch's
+    // board and ping channels. `chain_settings` draws that line explicitly:
+    // what the bot owns is *how it talks* — "which channel things land in" —
+    // while the dashboard owns facts about the faction. Keeping a copy here as
+    // well would make two places authoritative for one id, and the one that
+    // drifts is always the one nobody is looking at.
+    return { threads: byMember, pending: res.rows }
   })
 
   /**
