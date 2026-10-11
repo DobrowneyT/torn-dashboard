@@ -58,11 +58,27 @@ const WAR_OVERVIEW_COMMENT = (slug) => [
   `      # Regenerate with \`node db/war-overview-token.mjs ${slug}\`.`,
 ]
 
+/**
+ * The same note for the member-threads token (#942).
+ *
+ * ⚠️ A FOURTH token, and the only one of the four that grants WRITES: its
+ * holder drains the member-report outbox and marks rows posted against a
+ * permanent per-member record. Neither read-only credential may confer that.
+ */
+const MEMBER_THREADS_COMMENT = (slug) => [
+  '      # ⚠️ THIS faction\'s member-threads token (#942) for the Discord bot.',
+  '      # The only bot token that WRITES: it drains the member-report outbox',
+  '      # and marks rows posted. Scoped apart from the read-only ones so that a',
+  '      # leak of one of those does not confer it. Regenerate with',
+  `      # \`node db/member-threads-token.mjs ${slug}\`.`,
+]
+
 /** Which env var a rewrite targets, and the comment that introduces it. */
 export const TOKEN_VARS = {
   FLEET_METRICS_TOKEN: FLEET_COMMENT,
   CHAIN_WATCH_TOKEN: CHAIN_WATCH_COMMENT,
   WAR_OVERVIEW_TOKEN: WAR_OVERVIEW_COMMENT,
+  MEMBER_THREADS_TOKEN: MEMBER_THREADS_COMMENT,
 }
 
 /**

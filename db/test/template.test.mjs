@@ -122,6 +122,10 @@ const NEW_TABLES = [
   // — without it you cannot tell "not computed yet" from "computed, nothing to
   // show", which is exactly what a future prune gate has to decide.
   'war_dibs_summary', 'war_dibs_summary_state',
+  // #942: a Discord forum thread per member, and the outbox the bot drains.
+  // ⚠️ Two tables because they answer different questions — "where does this
+  // member's log live" and "what have we not said yet".
+  'member_threads', 'member_thread_outbox',
 ]
 
 let server

@@ -32,6 +32,7 @@ import { registerGrudgeRoutes } from './grudgeRoutes.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
 import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
+import { registerMemberThreadRoutes } from './memberThreadsInternal.js'
 import { registerExportRoutes } from './exports.js'
 import { createCompetitionTimers, type CompetitionTimers } from './competitions/competitionTimers.js'
 import { createFlagResolver, type FlagResolver } from './featureFlags.js'
@@ -128,6 +129,10 @@ export interface ServerOptions {
   chainWatchToken?: string
   /** #811: the Discord bot's War Overview bearer. Absent leaves the route UNREGISTERED. */
   warOverviewToken?: string
+  /** #942 — its own scope, like the War Overview's. The same bot holds
+   *  several, and keeping them apart is what stops a leak of one
+   *  surrendering the others (#609). */
+  memberThreadsToken?: string
 }
 
 export interface RateLimitOptions {
@@ -301,6 +306,9 @@ export async function buildServer(
   // a missing env var can never accidentally publish a war's full history.
   if (opts.db && opts.warOverviewToken) {
     registerWarOverviewInternalRoutes(app, opts.db, opts.warOverviewToken)
+  }
+  if (opts.db && opts.memberThreadsToken) {
+    registerMemberThreadRoutes(app, opts.db, opts.memberThreadsToken)
   }
 
   app.decorateRequest('session', null)

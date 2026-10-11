@@ -9,8 +9,8 @@ import Fastify from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
-  buildRegistry, chainWatchScope, normaliseDomain, registerTenantRegistry,
-  TENANT_REGISTRY_SCOPE, warOverviewScope,
+  buildRegistry, chainWatchScope, memberThreadsScope, normaliseDomain,
+  registerTenantRegistry, TENANT_REGISTRY_SCOPE, warOverviewScope,
 } from '../src/adminPlane/tenantRegistry.js'
 import { deriveTenantToken } from '../src/fleetMetricsAuth.js'
 
@@ -145,9 +145,12 @@ describe('the bot tokens', () => {
     // modules the CLI issues from.
     const { chainWatchScope: dbChain } = await import('../../db/chainWatchTokenLib.mjs')
     const { warOverviewScope: dbWar } = await import('../../db/warOverviewTokenLib.mjs')
+    const { memberThreadsScope: dbThreads } =
+      await import('../../db/memberThreadsTokenLib.mjs')
     for (const slug of ['forge', 'tnl', 'a-b-c']) {
       expect(chainWatchScope(slug)).toBe(dbChain(slug))
       expect(warOverviewScope(slug)).toBe(dbWar(slug))
+      expect(memberThreadsScope(slug)).toBe(dbThreads(slug))
     }
   })
 
@@ -160,11 +163,14 @@ describe('the bot tokens', () => {
     expect(forge.chain_watch_token).toBe(expected)
   })
 
-  it('gives the two features different tokens', () => {
-    // ⚠️ Scoped apart on purpose: one credential should not unlock the other
-    // feature's data.
+  it('gives every feature a different token', () => {
+    // ⚠️ Scoped apart on purpose: one credential should not unlock another
+    // feature's data. #942's is the one that matters most — it grants WRITES to
+    // a permanent per-member record, so neither read-only credential may be it.
     const [t] = buildRegistry(['forge'], null, SECRET)
-    expect(t.chain_watch_token).not.toBe(t.war_overview_token)
+    const tokens = [t.chain_watch_token, t.war_overview_token, t.member_threads_token]
+    expect(tokens.every((x) => /^[0-9a-f]{64}$/.test(x ?? ''))).toBe(true)
+    expect(new Set(tokens).size).toBe(3)
   })
 
   it('carries no tokens unless they are asked for', async () => {
@@ -177,6 +183,7 @@ describe('the bot tokens', () => {
     // ⚠️ The default answer must not hand credentials to a consumer that only
     // wanted to know which factions exist.
     expect(body.tenants[0].chain_watch_token).toBeUndefined()
+    expect(body.tenants[0].member_threads_token).toBeUndefined()
     expect(body.tokens_available).toBeUndefined()
     await app.close()
   })
@@ -190,6 +197,7 @@ describe('the bot tokens', () => {
     expect(body.tokens_available).toBe(true)
     expect(body.tenants[0].chain_watch_token).toMatch(/^[0-9a-f]{64}$/)
     expect(body.tenants[0].war_overview_token).toMatch(/^[0-9a-f]{64}$/)
+    expect(body.tenants[0].member_threads_token).toMatch(/^[0-9a-f]{64}$/)
     await app.close()
   })
 
