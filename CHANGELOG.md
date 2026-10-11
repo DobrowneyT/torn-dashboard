@@ -18,6 +18,20 @@ surface it automatically.
 
 ---
 
+## [3.220.0] - 2026-10-11
+
+### Fixed
+- ⚠️ **Membership notes carry WHEN the event happened** (#942). The payload held only the
+  name and the stint id, so the bot could date a join or a leave only by when the sweep
+  queued it — the sweep's five-minute cadence at best, and arbitrarily late after a
+  restart. A permanent log entry dated by when we noticed is not the same claim as one
+  dated by when it happened.
+  ⚠️ Found while chasing a worse bug on the bot side: **every `joined` and `left` note had
+  been failing on every tick since #942 shipped**, because the drain was written for
+  #943's war reports and refused any entry without a `war_id`. The dashboard queued three
+  kinds and the bot handled one, and nothing anywhere compared the two lists. Nobody
+  noticed until a new member joined forge and his thread never appeared.
+
 ## [3.219.0] - 2026-10-11
 
 ### Added

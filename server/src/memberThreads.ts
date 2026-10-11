@@ -115,8 +115,16 @@ export function planThreadWork({
     // would otherwise put today's name on a note about an old membership.
     const payload = { member_name: s.member_name ?? null, stint_id: s.id }
 
+    // ⚠️ **The note carries WHEN it happened**, not just that it did. Without
+    // it the bot can only date a note by when it was queued, which is the
+    // sweep's cadence rather than the event's — and a restart can make that
+    // hours wrong in a permanent log.
+
     if (Number(s.joined_at) > Number(installedAt)) {
-      const row: PlannedRow = { member_id: memberId, kind: OUTBOX_KINDS.joined, subject, payload }
+      const row: PlannedRow = {
+        member_id: memberId, kind: OUTBOX_KINDS.joined, subject,
+        payload: { ...payload, at: Number(s.joined_at) },
+      }
       if (!queued.has(key(row))) rows.push({ ...row, at: Number(s.joined_at) })
     }
 
@@ -125,7 +133,10 @@ export function planThreadWork({
     // It is the one place the no-backfill rule and "log what happens" disagree,
     // and "log what happens" wins because the event itself is observed.
     if (s.left_at != null && Number(s.left_at) > Number(installedAt)) {
-      const row: PlannedRow = { member_id: memberId, kind: OUTBOX_KINDS.left, subject, payload }
+      const row: PlannedRow = {
+        member_id: memberId, kind: OUTBOX_KINDS.left, subject,
+        payload: { ...payload, at: Number(s.left_at) },
+      }
       if (!queued.has(key(row))) rows.push({ ...row, at: Number(s.left_at) })
     }
   }
