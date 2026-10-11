@@ -140,29 +140,41 @@ describe('scoring one member over the same rows', () => {
   })
 })
 
-describe('absence', () => {
-  it('⚠️ a member with no scoring hits is null, not a zeroed score', () => {
-    // The formatter's whole design principle: "not counted yet" and "scored
-    // nothing" are different facts, and zeros destroy the distinction before
-    // it can be rendered.
-    expect(scoreMemberWar(fixture(), 999_999, US)).toBeNull()
+describe('⚠️ a real zero is a zero; only an empty ledger is null', () => {
+  // The first version returned null whenever the member had no hits, so
+  // somebody who genuinely scored nothing was published as "Score · not
+  // recorded". MonChoon: "if they had a 0, we should just show 0, not recorded
+  // makes it seem like a weird data loss issue."
+  //
+  // The discriminator is the LEDGER. No attack rows at all → we cannot say
+  // anything about anybody. Rows present and this member absent from them →
+  // they scored nothing, and saying so is the point.
+
+  it('an EMPTY ledger is null — we know nothing about anyone', () => {
     expect(scoreMemberWar([], ME, US)).toBeNull()
   })
 
-  it('a member whose only hits were losses is null', () => {
+  it('a member absent from a POPULATED ledger scored zero', () => {
+    const s = scoreMemberWar(fixture(), 999_999, US)
+    expect(s).not.toBeNull()
+    expect(s!.raw).toBe(0)
+    expect(s!.hits).toBe(0)
+  })
+
+  it('a member whose only hits were losses scored zero', () => {
     const attacks = [{
       attacker_id: ME, attacker_faction_id: US, result: 'Lost',
       respect_gain: 0, chain: 5, is_ranked_war: true,
     }]
-    expect(scoreMemberWar(attacks, ME, US)).toBeNull()
+    expect(scoreMemberWar(attacks, ME, US)!.raw).toBe(0)
   })
 
-  it('a member whose hits were all outside the ranked war is null', () => {
+  it('a member whose hits were all outside the ranked war scored zero', () => {
     const attacks = [{
       attacker_id: ME, attacker_faction_id: US, result: 'Hospitalized',
       respect_gain: 12.5, chain: 3, is_ranked_war: false,
     }]
-    expect(scoreMemberWar(attacks, ME, US)).toBeNull()
+    expect(scoreMemberWar(attacks, ME, US)!.raw).toBe(0)
   })
 
   it('refuses a non-numeric member or faction rather than scoring everything', () => {
