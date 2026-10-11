@@ -126,6 +126,11 @@ const NEW_TABLES = [
   // ⚠️ Two tables because they answer different questions — "where does this
   // member's log live" and "what have we not said yet".
   'member_threads', 'member_thread_outbox',
+  // #945: the state of OUR processing of a finished war — collected, verified,
+  // roster queued. ⚠️ Separate from `ranked_wars` because the scores and
+  // `is_termed` there are facts about the war, while this is how far we got
+  // with it; one careless UPDATE should not be able to touch both.
+  'war_wrap_up_state',
 ]
 
 let server

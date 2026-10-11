@@ -18,6 +18,51 @@ surface it automatically.
 
 ---
 
+## [3.215.0] - 2026-10-11
+
+### Added
+- **War wrap-up: collect everything, verify it, then queue the roster** (#945, fourth
+  slice of PRD #941). A `war-wrap-up` job runs every ten minutes, finds wars that have
+  ended and are not finished, drives the final scrapes, confirms every source is actually
+  present, and only then queues every current member's report.
+  ⚠️ **It DRIVES the existing jobs rather than re-implementing them** — `attacks-sync`,
+  `revives-sync`, `wars-sync` and `dibs-summary`, through the scheduler's own `runNow`, so
+  each appears in Global Admin's Recent Runs. Calling the job functions directly would
+  work and would be invisible, which is the worse kind of working.
+  ⚠️ **Sequenced, not parallel.** `dibs-summary` classifies a claim by finding the attack
+  that explains it, so running it before the final attack scrape records real conversions
+  as "no swing" — permanently, in threads with members' names on them. **Probed:** moving
+  it first fails a test.
+  ⚠️ **Every CURRENT member is queued, participants and non-participants alike, termed
+  wars included.** MonChoon: *"on a termed war most people do participate… if no one
+  particiapted thats even more important, since it will determine whether we keep them or
+  kick them."* A zero row is a keep/kick input, not padding. **Probed:** including former
+  members fails 4 tests.
+  ⚠️ **Nothing is queued until every source is confirmed.** Missing contributions inside
+  the window retry; at the end of it the war **fails loudly and queues nothing**. MonChoon:
+  *"I don't want jt to post scoreless reports because the wrap up never completed it should
+  just fail loudly."*
+  ⚠️ **`report_unavailable` fails IMMEDIATELY**, before the window is consulted. Torn is
+  saying *never*, not *not yet*, and burning two hours of retries only delays the message
+  to the human who has to decide what to do.
+  ⚠️ **Attacks are checked separately from contributions.** Contributions come from Torn's
+  war report; the scores in a member's thread come from our own ledger. A war with one and
+  not the other would render every score as absent while the payout sheet showed figures —
+  two sources disagreeing in public.
+  ⚠️ **Dibs blocks only when the job is ENABLED.** It is off on four of five tenants, so
+  blocking on it would mean the wrap-up never completes there; the report endpoint already
+  reports `state: disabled` and the formatter omits the line.
+  ⚠️ **The retry clock runs from FIRST SIGHT**, persisted in `war_wrap_up_state.first_seen_at`.
+  Measured from the current run it would read zero on every pass and the window would never
+  expire — a war waiting for ever with nobody told. **Probed:** 3 tests fail.
+  ⚠️ **Re-runnable without double-queuing.** The roster insert is `DO NOTHING`, deliberately
+  NOT the admin route's `DO UPDATE`: that one re-opens a posted entry because asking for one
+  member's report again means "correct it", whereas a wrap-up re-run means "finish what you
+  could not finish" — and re-opening there would re-post the whole roster. **Probed:** 1 test.
+  The retry window is a **stated tunable** (`faction_settings.war_wrap_up.retry_window_minutes`,
+  default 120), floored at a minute and capped at a week — zero would fail every war
+  instantly and unbounded would reinstate the silent wait.
+
 ## [3.214.0] - 2026-10-11
 
 ### Fixed
