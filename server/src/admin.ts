@@ -6,6 +6,8 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { ROLES, type Role } from './auth.js'
 import { requireRole } from './authz.js'
+import { OUTBOX_KINDS, warSubject } from './memberThreads.js'
+import { collectMemberWarReport } from './memberWarReport.js'
 import type { createJobRunner } from './scraper/registerJobs.js'
 import { resolveJobSchedule } from './scraper/scheduleResolution.js'
 import type { FlagResolver } from './featureFlags.js'
@@ -279,6 +281,52 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps) {
     if (run === null) return reply.status(404).send({ error: `Unknown scraper job: ${name}` })
     // A failed job is a successful trigger: the failure lives on the run row.
     return { run }
+  })
+
+  /**
+   * Queue one member's war report (#943).
+   *
+   * ⚠️ **One member, deliberately.** The roster-wide run belongs to the war
+   * wrap-up job (#945), which can only queue once every source has actually
+   * landed. This endpoint is how the path gets proven — and how a single
+   * report is re-posted after a correction — without a fan-out that would put
+   * ~94 embeds in flight.
+   *
+   * ⚠️ **Idempotent via the unique index on (member_id, kind, subject).** The
+   * subject is the WAR, so queueing the same pair twice does not produce two
+   * posts: it is the same mailbox entry, and the bot edits the message it
+   * already recorded. MonChoon: *"on a re-run for the same war I would edit the
+   * post. on a new war I would append."*
+   *
+   * ⚠️ **Admin-guarded, not leadership.** What this queues is a permanent,
+   * named performance record in a channel the faction's leadership reads.
+   */
+  app.post('/api/admin/member-threads/war-report', ADMIN_GUARD, async (req, reply) => {
+    const b = (req.body ?? {}) as Record<string, unknown>
+    const warId = Number(b.war_id)
+    const memberId = b.member_id == null ? '' : String(b.member_id)
+    if (!Number.isFinite(warId) || warId <= 0 || !memberId) {
+      return reply.status(400).send({ error: 'war_id and member_id are required' })
+    }
+
+    // ⚠️ Refuse here rather than letting the bot discover it at post time. The
+    // report endpoint already refuses a live or unknown war; queueing one would
+    // leave a mailbox entry that can never be drained, and a stuck queue is the
+    // failure nobody notices.
+    const report = await collectMemberWarReport(db, warId, memberId)
+    if ('error' in report) return reply.status(400).send(report)
+
+    const res = await db.query(
+      `INSERT INTO member_thread_outbox (member_id, kind, subject, payload)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (member_id, kind, subject) DO NOTHING
+       RETURNING id`,
+      [memberId, OUTBOX_KINDS.war_report, warSubject(warId),
+       { war_id: warId, member_name: report.member.name }],
+    )
+    // ⚠️ Already queued is a success, not a 409. The caller asked for this
+    // member to get a report for this war, and they are going to.
+    return { ok: true, queued: res.rowCount === 1, id: res.rows[0]?.id ?? null }
   })
 
   // Operator secrets (#105): writes accept the plaintext once; reads expose

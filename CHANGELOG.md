@@ -18,6 +18,61 @@ surface it automatically.
 
 ---
 
+## [3.213.0] - 2026-10-11
+
+### Added
+- **One member's post-war report, the data half** (#943, second slice of PRD #941).
+  `GET /api/internal/member-threads/report?war=&member=` returns everything one
+  member's report needs for one finished war: their score, the outgoing/incoming/revive
+  summary, their dibs record, their roll-call answer and their pre-war stacks snapshot.
+  ⚠️ **One endpoint carrying all five, not the bot calling five routes.** The bot reaches
+  a dashboard through bearer-token internal routes only; roll call, dibs and contributions
+  are session-authed and unreachable to it. Assembling here also keeps the decision about
+  *what belongs in a member report* on the side where the data lives — the bot renders, it
+  does not select.
+  ⚠️ **400 on a live or unknown war, never a partial report.** A scoreless report in a
+  permanent record cannot be unposted. MonChoon: *"I don't want it to post scoreless
+  reports because the wrap up never completed, it should just fail loudly."*
+  ⚠️ **A GET that claims nothing.** The mailbox entry is what gets claimed; this is just
+  the data, so a failed render can be retried without waiting out the ten-minute claim.
+
+- **Both score figures from our own attack ledger** (#943). `scoreMemberWar` returns
+  `raw`, `normalised` and `bonus_reduction` — the normalised figure capping bonus-chain
+  hits at 10, the basis every payout this faction has run.
+  ⚠️ **Never one figure from Torn and the other from us.** The two sources drift, and the
+  *difference* between them is the whole point of printing both: it is what the member
+  lost to bonus caps. A pair taken from two sources has a meaningless difference.
+  ⚠️ `war-member-score-parity.test.ts` runs the server and the payout sheet over one
+  fixture and fails when they disagree — the only thing that makes a fourth copy of "what
+  counts as a hit" survivable, since the bot cannot run browser JS. **Probed** three ways:
+  dropping a chain from the bonus set fails 4 tests, admitting `Special` fails 3, and
+  `Math.min`→`Math.max` fails 5.
+
+- **Queue one report** (#943). `POST /api/admin/member-threads/war-report`, admin-guarded
+  because what it queues is a permanent named performance record in a channel leadership
+  reads. Idempotent on `(member_id, war_report, war:<id>)`, so a re-run is the same entry
+  and the bot edits the message it already recorded rather than posting twice.
+
+### Changed
+- ⚠️ **Dibs has THREE states, not two** (#943). MonChoon, 2026-10-11: *"If dibs summary is
+  disabled we can ship the war reports without it rather than wait. If it's enabled and
+  the war wrap up has finished then we would know any member without a dibs summary row
+  had no history in there."*
+  A missing `war_dibs_summary` row could mean "claimed nothing", "not computed yet" or
+  "this tenant does not run the job" — and those lead to **opposite** actions, so a bare
+  `null` was not good enough:
+  - `disabled` → ship the report now; the formatter omits the line entirely, because the
+    absence says nothing about the member.
+  - `pending` → the wrap-up is unfinished; "not counted yet".
+  - `measured` → a missing row is a genuine zero, "no claims".
+  ⚠️ **`disabled` is tested before `pending`**, because a tenant that does not run the job
+  also has no state row — checking the state row first would report those wars as
+  `pending` for ever, and a wrap-up gated on `pending` would never complete. **Probed:**
+  swapping the two guards fails 2 tests.
+  ⚠️ The difference is live, not hypothetical: `dibs-summary` is enabled on **one of five**
+  tenants, so on the other four every member's missing row means "we never measured".
+  `counts` is the only place in the payload a zero is legitimate.
+
 ## [3.212.0] - 2026-10-11
 
 ### Added
