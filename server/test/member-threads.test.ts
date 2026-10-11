@@ -169,3 +169,35 @@ describe('planThreadWork — shape', () => {
     ])
   })
 })
+
+// ⚠️ The note has to say WHEN, or the bot can only date it by when the sweep
+// happened to run — the sweep's cadence rather than the event's, and a restart
+// makes that arbitrarily wrong in a permanent log.
+describe('the payload carries the moment it happened', () => {
+  const stint = (over = {}) => ({
+    id: 134, member_id: '3750187', member_name: 'Noellee',
+    joined_at: 2_000, left_at: null, ...over,
+  })
+
+  it('a join note carries joined_at', () => {
+    const [row] = planThreadWork({ stints: [stint()], installedAt: 1_000 })
+    expect(row.payload.at).toBe(2_000)
+  })
+
+  it('a leave note carries left_at, NOT joined_at', () => {
+    // They are different moments and the note is about the second one.
+    const rows = planThreadWork({
+      stints: [stint({ left_at: 5_000 })], installedAt: 1_000,
+    })
+    const left = rows.find((r) => r.kind === 'left')!
+    expect(left.payload.at).toBe(5_000)
+    const joined = rows.find((r) => r.kind === 'joined')!
+    expect(joined.payload.at).toBe(2_000)
+  })
+
+  it('still carries the name resolved at queue time', () => {
+    const [row] = planThreadWork({ stints: [stint()], installedAt: 1_000 })
+    expect(row.payload.member_name).toBe('Noellee')
+    expect(row.payload.stint_id).toBe(134)
+  })
+})
