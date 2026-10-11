@@ -9,6 +9,7 @@ import { createTornClient } from './tornClient.js'
 import { createRunLogger } from './runLog.js'
 import { createScheduler } from './scheduler.js'
 import { itemsSyncJob, type JobDeps } from './jobs/itemsSync.js'
+import { warWrapUpJob } from './jobs/warWrapUp.js'
 import { inventorySyncJob } from './jobs/inventorySync.js'
 import { crimesSyncJob } from './jobs/crimesSync.js'
 import { crimeOccupancyJob } from './jobs/crimeOccupancy.js'
@@ -146,6 +147,12 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // minutes: a join or a leave is worth logging promptly, and the sweep is two
   // small queries when nothing has changed, which is almost always.
   ['member-thread-sweep', '0 */5 * * * *', memberThreadSweepJob],
+  // #945 — when a war ends: drive the final scrapes, verify every source is
+  // there, then queue the whole roster's reports. ⚠️ Every ten minutes, and it
+  // does nothing at all unless a war ended that has not been wrapped up. The
+  // cadence is what sets how quickly a lagging source is retried; the retry
+  // WINDOW is a tunable in faction_settings.
+  ['war-wrap-up', '0 */10 * * * *', warWrapUpJob],
 
 
   ['attacks-sync', '0 20,50 * * * *', attacksSyncJob],
@@ -231,6 +238,18 @@ export async function startScrapers(opts: ScraperWiringOptions) {
   const reaped = await runLogger.reapOrphanedRuns()
   if (reaped > 0) console.log(`[scraper] reaped ${reaped} orphaned running run(s) from a prior process`)
 
+  // ⚠️ #945 — the wrap-up drives other jobs, and it must do so THROUGH the run
+  // logger. `scheduler.runNow` ignores the enabled flag (which is right: the
+  // wrap-up asked for this run explicitly) and records a run row, so the final
+  // attack scrape appears in Global Admin's Recent Runs like any other. Calling
+  // the job function directly would work and would be invisible, which is the
+  // worse kind of working.
+  //
+  // Attached after the scheduler exists because it needs it. Only `war-wrap-up`
+  // reads it.
+  ;(deps as JobDeps & { runJob?: (n: string) => Promise<unknown> }).runJob =
+    (name: string) => scheduler.runNow(name)
+
   for (const [name, schedule, job] of JOB_TABLE) {
     await scheduler.register(name, schedule, () => job(deps))
   }
@@ -248,6 +267,16 @@ export function createJobRunner(opts: ScraperWiringOptions) {
   const deps = buildDeps(opts)
   const runLogger = createRunLogger(opts.db)
   const byName = new Map(JOB_TABLE.map(([name, schedule, job]) => [name, { schedule, job }]))
+
+  // ⚠️ The same capability for a hand-triggered wrap-up, so "run now" on
+  // war-wrap-up behaves like the scheduled one rather than quietly skipping the
+  // scrapes it is supposed to drive.
+  ;(deps as JobDeps & { runJob?: (n: string) => Promise<unknown> }).runJob =
+    async (name: string) => {
+      const entry = byName.get(name)
+      if (!entry) throw new Error(`Unknown scraper job: ${name}`)
+      return runLogger.withRun(name, () => entry.job(deps))
+    }
 
   return {
     jobs: JOB_TABLE.map(([name, schedule]) => ({ job_name: name, default_schedule: schedule })),

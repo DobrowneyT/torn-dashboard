@@ -556,3 +556,70 @@ describe('queueing a member war report', () => {
       { member_id: MEMBER })).status).toBe(400)
   })
 })
+
+// #945 — the explicit "wrap up THIS war" trigger.
+describe('triggering a war wrap-up by id', () => {
+  const OLD_WAR = 7777
+  const OLD_START = 1_789_000_000
+
+  beforeAll(async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, opponent_name, start_at, end_at)
+       VALUES ($1, 20747, 'Romania Elite Kommando', $2, $3)
+       ON CONFLICT (id) DO NOTHING`,
+      [OLD_WAR, OLD_START, OLD_START + 7200])
+  })
+
+  it('rejects a non-admin', async () => {
+    // It queues the whole roster — ~94 permanent messages.
+    const res = await api('POST', '/api/admin/war-wrap-up', leadershipToken, { war_id: OLD_WAR })
+    expect(res.status).toBe(403)
+  })
+
+  it('404s a war that does not exist', async () => {
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: 123456 })
+    expect(res.status).toBe(404)
+  })
+
+  it('⚠️ refuses a live war', async () => {
+    await stack.db.query(
+      `INSERT INTO ranked_wars (id, opponent_id, start_at, end_at)
+       VALUES (7778, 20747, $1, NULL) ON CONFLICT (id) DO NOTHING`, [OLD_START])
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: 7778 })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/has not ended/)
+  })
+
+  it('400s without a war id — there is no "latest" shorthand', async () => {
+    expect((await api('POST', '/api/admin/war-wrap-up', adminToken, {})).status).toBe(400)
+  })
+
+  it('⚠️ puts the war into waiting, which is what bypasses the watermark', async () => {
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: OLD_WAR })
+    expect(res.status).toBe(200)
+    expect(res.body.war.opponent_name).toBe('Romania Elite Kommando')
+    const state = await stack.db.query(
+      'SELECT state, attempts FROM war_wrap_up_state WHERE war_id = $1', [OLD_WAR])
+    expect(state.rows[0].state).toBe('waiting')
+  })
+
+  it('⚠️ resets first_seen_at, restarting the retry window', async () => {
+    // Without this, a war whose row is hours old fails on the first pass and
+    // the operator sees "failed" having had no retry at all.
+    await stack.db.query(
+      `UPDATE war_wrap_up_state SET state = 'failed', attempts = 9,
+              first_seen_at = now() - interval '9 hours', last_error = 'old news'
+        WHERE war_id = $1`, [OLD_WAR])
+
+    const res = await api('POST', '/api/admin/war-wrap-up', adminToken, { war_id: OLD_WAR })
+    expect(res.status).toBe(200)
+    const state = await stack.db.query(
+      `SELECT state, attempts, last_error,
+              (now() - first_seen_at) < interval '1 minute' AS fresh
+         FROM war_wrap_up_state WHERE war_id = $1`, [OLD_WAR])
+    expect(state.rows[0].state).toBe('waiting')
+    expect(state.rows[0].attempts).toBe(0)
+    expect(state.rows[0].last_error).toBeNull()
+    expect(state.rows[0].fresh).toBe(true)
+  })
+})
