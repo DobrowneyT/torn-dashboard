@@ -18,6 +18,23 @@ surface it automatically.
 
 ---
 
+## [3.219.0] - 2026-10-11
+
+### Added
+- **The member report carries the war's TYPE** (#943). `war_room_notes_v2.war_type` — the
+  setting the leads actually pick — which is `real`, `termed` or `race`. MonChoon wants the
+  header to read `MonChoon_616 — Romania Elite Kommando (Real)`.
+  ⚠️ **Not the `is_termed` boolean**, which cannot express `race` at all and is a separate
+  hand toggle on RW History.
+  ⚠️ **Null when nobody set one, and null is NOT "real".** Three of forge's eleven wars
+  have no War Room note; labelling those "(Real)" asserts a choice nobody made. `is_termed`
+  only ever promotes to `termed` — ticking "Set Termed" is a positive signal worth
+  honouring, while the untoggled default is just a default. **Probed:** promoting to
+  `real` fails 3 tests.
+  ⚠️ An unrecognised value becomes null rather than passing through: the column has no
+  CHECK constraint, and a typo reaching a permanent per-member record as a war type is
+  worse than saying nothing.
+
 ## [3.218.0] - 2026-10-11
 
 ### Fixed
