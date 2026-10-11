@@ -66,11 +66,20 @@ export interface MemberWarScore {
 /**
  * One member's score over a set of attack rows.
  *
- * ⚠️ **Returns `null` for a member with no scoring hits, not a zeroed object.**
+ * ⚠️ **A real zero is a zero; only an EMPTY LEDGER is null.**
+ *
  * "Scored nothing" and "we have no attack rows for this war" are different
- * facts, and the report renders them differently — the formatter's whole
- * design principle. A caller that wants zeros can ask for them; one that is
- * handed zeros cannot get the distinction back.
+ * facts, and the first version collapsed them the wrong way: it returned null
+ * whenever the member had no hits, so a member who genuinely scored nothing
+ * was published as *"Score · not recorded"*. MonChoon: *"if they had a 0, we
+ * should just show 0, not recorded makes it seem like a weird data loss
+ * issue."* He is right — it reads as a broken scraper rather than a quiet war.
+ *
+ * The discriminator is the ledger itself. If there are NO attack rows for the
+ * window we cannot say anything about anybody. If there ARE rows and this
+ * member is not among them, they genuinely scored nothing — and the war
+ * wrap-up refuses to queue a report until attacks have landed, so by the time
+ * one is posted the ledger is known complete.
  */
 export function scoreMemberWar(
   attacks: ScoreAttackRow[], memberId: number | string, ourFactionId: number | string,
@@ -114,7 +123,12 @@ export function scoreMemberWar(
     if (isBonus) bonusHits += 1
   }
 
-  if (hits === 0) return null
+  // ⚠️ Null ONLY when the ledger is empty. See the note above: a member with
+  // no hits in a populated ledger scored zero, and saying so is the point.
+  if (hits === 0) {
+    if (attacks.length === 0) return null
+    return { raw: 0, normalised: 0, bonus_reduction: 0, hits: 0, bonus_hits: 0 }
+  }
 
   return {
     // ⚠️ Rounded to 2dp at the edge, not accumulated rounded. Respect is
