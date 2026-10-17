@@ -2,6 +2,7 @@
 // key hash, raw keys never stored), resolve roles from the faction database,
 // mint the API-signed 4h session JWT with the established claim shape.
 import { TORN_API_COMMENT } from './tornComment.js'
+import { TRANSIENT_TORN_CODES } from './scraper/tornClient.js'
 import { createHash } from 'node:crypto'
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose'
 import type pg from 'pg'
@@ -75,9 +76,9 @@ export function rolesFromClaims(claims: SessionClaims): Role[] {
   return ROLES.filter((r) => map[r])
 }
 
-// Torn error codes that mean "try again later", not "bad key" — the same set
-// the edge functions treat as transient.
-const TRANSIENT_TORN_CODES = new Set([5, 8, 9, 17])
+// Torn error codes that mean "try again later", not "bad key". ⚠️ Imported, not
+// redefined: this is the UNION of rate limiting and outage, which is the right
+// question for a login ("is the key bad?") and the wrong one for a scraper.
 const REQUIRED_KEY_LEVEL = 3 // Limited Access
 
 /** Resolve a Torn API key to a user id: cache first, then the Torn API.

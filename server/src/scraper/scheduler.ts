@@ -25,10 +25,40 @@ export function createScheduler({ db, runLogger, flags }: SchedulerOptions) {
   const tasks: ScheduledTask[] = []
   let running = false
 
+  /**
+   * Jobs with a run still in flight.
+   *
+   * ⚠️ **A tick does not start a second copy of a job that has not finished.**
+   * Nothing stopped it before. During a Torn outage a run can take far longer
+   * than its cadence — forge's attacks-sync fires every two minutes — and each
+   * overlapping copy claimed its own pooled key and opened its own connection
+   * to an API that was not answering. When Torn came back, the pile of runs
+   * all resumed at once against the same rate limit.
+   *
+   * ⚠️ In-process only, which is exactly the scope that matters: one tenant
+   * process owns its schedule. A skipped tick costs nothing — the next one
+   * runs, and the jobs resume from what is already stored.
+   */
+  const inFlight = new Set<string>()
+
   async function tick(jobName: string) {
-    const flag = await db.query('SELECT enabled FROM scraper_jobs WHERE job_name = $1', [jobName])
-    if (!flag.rows[0]?.enabled) return
-    await runLogger.withRun(jobName, jobs.get(jobName)!.fn)
+    if (inFlight.has(jobName)) {
+      console.warn(`[scraper] "${jobName}" is still running from its last tick — skipping this one`)
+      return
+    }
+    inFlight.add(jobName)
+    try {
+      const flag = await db.query('SELECT enabled FROM scraper_jobs WHERE job_name = $1', [jobName])
+      if (!flag.rows[0]?.enabled) return
+      await runLogger.withRun(jobName, jobs.get(jobName)!.fn)
+    } finally {
+      // ⚠️ `finally`, because of the EARLY RETURN above, not because the job
+      // might throw — `withRun` never throws, it records failures on the run
+      // row. Without it, a tick on a disabled job leaves it in `inFlight`, and
+      // switching that job off and back on skips it for the life of the
+      // process. A failing `enabled` query would do the same.
+      inFlight.delete(jobName)
+    }
   }
 
   return {

@@ -433,3 +433,103 @@ describe('scheduler (end-to-end demo)', () => {
     expect(rejections).toEqual([])
   })
 })
+
+// #963 — a tick must not start a second copy of a job that is still running.
+//
+// ⚠️ Nothing stopped it before. During a Torn outage a run outlives its
+// cadence, and each overlapping copy claimed its own pooled key and opened its
+// own connection to an API that was not answering — then they all resumed at
+// once when Torn came back.
+describe('overlap guard (#963)', () => {
+  const mk = async () => {
+    const { createRunLogger } = await import('../src/scraper/runLog.js')
+    const { createScheduler } = await import('../src/scraper/scheduler.js')
+    return createScheduler({ db: stack.db, runLogger: createRunLogger(stack.db) })
+  }
+  const enable = (name: string) =>
+    stack.db.query(`UPDATE scraper_jobs SET enabled = true WHERE job_name = $1`, [name])
+
+  it('⚠️ never runs two copies of one job at once', async () => {
+    const scheduler = await mk()
+    let active = 0
+    let maxActive = 0
+    let starts = 0
+    // Slower than its own one-second cadence — the outage shape.
+    await scheduler.register('overlap-slow', '* * * * * *', async () => {
+      starts += 1
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise((r) => setTimeout(r, 2_500))
+      active -= 1
+      return { rows: 0 }
+    })
+    await enable('overlap-slow')
+
+    scheduler.start()
+    try {
+      await new Promise((r) => setTimeout(r, 3_200))
+    } finally {
+      scheduler.stop()
+    }
+    // Let the in-flight run settle before the stack is torn down.
+    await new Promise((r) => setTimeout(r, 2_600))
+
+    expect(starts).toBeGreaterThanOrEqual(1)
+    expect(maxActive).toBe(1)
+  }, 15_000)
+
+  it('⚠️ a DISABLED tick releases the guard, so re-enabling the job works', async () => {
+    // THE case `finally` protects. A tick on a disabled job adds it to the
+    // in-flight set and returns early; without `finally` it is never removed,
+    // so switching a job off and back on would leave it skipped for the life
+    // of the process — silently.
+    //
+    // ⚠️ An earlier version of this test had a job THROW and asserted it ran
+    // again. It passed with the guard released outside `finally`, because
+    // `withRun` never throws — it records the failure on the run row. The
+    // probe caught it; the test was guarding nothing.
+    const scheduler = await mk()
+    let starts = 0
+    await scheduler.register('overlap-toggled', '* * * * * *', async () => {
+      starts += 1
+      return { rows: 0 }
+    })
+    // Left DISABLED: every tick takes the early-return path.
+    scheduler.start()
+    try {
+      await new Promise((r) => setTimeout(r, 1_600))
+      expect(starts).toBe(0)
+      await enable('overlap-toggled')
+      await new Promise((r) => setTimeout(r, 2_200))
+    } finally {
+      scheduler.stop()
+    }
+    await new Promise((r) => setTimeout(r, 300))
+    expect(starts).toBeGreaterThanOrEqual(1)
+  }, 10_000)
+
+  it('different jobs are not blocked by each other', async () => {
+    // The guard is per JOB. One slow scraper must not hold up the rest.
+    const scheduler = await mk()
+    let fastStarts = 0
+    await scheduler.register('overlap-hog', '* * * * * *', async () => {
+      await new Promise((r) => setTimeout(r, 2_500))
+      return { rows: 0 }
+    })
+    await scheduler.register('overlap-fast', '* * * * * *', async () => {
+      fastStarts += 1
+      return { rows: 0 }
+    })
+    await enable('overlap-hog')
+    await enable('overlap-fast')
+
+    scheduler.start()
+    try {
+      await new Promise((r) => setTimeout(r, 2_400))
+    } finally {
+      scheduler.stop()
+    }
+    await new Promise((r) => setTimeout(r, 2_600))
+    expect(fastStarts).toBeGreaterThanOrEqual(2)
+  }, 12_000)
+})
