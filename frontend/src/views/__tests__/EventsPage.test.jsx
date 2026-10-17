@@ -18,7 +18,7 @@ vi.mock('../../components/chainWatch/ChainWatchSection', () => ({
 }))
 vi.mock('../MembersView', () => ({ default: () => <div>members-overview</div> }))
 
-import EventsPage, { ChainReportStatus } from '../EventsPage'
+import EventsPage, { ChainReportStatus, AttackLogStatus } from '../EventsPage'
 import MembersPage from '../MembersPage'
 import Navigation from '../../components/Navigation'
 
@@ -146,5 +146,24 @@ describe('ChainReportStatus (#970)', () => {
     api.get.mockResolvedValue({ status: null })
     render(<ChainReportStatus event={{ ...EVENT, phase: 'upcoming' }} />)
     expect(await screen.findByText(/starts when the event opens/)).toBeTruthy()
+  })
+})
+
+describe('AttackLogStatus (#973)', () => {
+  const base = { archived: 1200, gone: 2, failed: 1, backlog: 40, calls: 1300, keys_available: 90,
+    growing_since: null, last_run_at: Date.now(), last_error: null, last_error_at: null }
+
+  it('shows what is archived and waiting', async () => {
+    api.get.mockResolvedValue({ status: base })
+    render(<AttackLogStatus event={EVENT} />)
+    expect(await screen.findByText('1,200')).toBeTruthy()
+    expect(screen.getByText('40')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('⚠️ says so loudly when the backlog keeps growing', async () => {
+    api.get.mockResolvedValue({ status: { ...base, growing_since: Date.now() - 600_000 } })
+    render(<AttackLogStatus event={EVENT} />)
+    expect((await screen.findByRole('alert')).textContent).toMatch(/growing/)
   })
 })

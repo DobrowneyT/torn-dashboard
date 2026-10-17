@@ -140,6 +140,10 @@ const NEW_TABLES = [
   'event_chain_report_samples',
   'event_chain_report_snapshots',
   'event_chain_report_poll_state',
+  // #973: every event attack's raw log, archived before it expires, and the
+  // archiver's health.
+  'event_attack_logs',
+  'event_attack_log_state',
 ]
 
 let server
