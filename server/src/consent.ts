@@ -54,6 +54,24 @@ export const DISCLOSURE_VERSIONS = [
       'member has added to the faction\u2019s shared target list.',
     rowsHash: 'd44d2274a0c49254',
   },
+  {
+    // #968, Halloween (#967). Adds the Attack Logs row, and names
+    // `chainreport` and `/v2/torn/attacklog` in the endpoint list — one
+    // re-prompt for both Halloween uses rather than two.
+    //
+    // ⚠️ **Deliberately NOT in PURPOSE_VERSIONS.** MonChoon confirmed with
+    // members that their keys may be used to extract attack information, and
+    // told them in the faction's communications. This version exists so the
+    // written terms match what members were told — not to switch anything on —
+    // so a member who has not re-accepted yet keeps serving everything,
+    // attack logs included.
+    id: 'attack-logs-v1',
+    summary:
+      'Everything in target-lookup-v1, plus reading the faction\u2019s attack ' +
+      'logs during events (damage, mug amounts, weapon effects, items gained), ' +
+      'at most 10 calls a minute from any one key.',
+    rowsHash: 'b1f9757ee04bd0b4',
+  },
 ] as const
 
 export type DisclosureVersion = (typeof DISCLOSURE_VERSIONS)[number]['id']

@@ -33,7 +33,17 @@ export const ROWS = [
   // accept before anything uses it. "may be used" is accurate for a permission
   // that is granted but not yet exercised.
   ['Target Lookups', 'When a member adds somebody to the faction\u2019s shared target list (Members → Book of Grudges), your key may be used — as part of the rotating pool described above — to read that person\u2019s public profile (name, level, faction and current status), and the public member list of the faction they belong to. Unlike everything else on this page, these are people OUTSIDE your faction, chosen by whichever member added them, rather than your own teammates. Nothing about you is read by these calls. If you do not accept this, your key is simply skipped for them — everything else it already does carries on unchanged.'],
-  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns, battlestats) · GET /v2/user/calendar (opt-in only) · GET /v2/faction (crimes, members, contributors, chain, attacks, revives, rankedwars + report, basic)'],
+  // #968 (Halloween, #967): its own row although attack data was already
+  // covered by "background faction data scrapers" — members were told about
+  // this in the faction's communications, and the page has to say so in
+  // writing. ⚠️ NOT gated: there is no PURPOSE_VERSIONS entry, so a member who
+  // has not yet re-accepted still has their key used. The wording therefore
+  // must not promise "skipped if you do not accept", as Target Lookups does.
+  //
+  // ⚠️ "Torn deletes these logs" is load-bearing: it is WHY they are read
+  // during the event rather than afterwards, and members deserve the reason.
+  ['Attack Logs', 'During faction events (starting with Halloween), your key \u2014 as part of the rotating pool described above \u2014 is used to read the detailed log of your faction\u2019s attacks: both those made by members and those made against them. A log records each hit\u2019s damage, any money mugged, weapon effects that triggered, and items gained during the attack, such as event treats. These cover your whole faction\u2019s attacks, not only your own, and the results are visible to your faction. Your key is used for this at most 10 times a minute, so it never crowds out your own scripts or tools. Torn deletes attack logs after a few weeks, which is why they are collected while the event is running.'],
+  ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns, battlestats) · GET /v2/user/calendar (opt-in only) · GET /v2/faction (crimes, members, contributors, chain, chainreport, attacks, revives, rankedwars + report, basic) · GET /v2/torn/attacklog (during faction events)'],
   ['Access Level', 'Limited Access'],
 ]
 
