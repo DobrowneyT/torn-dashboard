@@ -28,7 +28,7 @@ const REPORT = {
     non_attackers: [{ id: 3, name: 'Cara' }],
   },
   daily: [
-    { day: '2026-10-26', starts_at: Date.UTC(2026, 9, 26), totals: { hits: 500, respect: 2000, mug: 300, assists: 4, incoming: 20 },
+    { day: '2026-10-26', starts_at: Date.UTC(2026, 9, 26), totals: { hits: 500, respect: 2000, mug: 300, assists: 4, retaliations: 7, incoming: 20 },
       members: [{ id: 1, name: 'Alice', hits: 400, respect: 1600, mug: 250, hospitalize: 100, leave: 50, assists: 0, losses: 0, incoming: 12, defended: 2 }] },
     { day: '2026-10-27', starts_at: Date.UTC(2026, 9, 27), totals: { hits: 710, respect: 3000, mug: 500, assists: 6, incoming: 9 },
       members: [{ id: 2, name: 'Bob', hits: 210, respect: 1000, mug: 100, hospitalize: 100, leave: 0, assists: 10, losses: 3, incoming: 9, defended: 1 }] },
@@ -39,6 +39,11 @@ const REPORT = {
     most_active: [{ id: 1, name: 'Alice', outgoing: 1000 }],
     our_top_targets: [{ id: 50, name: 'Punchbag', hits: 44, by_members: 9 }],
     top_attackers_on_us: [{ id: 999, name: 'Grudger', hits: 12, on_members: 3 }],
+    factions_we_hit: [{ id: 700, name: 'Alpha', attacks: 44, wins: 40, members: 9, respect_gained: 120.5 }],
+    factions_hit_us: [
+      { id: 800, kind: 'faction', name: 'Beta', attacks: 30, beaten: 20, defended: 10, members: 5, respect_lost: 12.25 },
+      { id: null, kind: 'stealthed', name: 'Stealthed', attacks: 4, beaten: 4, defended: 0, members: 2, respect_lost: 3 },
+    ],
   },
   highlights: {
     logs_parsed: 1300, total_mugged: 4_500_000, total_damage: 2_000_000,
@@ -46,7 +51,7 @@ const REPORT = {
     biggest_hits: [{ id: 2, name: 'Bob', damage: 3710, outgoing: true, opponent: 'Tank', at: 0 }],
     most_effects: [{ id: 1, name: 'Alice', total: 14, effects: { powerful: 9, stricken: 5 } }],
     effect_totals: { powerful: 9, stricken: 5 },
-    bounties: { claimed: 3, total: 2_100_010, top: [{ id: 2, name: 'Bob', amount: 2_000_000, target: 'Fiveseven', at: 0 }] },
+    bounties: { claimed: 3, total: 2_100_010, by_member: [{ id: 2, name: 'Bob', claims: 2, total: 2_000_010 }], top: [{ id: 2, name: 'Bob', amount: 2_000_000, target: 'Fiveseven', at: 0 }] },
     effects_by_day: [{ day: '2026-10-26', starts_at: Date.UTC(2026, 9, 26), effects: { powerful: 9, stricken: 5 } }],
   },
 }
@@ -165,6 +170,7 @@ describe('highlights (#974)', () => {
     expect(screen.getAllByText(/Stricken/).length).toBeGreaterThan(0)
     expect(screen.getByText('$2,000,000 on Fiveseven')).toBeTruthy()
     expect(screen.getByText('$2,100,010')).toBeTruthy()
+    expect(screen.getByText('$2,000,010 · 2 claims')).toBeTruthy()
   })
 
   it('explains an empty archive', async () => {
@@ -173,5 +179,26 @@ describe('highlights (#974)', () => {
     await screen.findByText('Alice')
     fireEvent.click(screen.getByRole('tab', { name: 'Highlights' }))
     expect(screen.getByText(/appear once attack logs have been archived/)).toBeTruthy()
+  })
+})
+
+describe('faction targets (#987)', () => {
+  it('ranks the factions both ways, with respect, keeping Stealthed as a row', async () => {
+    render(<EventReport event={EVENT} />)
+    await screen.findByText('Alice')
+    fireEvent.click(screen.getByRole('tab', { name: 'Targets' }))
+    expect(screen.getByText('Alpha')).toBeTruthy()
+    expect(screen.getByText(/40 won · 9 of ours · \+120\.50 respect/)).toBeTruthy()
+    expect(screen.getByText(/20 beat us · 10 defended · 5 of ours hit · −12\.25 respect/)).toBeTruthy()
+    expect(screen.getByText('Stealthed')).toBeTruthy()
+  })
+
+  it('leaves out a zero respect figure', async () => {
+    api.get.mockImplementation(async (path) => (path.endsWith('/version') ? { version } : { ...REPORT, targets: { ...REPORT.targets,
+      factions_hit_us: [{ id: null, kind: 'none', name: 'No faction', attacks: 228, beaten: 2, defended: 226, members: 6, respect_lost: 0 }] } }))
+    render(<EventReport event={EVENT} />)
+    await screen.findByText('Alice')
+    fireEvent.click(screen.getByRole('tab', { name: 'Targets' }))
+    expect(screen.getByText('2 beat us · 226 defended · 6 of ours hit')).toBeTruthy()
   })
 })

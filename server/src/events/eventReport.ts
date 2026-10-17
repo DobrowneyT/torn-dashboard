@@ -112,6 +112,8 @@ export async function dailySection(db: pg.Pool, us: number, fromMs: number, toMs
             count(*) FILTER (WHERE result = 'Hospitalized')  AS hospitalize,
             count(*) FILTER (WHERE result = $6)              AS assists,
             count(*) FILTER (WHERE result = ANY($5))         AS losses,
+            -- A retaliation carries Torn's 1.5× retaliation modifier.
+            count(*) FILTER (WHERE retaliation_modifier > 1) AS retaliations,
             coalesce(sum(respect_gain), 0)                   AS respect
        FROM faction_attacks
       WHERE NOT is_incoming AND attacker_faction_id = $3
@@ -138,13 +140,13 @@ export async function dailySection(db: pg.Pool, us: number, fromMs: number, toMs
     const m = days.get(day)!
     if (!m.has(id)) {
       m.set(id, { id, name: names.get(id), hits: 0, leave: 0, mug: 0, hospitalize: 0, assists: 0,
-        losses: 0, respect: 0, incoming: 0, beaten: 0, defended: 0 })
+        losses: 0, retaliations: 0, respect: 0, incoming: 0, beaten: 0, defended: 0 })
     }
     return m.get(id)
   }
   for (const r of out.rows) {
     const x = row(Number(r.day), Number(r.id))
-    for (const k of ['hits', 'leave', 'mug', 'hospitalize', 'assists', 'losses']) x[k] = Number(r[k])
+    for (const k of ['hits', 'leave', 'mug', 'hospitalize', 'assists', 'losses', 'retaliations']) x[k] = Number(r[k])
     x.respect = round2(Number(r.respect))
   }
   for (const r of inc.rows) {
@@ -160,6 +162,7 @@ export async function dailySection(db: pg.Pool, us: number, fromMs: number, toMs
       starts_at: (from + day * DAY_S) * 1000,
       totals: {
         hits: sum('hits'), mug: sum('mug'), hospitalize: sum('hospitalize'), assists: sum('assists'),
+        retaliations: sum('retaliations'),
         losses: sum('losses'), respect: round2(sum('respect')), incoming: sum('incoming'),
         beaten: sum('beaten'), defended: sum('defended'),
       },
@@ -223,7 +226,46 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
       GROUP BY 1 ORDER BY hits DESC, id LIMIT ${TOP_TARGETS}`,
     [from, to, us],
   )
+  // #987 — the same, by FACTION. ⚠️ Factionless players and stealthed
+  // attackers are rows of their own, never dropped: a quarter of forge's
+  // incoming in a quiet week came from players with no faction. A stealthed
+  // attack hides the attacker's faction too, so it cannot be "No faction".
+  const weHit = await db.query(
+    `SELECT coalesce(defender_faction_id, 0) AS id, max(defender_faction_name) AS name,
+            count(*) AS attacks, count(*) FILTER (WHERE result = ANY($4)) AS wins,
+            count(DISTINCT attacker_id) AS members, coalesce(sum(respect_gain), 0) AS respect
+       FROM faction_attacks
+      WHERE NOT is_incoming AND attacker_faction_id = $3 AND started >= $1 AND started < $2
+      GROUP BY 1 ORDER BY attacks DESC, respect DESC LIMIT ${TOP_TARGETS}`,
+    [from, to, us, WINS],
+  )
+  const hitUs = await db.query(
+    `SELECT CASE WHEN attacker_faction_id IS NOT NULL THEN attacker_faction_id::text
+                 WHEN is_stealthed THEN 'stealthed' ELSE 'none' END AS key,
+            max(attacker_faction_name) AS name,
+            count(*) AS attacks, count(*) FILTER (WHERE result = ANY($4)) AS beaten,
+            count(*) FILTER (WHERE result = ANY($5)) AS defended,
+            count(DISTINCT defender_id) AS members, coalesce(sum(respect_loss), 0) AS respect
+       FROM faction_attacks
+      WHERE is_incoming AND defender_faction_id = $3
+        AND attacker_faction_id IS DISTINCT FROM $3
+        AND started >= $1 AND started < $2
+      GROUP BY 1 ORDER BY attacks DESC, respect DESC LIMIT ${TOP_TARGETS}`,
+    [from, to, us, WINS, LOSSES],
+  )
+  const label = (key: string, name: string | null) =>
+    key === 'stealthed' ? 'Stealthed' : key === 'none' || key === '0' ? 'No faction' : (name ?? `Faction ${key}`)
+
   return {
+    factions_we_hit: weHit.rows.map((r) => ({
+      id: Number(r.id) || null, name: label(String(r.id), r.name), attacks: Number(r.attacks),
+      wins: Number(r.wins), members: Number(r.members), respect_gained: round2(Number(r.respect)),
+    })),
+    factions_hit_us: hitUs.rows.map((r) => ({
+      id: /^\d+$/.test(r.key) ? Number(r.key) : null, kind: /^\d+$/.test(r.key) ? 'faction' : r.key,
+      name: label(r.key, r.name), attacks: Number(r.attacks), beaten: Number(r.beaten),
+      defended: Number(r.defended), members: Number(r.members), respect_lost: round2(Number(r.respect)),
+    })),
     members: members.sort((a, b) => b.incoming - a.incoming || b.outgoing - a.outgoing),
     most_targeted: [...members].filter((m) => m.incoming > 0)
       .sort((a, b) => b.incoming - a.incoming).slice(0, TOP_TARGETS),
@@ -351,6 +393,18 @@ export async function highlightsSection(
     bounties: {
       claimed: bounties.rows.length,
       total: bounties.rows.reduce((t, r) => t + Number(r.amount), 0),
+      // Most earned from bounties: per member, by total value.
+      by_member: (() => {
+        const m = new Map<number, { id: number; name: string; claims: number; total: number }>()
+        for (const r of bounties.rows) {
+          const id = Number(r.id)
+          if (!m.has(id)) m.set(id, { id, name: names.get(id), claims: 0, total: 0 })
+          const x = m.get(id)!
+          x.claims++
+          x.total += Number(r.amount)
+        }
+        return [...m.values()].sort((a, b) => b.total - a.total || b.claims - a.claims).slice(0, TOP_TARGETS)
+      })(),
       top: bounties.rows.slice(0, TOP_TARGETS).map((r) => ({
         id: Number(r.id), name: names.get(r.id), amount: Number(r.amount), target: r.target ?? null,
         at: Number(r.started) * 1000,

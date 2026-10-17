@@ -307,6 +307,7 @@ const DAY_COLS = [
   { key: 'leave', label: 'Leave', kind: 'number' },
   { key: 'assists', label: 'Assists', kind: 'number' },
   { key: 'losses', label: 'Losses', kind: 'number' },
+  { key: 'retaliations', label: 'Retals', kind: 'number' },
   { key: 'incoming', label: 'Hit by others', kind: 'number' },
   { key: 'defended', label: 'Defended', kind: 'number' },
 ]
@@ -340,11 +341,12 @@ function Daily({ daily, event }) {
           </button>
         ))}
       </div>
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-5">
+      <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-6">
         <Stat label="Hits">{fmt(day.totals.hits)}</Stat>
         <Stat label="Respect">{fmt(day.totals.respect, 2)}</Stat>
         <Stat label="Mugs">{fmt(day.totals.mug)}</Stat>
         <Stat label="Assists">{fmt(day.totals.assists)}</Stat>
+        <Stat label="Retaliations">{fmt(day.totals.retaliations)}</Stat>
         <Stat label="Hit by others">{fmt(day.totals.incoming)}</Stat>
       </div>
       <div className="card p-0 sm:p-0 overflow-x-auto">
@@ -368,6 +370,7 @@ function Daily({ daily, event }) {
                 <td className={TD}>{fmt(m.leave)}</td>
                 <td className={TD}>{fmt(m.assists)}</td>
                 <td className={TD}>{fmt(m.losses)}</td>
+                <td className={TD}>{fmt(m.retaliations)}</td>
                 <td className={TD}>{fmt(m.incoming)}</td>
                 <td className={TD}>{fmt(m.defended)}</td>
               </tr>
@@ -413,12 +416,54 @@ const TARGET_COLS = [
   { key: 'distinct_attackers', label: 'Different attackers', kind: 'number' },
 ]
 
+/**
+ * #987 — one faction per row: name and attacks on the first line, the detail
+ * under it, so it reads at phone width without a table. "No faction" and
+ * "Stealthed" are rows like any other — never dropped.
+ */
+function FactionList({ title, rows, detail }) {
+  return (
+    <div className="card p-4">
+      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">{title}</h4>
+      {rows.length === 0
+        ? <p className="text-sm text-gray-500 dark:text-gray-400">Nothing yet.</p>
+        : (
+          <ol className="space-y-2 text-sm">
+            {rows.map((r, i) => (
+              <li key={`${r.kind ?? 'faction'}-${r.id ?? r.name}`}>
+                <div className="flex justify-between gap-3">
+                  <span className="truncate">
+                    <span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>
+                    <span className={r.id == null ? 'italic text-gray-600 dark:text-gray-300' : ''}>{r.name}</span>
+                  </span>
+                  <span className="tabular-nums text-gray-700 dark:text-gray-200 whitespace-nowrap">{fmt(r.attacks)} attacks</span>
+                </div>
+                <div className="pl-6 text-xs text-gray-500 dark:text-gray-400 tabular-nums">{detail(r)}</div>
+              </li>
+            ))}
+          </ol>
+        )}
+    </div>
+  )
+}
+
 function Targets({ targets }) {
   const rows = useMemo(() => targets?.members ?? [], [targets])
   const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, TARGET_COLS, { initialCol: 'incoming', initialDir: 'desc', tieBreak: 'name' })
   if (!targets) return null
   return (
     <div className="space-y-4">
+      {(targets.factions_we_hit || targets.factions_hit_us) && (
+        <div className="grid gap-3 md:grid-cols-2">
+          <FactionList title="Factions we hit most" rows={targets.factions_we_hit ?? []}
+            detail={(r) => [`${fmt(r.wins)} won`, `${fmt(r.members)} of ours`,
+              r.respect_gained > 0 && `+${fmt(r.respect_gained, 2)} respect`].filter(Boolean).join(' · ')} />
+          <FactionList title="Factions that hit us most" rows={targets.factions_hit_us ?? []}
+            detail={(r) => [`${fmt(r.beaten)} beat us`, `${fmt(r.defended)} defended`, `${fmt(r.members)} of ours hit`,
+              // A zero is left out: "−0.00 respect" reads as a loss that was not one.
+              r.respect_lost > 0 && `−${fmt(r.respect_lost, 2)} respect`].filter(Boolean).join(' · ')} />
+        </div>
+      )}
       <div className="grid gap-3 md:grid-cols-2">
         <Ranked title="Most targeted members" rows={targets.most_targeted} unit="attacks" render={(r) => fmt(r.incoming)} />
         <Ranked title="Who hit us most" rows={targets.top_attackers_on_us} unit="attacks" render={(r) => fmt(r.hits)} />
@@ -494,8 +539,12 @@ function Highlights({ highlights }) {
           render={(m) => `$${fmt(m.amount)}${m.target ? ` from ${m.target}` : ''}`} />
         <Ranked title="Biggest hits" rows={h.biggest_hits.map((m, i) => ({ ...m, id: `${m.id}-${i}` }))} unit=""
           render={(m) => `${fmt(m.damage)}${m.opponent ? ` on ${m.opponent}` : ''}`} />
+        {h.bounties?.by_member?.length > 0 && (
+          <Ranked title="Most earned from bounties" rows={h.bounties.by_member} unit=""
+            render={(b) => `$${fmt(b.total)} · ${fmt(b.claims)} ${b.claims === 1 ? 'claim' : 'claims'}`} />
+        )}
         {h.bounties?.top?.length > 0 && (
-          <Ranked title="Biggest bounties claimed" rows={h.bounties.top.map((b, i) => ({ ...b, id: `${b.id}-${i}` }))} unit=""
+          <Ranked title="Highest bounties claimed" rows={h.bounties.top.map((b, i) => ({ ...b, id: `${b.id}-${i}` }))} unit=""
             render={(b) => `$${fmt(b.amount)}${b.target ? ` on ${b.target}` : ''}`} />
         )}
         <Ranked title="Most effects" rows={h.most_effects} unit="" render={(m) => fmt(m.total)} />
