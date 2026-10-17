@@ -132,3 +132,40 @@ describe('consentIsCurrent', () => {
     expect(consentIsCurrent('rolled-back-v9')).toBe(false)
   })
 })
+
+// #968 — the attack-log disclosure for Halloween (#967).
+//
+// ⚠️ The two halves of this change pull in opposite directions, and both are
+// asserted: every member MUST be re-prompted (the page changed), and NO key
+// may be gated (members had already consented and been told). A version that
+// re-prompted and gated would silently drop the keys the event needs; one that
+// gated without re-prompting would be worse still.
+describe('attack-logs-v1 (#968)', () => {
+  it('is the current version', () => {
+    expect(CURRENT_DISCLOSURE_VERSION).toBe('attack-logs-v1')
+  })
+
+  it('⚠️ re-prompts a member who accepted the previous version', () => {
+    // The page changed, so the terms a member agreed to no longer match it.
+    expect(consentIsCurrent('target-lookup-v1')).toBe(false)
+    expect(consentIsCurrent('attack-logs-v1')).toBe(true)
+  })
+
+  it('⚠️ is NOT a purpose gate — no key is skipped for attack logs', () => {
+    // MonChoon confirmed consent with members already. A gate here would leave
+    // the archive short of keys during the busiest event of the year, while
+    // the re-prompts trickle in.
+    expect(Object.values(PURPOSE_VERSIONS)).not.toContain('attack-logs-v1')
+    for (const accepted of ['login-v1', 'target-lookup-v1', 'attack-logs-v1']) {
+      expect(consentCovers(accepted, 'attack-logs')).toBe(true)
+      expect(consentCovers(accepted)).toBe(true)
+    }
+  })
+
+  it('leaves the target-lookup gate exactly as it was', () => {
+    expect(consentCovers('login-v1', 'target-lookup')).toBe(false)
+    expect(consentCovers('target-lookup-v1', 'target-lookup')).toBe(true)
+    // Newer still covers it — rank, not equality.
+    expect(consentCovers('attack-logs-v1', 'target-lookup')).toBe(true)
+  })
+})

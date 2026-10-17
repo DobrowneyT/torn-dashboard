@@ -18,6 +18,27 @@ surface it automatically.
 
 ---
 
+## [3.222.0] - 2026-10-17
+
+### Added
+- **The API Key Usage page discloses attack-log reading, and every member is re-prompted**
+  (#968, first slice of the Halloween PRD #967). A new *Attack Logs* row says, in plain
+  words, that during faction events members' keys read the detailed logs of the faction's
+  attacks in both directions — damage, money mugged, weapon effects, items gained such as
+  event treats — at most 10 calls a minute from any one key, and why: **Torn deletes attack
+  logs after a few weeks**, so they have to be collected while the event runs. The endpoint
+  list now names `chainreport` and `/v2/torn/attacklog` too, so the two Halloween uses cost
+  members one re-prompt rather than two.
+  ⚠️ **Re-prompted, but NOT gated.** New version `attack-logs-v1` is current, so every
+  member sees the updated terms — but it is deliberately absent from `PURPOSE_VERSIONS`, so
+  a member who has not re-accepted yet still has their key used. MonChoon confirmed with
+  members that their keys may be used to extract attack information and told them in the
+  faction's communications; the re-prompt exists so the written terms match what they were
+  told. A gate would have left the archive short of keys during the busiest event of the
+  year while re-acceptances trickled in. **Probed:** adding the gate fails a test.
+  ⚠️ The row deliberately does not say "your key is skipped if you do not accept", as the
+  Target Lookups row does — that would be untrue here.
+
 ## [3.221.0] - 2026-10-17
 
 ### Fixed
