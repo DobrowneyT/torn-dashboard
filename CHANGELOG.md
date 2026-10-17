@@ -18,6 +18,47 @@ surface it automatically.
 
 ---
 
+## [3.221.0] - 2026-10-17
+
+### Fixed
+- ⚠️ **The Torn API client could hang for five minutes and had no idea Torn was down**
+  (#963). Torn's API is down for hours every Halloween, and the event starts 25 October.
+  `tornClient.fetch` had no timeout, no retry, no backoff and no HTTP status check, and
+  called `res.json()` unconditionally.
+  - **Every request times out** (15s default). Node's own default is five minutes for
+    headers; on forge's two-minute attacks-sync that stacked overlapping runs during an
+    outage, each holding a pooled key.
+  - **Genuine blips are retried** with capped exponential backoff and full jitter:
+    timeouts, dropped connections, 5xx, 429, non-JSON bodies and Torn code 17. ⚠️ Jitter
+    because five tenants reach Torn from one box and would otherwise all retry in the
+    same second when it comes back. ⚠️ Every retry passes through the rate limiter, so an
+    outage cannot push a key past Torn's per-key rate the moment Torn recovers.
+  - ⚠️ **Rate limits (5, 8) are never retried** — hitting one again a second later is how
+    a soft limit becomes a longer one. **"API disabled" (9) is not retried** either: it
+    lasts minutes to hours, so a retry seconds later only spends budget.
+  - **Cloudflare and HTML responses raise `TornUnavailableError`**, never a JSON
+    SyntaxError. Observed for real during research: `HTTP 403 error code: 1010`. The old
+    client reported every outage as `Unexpected token '<'`, which reads as a bug in our
+    own code. ⚠️ A 403 is not retried — the same request with the same signature cannot
+    succeed.
+  - The War Room ticker opts out of retries with an 8s timeout: it polls every second,
+    so the next tick is the retry.
+- ⚠️ **The scheduler could run two copies of one job at once** (#963). Nothing stopped a
+  tick firing while the previous run of the same job was still in flight. It now skips
+  that tick, per job. ⚠️ The guard is released in `finally` because of the early return
+  for a DISABLED job — without it, switching a job off and on would skip it for the life
+  of the process. My first test for this guarded nothing (it relied on a job throwing,
+  but `withRun` never throws); a probe caught it and the test now exercises the real
+  path.
+
+### Changed
+- **Torn's "try again later" codes are named constants** — `TORN_RATE_LIMIT_CODES`
+  (5, 8: a routine soft stop) and `TORN_UNAVAILABLE_CODES` (9, 17: an outage, which should
+  fail visibly). Four files spelled `[5, 8]` and `auth.ts` spelled `[5, 8, 9, 17]`, with
+  nothing saying which concept each was. ⚠️ They are deliberately different: a run during
+  an outage should be recorded as a FAILURE, not converted into a quiet success — the
+  "not measured reads as healthy" trap. attacks-sync keeps its partial progress either way.
+
 ## [3.220.0] - 2026-10-11
 
 ### Fixed

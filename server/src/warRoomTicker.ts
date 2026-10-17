@@ -189,7 +189,17 @@ export async function syncWarRoomMemberStates(
 export function createWarRoomTicker(deps: WarRoomTickerDeps) {
   const { db, pool, hub, tornBaseUrl } = deps
   // The ticker's own client: budget sized for 1 Hz member fetches.
-  const client = createTornClient({ baseUrl: tornBaseUrl, budget: { requests: 80, perMs: 60_000 } })
+  //
+  // ⚠️ NO retries, and a short timeout. The ticker polls every second or so,
+  // so the next tick IS the retry — a backoff chain of several seconds inside
+  // it would only delay fresher data behind staler data. The timeout still
+  // matters: without one a stalled request held the tick for minutes.
+  const client = createTornClient({
+    baseUrl: tornBaseUrl,
+    budget: { requests: 80, perMs: 60_000 },
+    timeoutMs: 8_000,
+    retry: { attempts: 1, baseDelayMs: 0, maxDelayMs: 0 },
+  })
   // One detector for the process lifetime — it tracks per-member state and the
   // rolling recovery windows across ticks (the single source of truth, #208).
   const surge = createSurgeDetector()

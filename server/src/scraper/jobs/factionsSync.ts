@@ -12,12 +12,16 @@
 // exhaust the per-key budget in one go — the next run continues.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
-import { TornApiError } from '../tornClient.js'
+import { TornApiError, TORN_RATE_LIMIT_CODES } from '../tornClient.js'
 
 const MAX_PER_RUN = 40
 // Transient Torn errors (too-many-requests / IP-block): stop the batch as a
 // soft success so already-upserted names stay and the next run resumes.
-const RATE_LIMIT_CODES = new Set([5, 8])
+// ⚠️ The named constant, not a literal: this is RATE LIMITING (a routine
+// soft stop), deliberately distinct from TORN_UNAVAILABLE_CODES (an
+// outage, which should fail visibly). Four files used to spell this
+// `[5, 8]` each, with nothing saying which concept it was.
+const RATE_LIMIT_CODES = TORN_RATE_LIMIT_CODES
 
 export async function factionsSyncJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   // Faction ids referenced by attacks (attacker OR defender) that we can't yet

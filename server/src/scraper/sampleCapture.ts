@@ -3,7 +3,7 @@
 // and a one-shot "capture a sample for every current member, stamped at instant
 // T" used by competition start/end timers.
 import type { JobDeps } from './jobs/itemsSync.js'
-import { TornApiError } from './tornClient.js'
+import { TornApiError, TORN_RATE_LIMIT_CODES } from './tornClient.js'
 
 // The personalstats categories a competition metric can read. Only these are
 // kept in the slim sample series — the full ~200-field blob stays in the
@@ -32,7 +32,11 @@ export const MAX_KEYS = Math.max(1, Number(process.env.MEMBER_STATS_MAX_KEYS) ||
 // Torn error codes that mean the KEY is bad — drop + disable it.
 const KEY_DISABLE_CODES = new Set([2, 10, 13])
 // Codes transient for the key (rate limit / IP block) — try another key.
-const KEY_TRANSIENT_CODES = new Set([5, 8])
+// ⚠️ The named constant, not a literal: this is RATE LIMITING (a routine
+// soft stop), deliberately distinct from TORN_UNAVAILABLE_CODES (an
+// outage, which should fail visibly). Four files used to spell this
+// `[5, 8]` each, with nothing saying which concept it was.
+const KEY_TRANSIENT_CODES = TORN_RATE_LIMIT_CODES
 
 export interface KeyRotator {
   active: { member_id: string; key: string }[]

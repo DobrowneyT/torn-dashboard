@@ -4,13 +4,17 @@
 // pages ASC until a page comes back under 100 rows.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
-import { TornApiError } from '../tornClient.js'
+import { TornApiError, TORN_RATE_LIMIT_CODES } from '../tornClient.js'
 
 const PAGE_FULL = 100
 // Transient Torn errors (#247): too-many-requests (5) / IP-block (8). Hitting
 // one part-way through the backlog is a soft stop, not a failure — the rows
 // already upserted stay, and the next run resumes from the newest stored attack.
-const RATE_LIMIT_CODES = new Set([5, 8])
+// ⚠️ The named constant, not a literal: this is RATE LIMITING (a routine
+// soft stop), deliberately distinct from TORN_UNAVAILABLE_CODES (an
+// outage, which should fail visibly). Four files used to spell this
+// `[5, 8]` each, with nothing saying which concept it was.
+const RATE_LIMIT_CODES = TORN_RATE_LIMIT_CODES
 
 export async function attacksSyncJob({ db, pool, client }: JobDeps): Promise<RunResult> {
   const claimed = await pool.claim()
