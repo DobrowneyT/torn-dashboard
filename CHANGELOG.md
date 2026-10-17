@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.225.0] - 2026-10-17
+
+### Added
+- **The event's live chain report (#971)** on Events → Report, with four views:
+  - **Totals:** chain, respect raw and capped (10 per bonus hit, with the deduction named), hits, mugs, hospitalizations, assists, retaliations, overseas, losses, escapes, draws and bonuses, plus every bonus hit and what capping it costs.
+  - **Members:** the same per member, plus respect average and best, sortable, and who has **not hit yet**.
+  - **Daily:** per member per TCT day from the daily start, from our synced attacks, so a day interrupted by an outage fills in once Torn is back.
+  - **Targets:** attacks made and received per member, most-targeted members, who hit us most, and who we hit most.
+- Totals and Members are Torn's own chain report, the numbers members will check us against. The report refreshes every 30 seconds and stays readable after the event ends.
+
 ## [3.224.0] - 2026-10-17
 
 ### Added
