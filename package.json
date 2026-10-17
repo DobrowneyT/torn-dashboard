@@ -1,6 +1,6 @@
 {
   "name": "torn-dashboard",
-  "version": "3.222.1",
+  "version": "3.223.0",
   "private": true,
   "type": "module",
   "workspaces": [

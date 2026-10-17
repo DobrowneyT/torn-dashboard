@@ -131,6 +131,9 @@ const NEW_TABLES = [
   // `is_termed` there are facts about the war, while this is how far we got
   // with it; one careless UPDATE should not be able to touch both.
   'war_wrap_up_state',
+  // #969: a faction event (Halloween) and the page hosting it. ⚠️ Separate
+  // from chain_events and linked to it — an event will not always have a chain.
+  'faction_events',
 ]
 
 let server

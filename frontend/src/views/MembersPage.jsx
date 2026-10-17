@@ -4,7 +4,6 @@ import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import MembersView from './MembersView'
 import CompetitionsSection from '../components/CompetitionsSection'
 import CalendarSection from '../components/calendar/CalendarSection'
-import ChainWatchSection from '../components/chainWatch/ChainWatchSection'
 import UpgradesSection from '../components/upgrades/UpgradesSection'
 import HofSection from '../components/hof/HofSection'
 import GrudgesSection from '../components/grudges/GrudgesSection'
@@ -21,7 +20,6 @@ export default function MembersPage({ isLeadership }) {
     { to: '/members/overview', label: 'Overview' },
     { to: '/members/competitions', label: 'Competitions' },
     { to: '/members/calendar', label: 'Calendar' },
-    { to: '/members/chain-watch', label: 'Chain Watch' },
     // #458 — faction standing state, not per-member, but this tab group is
     // where faction-wide surfaces live (Competitions and Calendar are not about
     // individual members either). Read-only and open to everyone.
@@ -47,7 +45,9 @@ export default function MembersPage({ isLeadership }) {
         <Route path="overview" element={<MembersView isLeadership={isLeadership} />} />
         <Route path="competitions" element={<CompetitionsSection isLeadership={isLeadership} />} />
         <Route path="calendar" element={<CalendarSection isLeadership={isLeadership} />} />
-        <Route path="chain-watch" element={<ChainWatchSection isLeadership={isLeadership} />} />
+        {/* #969 — Chain Watch moved to the event page. Kept as a redirect:
+            the bot's sign-up link and old bookmarks still point here. */}
+        <Route path="chain-watch" element={<Navigate to="/events/chain-watch" replace />} />
         <Route path="upgrades" element={<UpgradesSection />} />
         <Route path="hall-of-fame" element={<HofSection />} />
         <Route path="grudges" element={<GrudgesSection isLeadership={isLeadership} />} />

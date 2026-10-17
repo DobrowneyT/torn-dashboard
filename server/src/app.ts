@@ -30,6 +30,7 @@ import { registerFactionUpgradeRoutes } from './factionUpgradeRoutes.js'
 import { registerMemberHofRoutes } from './memberHofRoutes.js'
 import { registerGrudgeRoutes } from './grudgeRoutes.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
+import { registerEventRoutes } from './events/eventRoutes.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
 import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
 import { registerMemberThreadRoutes } from './memberThreadsInternal.js'
@@ -564,6 +565,8 @@ export async function buildServer(
     registerMemberNotesRoutes(app, opts.db)
     registerCalendarRoutes(app, opts.db)
     registerChainWatchRoutes(app, opts.db, opts.factionSlug)
+    // #969 — the faction event page (Halloween first) that now hosts Chain Watch.
+    registerEventRoutes(app, opts.db)
     registerExportRoutes(app, opts.db)
     // In-app feedback → triaged GitHub issue (#253). Disabled (endpoint 501, nav
     // hidden) when no PAT is configured.

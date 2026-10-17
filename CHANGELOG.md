@@ -18,6 +18,18 @@ surface it automatically.
 
 ---
 
+## [3.223.0] - 2026-10-17
+
+### Added
+- **Events page (#969).** A faction event (Halloween first) now has its own page at **Events**, in the event's colour. While an event is live it is the landing page; the nav tab appears only while one is upcoming or live. Leadership schedule and edit it under Events → Settings (all times TCT): opens, daily figures from, runs at least until, and whether it then runs until the chain ends (dies or reaches 100k). The end is stamped from the chain samples, so a later ordinary chain cannot revive a finished event, and a Torn outage keeps it live rather than ending it.
+- **Chain Watch moved to Events.** `/members/chain-watch` redirects there, so the bot's sign-up link and old bookmarks still work. Sign-ups stay reachable with no event scheduled.
+
+### Changed
+- **The dashboard lives at `/dashboard`.** `/` now redirects — to the event while one is live, otherwise to the dashboard — so the Dashboard tab still works mid-event.
+
+### Fixed
+- **Path-style links land on the right page.** A link like `https://<faction>.monchoon.me/members/chain-watch` (the bot's sign-up link) used to open the home page; it now opens the page it names.
+
 ## [3.222.1] - 2026-10-17
 
 ### Changed
