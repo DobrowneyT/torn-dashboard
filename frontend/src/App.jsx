@@ -15,11 +15,14 @@ import DashboardView from './views/DashboardView'
 import OCPage from './views/OCPage'
 import RWPage from './views/RWPage'
 import LeadershipPage from './views/LeadershipPage'
+import EventsPage from './views/EventsPage'
 import { isAdmin, isOCManager } from './config'
 import Footer from './components/Footer'
 import RollCallReminderBanner from './components/warroom/RollCallReminderBanner'
 import UpdateBanner from './components/UpdateBanner'
 import { useVersionGate } from './hooks/useVersionGate'
+import { useCurrentEvent } from './hooks/useCurrentEvent'
+import { landingPathFor } from './utils/factionEvent'
 
 
 function DashboardLayout() {
@@ -36,6 +39,8 @@ function DashboardLayout() {
   // a reload there can throw away something half-typed.
   const onWarRoom = location.pathname.startsWith('/rw/war-room')
   const { stale: updateAvailable, version: servingVersion } = useVersionGate({ forceReload: onWarRoom })
+  // #969 — one poll for the nav tab, the `/` redirect and the event page.
+  const { event: currentEvent, loaded: eventLoaded, refresh: refreshEvent } = useCurrentEvent(isAuthenticated)
 
   // Role flags come from the session claims (role_assignments, managed per
   // faction in Settings); the config.js lists are a fallback only.
@@ -136,12 +141,19 @@ function DashboardLayout() {
       <ConsentGate user={user} />
 
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-        <Navigation isLeadership={effectiveIsLeadership} />
+        <Navigation isLeadership={effectiveIsLeadership} event={currentEvent} />
         <div className="mt-6">
           <ProtectedRoute>
             <ViewErrorBoundary pathname={location.pathname}>
               <Routes>
-                <Route index element={<DashboardView />} />
+                {/* ⚠️ #969 — `/` is a redirect, never a page. While an event is
+                    live members land on it; otherwise on the dashboard, which
+                    lives at /dashboard so its own nav tab still reaches it
+                    mid-event. Waits for the first event answer so a live event
+                    does not flash the dashboard first. */}
+                <Route index element={eventLoaded ? <Navigate to={landingPathFor(currentEvent)} replace /> : null} />
+                <Route path="dashboard" element={<DashboardView />} />
+                <Route path="events/*" element={<EventsPage event={currentEvent} isLeadership={effectiveIsLeadership} onChanged={refreshEvent} />} />
                 <Route path="members/*" element={<MembersPage isLeadership={effectiveIsLeadership} />} />
                 <Route path="oc/*" element={<OCPage isLeadership={effectiveIsLeadership} canAccessOCPlanner={effectiveCanAccessOCPlanner} />} />
                 <Route path="rw/*" element={<RWPage isLeadership={effectiveIsLeadership} isAdmin={userIsAdmin} canAccessWarOverview={effectiveCanAccessWarOverview} />} />
