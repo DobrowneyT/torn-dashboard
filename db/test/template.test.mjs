@@ -144,6 +144,10 @@ const NEW_TABLES = [
   // archiver's health.
   'event_attack_logs',
   'event_attack_log_state',
+  // #974: what the parser read out of each archived log, and one row per
+  // effect (proc) line.
+  'event_attack_log_parsed',
+  'event_attack_log_effects',
 ]
 
 let server

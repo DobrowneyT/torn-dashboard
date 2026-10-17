@@ -40,6 +40,14 @@ const REPORT = {
     our_top_targets: [{ id: 50, name: 'Punchbag', hits: 44, by_members: 9 }],
     top_attackers_on_us: [{ id: 999, name: 'Grudger', hits: 12, on_members: 3 }],
   },
+  highlights: {
+    logs_parsed: 1300, total_mugged: 4_500_000, total_damage: 2_000_000,
+    highest_mugs: [{ id: 1, name: 'Alice', amount: 1_791_890, target: 'Richie', at: 0 }],
+    biggest_hits: [{ id: 2, name: 'Bob', damage: 3710, outgoing: true, opponent: 'Tank', at: 0 }],
+    most_effects: [{ id: 1, name: 'Alice', total: 14, effects: { powerful: 9, stricken: 5 } }],
+    effect_totals: { powerful: 9, stricken: 5 },
+    effects_by_day: [{ day: '2026-10-26', starts_at: Date.UTC(2026, 9, 26), effects: { powerful: 9, stricken: 5 } }],
+  },
 }
 
 let version
@@ -120,5 +128,24 @@ describe('live updates (#972)', () => {
     version = 'v2'
     await act(async () => { await vi.advanceTimersByTimeAsync(VERSION_POLL_MS) })
     expect(reportFetches()).toBe(2)
+  })
+})
+
+describe('highlights (#974)', () => {
+  it('shows the highest mug, biggest hit and effects by name', async () => {
+    render(<EventReport event={EVENT} />)
+    await screen.findByText('1,200')
+    fireEvent.click(screen.getByRole('tab', { name: 'Highlights' }))
+    expect(screen.getByText('$1,791,890 from Richie')).toBeTruthy()
+    expect(screen.getByText('3,710 on Tank')).toBeTruthy()
+    expect(screen.getAllByText(/Stricken/).length).toBeGreaterThan(0)
+  })
+
+  it('explains an empty archive', async () => {
+    api.get.mockImplementation(async (path) => (path.endsWith('/version') ? { version } : { ...REPORT, highlights: null }))
+    render(<EventReport event={EVENT} />)
+    await screen.findByText('1,200')
+    fireEvent.click(screen.getByRole('tab', { name: 'Highlights' }))
+    expect(screen.getByText(/appear once attack logs have been archived/)).toBeTruthy()
   })
 })

@@ -18,6 +18,7 @@ import {
   createKeySlots, allocate, classifyFailure, retryDelayMs, backlogGrowing,
   DEFAULT_PER_KEY_PER_MIN,
 } from './eventAttackLogs.js'
+import { parsePendingLogs } from './attackLogParse.js'
 
 /** How often the archiver looks for due attacks. */
 export const RUN_MS = 15_000
@@ -47,6 +48,8 @@ export interface RunOutcome {
   gone: number
   failed: number
   outage: boolean
+  /** Logs parsed this run (#974). */
+  parsed: number
 }
 
 export function createAttackLogArchiver(deps: AttackLogArchiverDeps) {
@@ -137,7 +140,7 @@ export function createAttackLogArchiver(deps: AttackLogArchiverDeps) {
 
   /** One pass over every event still being archived. Exported for tests. */
   async function runOnce(): Promise<RunOutcome> {
-    const out: RunOutcome = { events: 0, due: 0, archived: 0, gone: 0, failed: 0, outage: false }
+    const out: RunOutcome = { events: 0, due: 0, archived: 0, gone: 0, failed: 0, outage: false, parsed: 0 }
     const evs = await db.query(
       `SELECT id, (extract(epoch from starts_at) * 1000)::bigint AS start_ms,
               (extract(epoch from ended_at) * 1000)::bigint AS end_ms
@@ -248,6 +251,14 @@ export function createAttackLogArchiver(deps: AttackLogArchiverDeps) {
       if (keys.length === 0) {
         await saveState(eventId, { last_error: 'no pooled key available', last_error_at: new Date(now()) }) // db-time-safe: epoch ms
       }
+    }
+    // #974 — parse what is new, and anything an older parser read. Its own
+    // try: a parse failure must never stop logs being archived, because the
+    // logs expire and the parse can always be redone.
+    try {
+      out.parsed = await parsePendingLogs(db, us)
+    } catch (err) {
+      console.error('[attack-log-archive] parse failed:', err instanceof Error ? err.message : err)
     }
     return out
   }

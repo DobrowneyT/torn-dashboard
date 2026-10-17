@@ -14,7 +14,7 @@ import {
   eventPhase, eventEndedAt, TORN_CHAIN_MAX, type EventPhase, type EventTimes,
 } from './eventLifecycle.js'
 import { chainReportEnded } from './eventChainReport.js'
-import { chainSection, dailySection, targetsSection, nameBook, reportVersion } from './eventReport.js'
+import { chainSection, dailySection, targetsSection, highlightsSection, nameBook, reportVersion } from './eventReport.js'
 
 const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
 const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? null
@@ -234,6 +234,7 @@ export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
       chain: latest ? chainSection(latest, names) : null,
       daily: Number.isFinite(us) ? await dailySection(db, us, Number(r.daily_ms), until, names) : [],
       targets: Number.isFinite(us) ? await targetsSection(db, us, t.starts_at, until, names) : null,
+      highlights: await highlightsSection(db, id, Number(r.daily_ms), names),
     }
   })
 

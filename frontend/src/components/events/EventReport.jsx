@@ -25,6 +25,7 @@ const VIEWS = [
   { id: 'members', label: 'Members' },
   { id: 'daily', label: 'Daily' },
   { id: 'targets', label: 'Targets' },
+  { id: 'highlights', label: 'Highlights' },
 ]
 
 const fmt = (n, dp = 0) => (n == null ? '—' : Number(n).toLocaleString(undefined, {
@@ -102,6 +103,7 @@ export default function EventReport({ event }) {
           {view === 'members' && <Members chain={data.chain} />}
           {view === 'daily' && <Daily daily={data.daily} event={event} />}
           {view === 'targets' && <Targets targets={data.targets} />}
+          {view === 'highlights' && <Highlights highlights={data.highlights} />}
         </>
       )}
     </div>
@@ -417,6 +419,79 @@ function Targets({ targets }) {
       <p className="text-xs text-gray-500 dark:text-gray-400">
         A stealthed attack still counts against the member it hit, but Torn does not say who made it,
         so it is missing from &quot;Who hit us most&quot;.
+      </p>
+    </div>
+  )
+}
+
+/** "stricken" → "Stricken"; "eviscareted" is Torn's own spelling, kept. */
+const effectLabel = (e) => e.charAt(0).toUpperCase() + e.slice(1).replace(/-/g, ' ')
+
+/**
+ * From the archived attack logs (#974). ⚠️ "Effects" rather than "procs":
+ * each is named by the icon Torn put on the log line, and a few of those
+ * (Riot, Windup) may be armour or a stance rather than a weapon bonus.
+ */
+function Highlights({ highlights }) {
+  if (!highlights) {
+    return (
+      <div className="card p-6 text-sm text-gray-600 dark:text-gray-300">
+        Highlights appear once attack logs have been archived and read — usually within a minute or two of an attack.
+      </div>
+    )
+  }
+  const h = highlights
+  const effectNames = Object.keys(h.effect_totals).sort((a, b) => h.effect_totals[b] - h.effect_totals[a])
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
+        <Stat label="Logs read">{fmt(h.logs_parsed)}</Stat>
+        <Stat label="Money mugged">${fmt(h.total_mugged)}</Stat>
+        <Stat label="Damage dealt">{fmt(h.total_damage)}</Stat>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Ranked title="Highest mugs" rows={h.highest_mugs.map((m, i) => ({ ...m, id: `${m.id}-${i}` }))} unit=""
+          render={(m) => `$${fmt(m.amount)}${m.target ? ` from ${m.target}` : ''}`} />
+        <Ranked title="Biggest hits" rows={h.biggest_hits.map((m, i) => ({ ...m, id: `${m.id}-${i}` }))} unit=""
+          render={(m) => `${fmt(m.damage)}${m.opponent ? ` on ${m.opponent}` : ''}`} />
+        <Ranked title="Most effects" rows={h.most_effects} unit="" render={(m) => fmt(m.total)} />
+        <div className="card p-4">
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Effects seen</h4>
+          {effectNames.length === 0
+            ? <p className="text-sm text-gray-500 dark:text-gray-400">None yet.</p>
+            : (
+              <ul className="flex flex-wrap gap-2 text-sm">
+                {effectNames.map((e) => (
+                  <li key={e} className="px-2 py-0.5 rounded bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-gray-200">
+                    {effectLabel(e)} <span className="tabular-nums text-gray-500 dark:text-gray-400">{fmt(h.effect_totals[e])}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+        </div>
+      </div>
+      {h.effects_by_day.length > 0 && (
+        <div className="card overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className={TH}>
+                <th className="px-3 py-1.5">Day</th>
+                {effectNames.map((e) => <th key={e} className="px-3 py-1.5">{effectLabel(e)}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {h.effects_by_day.map((d) => (
+                <tr key={d.day} className="border-t border-gray-100 dark:border-slate-700">
+                  <td className="px-3 py-1.5 whitespace-nowrap">{formatTct(d.starts_at).replace(/ \d\d:\d\d TCT$/, '')}</td>
+                  {effectNames.map((e) => <td key={e} className={TD}>{fmt(d.effects[e] ?? 0)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-xs text-gray-500 dark:text-gray-400">
+        From the archived attack logs. Effects are named as Torn names them on the log line; a few may be armour or stance effects rather than weapon bonuses.
       </p>
     </div>
   )
