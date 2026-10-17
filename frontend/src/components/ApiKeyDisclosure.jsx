@@ -42,7 +42,11 @@ export const ROWS = [
   //
   // ⚠️ "Torn deletes these logs" is load-bearing: it is WHY they are read
   // during the event rather than afterwards, and members deserve the reason.
-  ['Attack Logs', 'During faction events (starting with Halloween), your key \u2014 as part of the rotating pool described above \u2014 is used to read the detailed log of your faction\u2019s attacks: both those made by members and those made against them. A log records each hit\u2019s damage, any money mugged, weapon effects that triggered, and items gained during the attack, such as event treats. These cover your whole faction\u2019s attacks, not only your own, and the results are visible to your faction. Your key is used for this at most 10 times a minute, so it never crowds out your own scripts or tools. Torn deletes attack logs after a few weeks, which is why they are collected while the event is running.'],
+  //
+  // ⚠️ No call-rate figure, on purpose (MonChoon: "Lets not make any promises
+  // on the number of calls per minute"). The archive keeps a per-key cap as an
+  // internal courtesy; it is a design choice, not a commitment on this page.
+  ['Attack Logs', 'During faction events (starting with Halloween), your key \u2014 as part of the rotating pool described above \u2014 is used to read the detailed log of your faction\u2019s attacks: both those made by members and those made against them. A log records each hit\u2019s damage, any money mugged, weapon effects that triggered, and items gained during the attack, such as event treats. These cover your whole faction\u2019s attacks, not only your own, and the results are visible to your faction. Torn deletes attack logs after a few weeks, which is why they are collected while the event is running.'],
   ['Torn API Calls', 'GET /v2/key/info · GET /v2/user (basic, profile, personalstats, organizedcrimes, bars, cooldowns, battlestats) · GET /v2/user/calendar (opt-in only) · GET /v2/faction (crimes, members, contributors, chain, chainreport, attacks, revives, rankedwars + report, basic) · GET /v2/torn/attacklog (during faction events)'],
   ['Access Level', 'Limited Access'],
 ]
