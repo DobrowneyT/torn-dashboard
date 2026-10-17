@@ -1533,6 +1533,8 @@ CREATE TABLE IF NOT EXISTS public.event_attack_log_parsed (
   member_id      bigint,
   outgoing       boolean NOT NULL,
   mug_amount     bigint,
+  -- Parser v3 (0082): a bounty claimed on the hospitalize, if any.
+  bounty_amount  bigint,
   respect        numeric(10,2),
   damage_dealt   integer,
   damage_taken   integer,

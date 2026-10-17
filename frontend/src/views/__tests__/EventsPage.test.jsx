@@ -104,9 +104,17 @@ describe('EventsPage', () => {
     expect(screen.getByText('Live')).toBeTruthy()
   })
 
-  it('keeps Settings from members', () => {
+  it('⚠️ keeps Settings from members — no tab, and the URL does not open it', () => {
     page(EVENT, '/events/settings')
     expect(screen.queryByText('Settings')).toBeNull()
+    expect(screen.queryByText(/Edit Halloween/)).toBeNull()
+    expect(screen.queryByText('Chain report collection')).toBeNull()
+  })
+
+  it('shows Settings to leadership (admins are leadership in App.jsx)', () => {
+    page(EVENT, '/events/settings', true)
+    expect(screen.getByText('Settings')).toBeTruthy()
+    expect(screen.getByText(/Edit Halloween/)).toBeTruthy()
   })
 
   it('⚠️ leadership schedules with times read as TCT, not local time', async () => {
