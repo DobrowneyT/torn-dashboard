@@ -109,7 +109,40 @@ describe('parseAttackLog', () => {
   })
 
   it('has a version, so a changed parser re-runs over the archive', () => {
-    expect(PARSER_VERSION).toBeGreaterThan(0)
+    expect(PARSER_VERSION).toBe(2)
+  })
+})
+
+describe('v2 — from ~2,000 real forge logs', () => {
+  it('⚠️ drops outcomes, loot, boosters, stances and recoil — none is an effect', () => {
+    const p = parseAttackLog(body([
+      line('lost', 'attack-lose', 'Ann lost to Bob', A, D),
+      line('stalemate', 'stalemate', 'Ann stalemated with Bob', A, D),
+      line('loot', 'loot', 'Ann looted 2x Concussion Grenade from Bob', A, D),
+      line('hit', 'booster-use', 'Ann injected a syringe of Melatonin into her arm', A, D),
+      line('onItemUseEff', 'smash-wait', 'Ann lifts  his Sledgehammer off the ground', A, D),
+      line('onItemUseEff', 'windup', 'Ann wound up her Naval Cutlass lifting it above her head', A, D),
+      line('hit', 'hazadous', "The Nock Gun's recoil damages Ann for 40", A, D),
+    ]), atk)
+    expect(p.effects).toEqual([])
+  })
+
+  it('⚠️ counts a burn once, not on every multi-word tick', () => {
+    const p = parseAttackLog(body([
+      line('hit', 'severe-burning', 'Bob is set ablaze', A, D),
+      line('hit', 'severe-burning', 'Molotov Cocktail scorches Bob for 807', A, D),
+      line('hit', 'severe-burning', 'Severe burning damaged Bob for 80', A, D),
+    ]), atk)
+    expect(p.effects.map((e) => e.effect)).toEqual(['severe-burning'])
+  })
+
+  it('⚠️ credits a parry and No Touching to the defender, as the text shows', () => {
+    const p = parseAttackLog(body([
+      line('hit', 'parry', 'Ann hit Bob with his Diamond Bladed Knife but it was parried', A, D),
+      line('missed', 'notouching', 'Ann missed Bob with his Yasukuni Sword', A, D),
+      line('hit', 'riot', 'Ann smashed Bob with his Sledgehammer in the Chest for 300', A, D),
+    ]), atk)
+    expect(p.effects.map((e) => [e.effect, e.actor_id])).toEqual([['parry', D], ['notouching', D], ['riot', A]])
   })
 })
 

@@ -18,6 +18,21 @@ surface it automatically.
 
 ---
 
+## [3.228.1] - 2026-10-17
+
+### Fixed
+- **Leadership can find the Events page before an event exists.** The Events tab is now always shown to leadership ("Events" when nothing is scheduled) and opens on Settings, where an event is created. Before, it only appeared once an event existed, so creating the first one meant typing the URL. Members still see it only while an event is upcoming or live.
+- **The attack-log parser no longer counts non-effects as procs (parser v2).** Checked against ~2,000 real forge logs on staging:
+  - **Dropped:** losses, stalemates, loot, boosters, sledgehammer and wind-up stances, and recoil damage.
+  - **Burns and bleeds count once:** a multi-word damage-over-time tick ("Molotov Cocktail scorches X for 807") is no longer counted as a new proc each tick.
+  - **Credited to the defender:** a parry and No Touching, as the log text shows.
+  - The whole archive is re-read automatically.
+- **Attacks between two of our own members no longer count as incoming.** They are stored as incoming, which put our own members into "Who hit us most" and inflated "Attacked" on Targets and "Hit by others" on Daily.
+- **The report on a phone**, checked at 390 px against real staging data:
+  - **Members, Daily and Targets:** the name column stays put while the figures scroll sideways, and rows no longer change height when a figure wraps.
+  - **Report views:** they sit on one row that scrolls sideways, instead of wrapping.
+  - **Totals:** packed three to a row, with Respect across the top; "Best hit" is now "Best respect", which is what it is.
+
 ## [3.228.0] - 2026-10-17
 
 ### Added

@@ -19,8 +19,12 @@
 //
 // Bump PARSER_VERSION whenever the output changes: the archiver re-parses
 // every log stored under an older version (#975 will).
+//
+// v2 (2026-10-17, from ~2,000 real forge logs on staging): drops icons that
+// are outcomes or actions rather than effects, credits the two effects the
+// TEXT proves are the defender's, and recognises every tick wording.
 
-export const PARSER_VERSION = 1
+export const PARSER_VERSION = 2
 
 /** Icons on ordinary lines. Anything else on a line is a proc or an effect. */
 export const PLAIN_ICONS = new Set([
@@ -30,10 +34,36 @@ export const PLAIN_ICONS = new Set([
   'attacking-events-ziro-damage', 'attacking-events-attack-win', 'attacking-events-standart-damage',
 ])
 
+/**
+ * Icons that are not effects at all — an outcome, a loot, a booster, a stance,
+ * or a weapon hurting its own user. Evidence, from real lines:
+ * `attack-lose` "X lost to Y", `stalemate` "X stalemated with Y", `loot`
+ * "X looted 2x Grenade from Y", `booster-use` "X injected a syringe of…",
+ * `smash-wait` "X lifts his Sledgehammer off the ground", `windup` "X wound up
+ * his Kodachi", `hazadous` "The Nock Gun's recoil damages X", `ziro-damage`
+ * zero-damage hits and ineffective sprays.
+ */
+export const NOT_EFFECTS = new Set([
+  'attack-lose', 'stalemate', 'loot', 'booster-use', 'smash-wait', 'windup', 'hazadous', 'ziro-damage',
+])
+
+/**
+ * Effects the line's TEXT shows belong to the defender, though Torn writes
+ * them on the attacker's line: `parry` "X hit Y … but it was parried", and
+ * `notouching`, which only ever appears on the attacker's MISSES. ⚠️ Only what
+ * the text proves — other armour-looking names (riot, dune, eod) are left with
+ * the line's actor rather than guessed at.
+ */
+export const DEFENDER_EFFECTS = new Set(['parry', 'notouching'])
+
 const ICON_PREFIX = 'attacking-events-'
 const HIT_ACTIONS = new Set(['hit', 'critical hit', 'won', 'specialTemp'])
-/** "Bleeding damaged X for 106" — a damage-over-time tick. */
-const TICK = /^\S+ damaged .+ for [\d,]+$/
+/**
+ * A damage-over-time tick, in every wording seen: "Bleeding damaged X for 106",
+ * "Severe burning damaged X for 80", "Molotov Cocktail scorches X for 807".
+ * ⚠️ v1 matched a one-word name only, so multi-word ticks counted as procs.
+ */
+const TICK = /\b(damaged|scorches) .+ for [\d,]+$/
 /** "… for 1251" at the end of a hit line. */
 const DAMAGE = /\bfor ([\d,]+)$/
 /** "X mugged Y for $1,791,890 (+2.90)" */
@@ -113,8 +143,12 @@ export function parseAttackLog(raw: any, atk: AttackIdentity): ParsedLog {
       if (d) out.hit_damages.push(toInt(d[1]))
     }
 
-    if (icon.startsWith(ICON_PREFIX) && !PLAIN_ICONS.has(icon) && !tick) {
-      out.effects.push({ seq, actor_id: actor, effect: icon.slice(ICON_PREFIX.length), text })
+    const effect = icon.startsWith(ICON_PREFIX) ? icon.slice(ICON_PREFIX.length) : ''
+    if (effect && !PLAIN_ICONS.has(icon) && !NOT_EFFECTS.has(effect) && !tick) {
+      const owner = DEFENDER_EFFECTS.has(effect)
+        ? (line?.defender?.id != null ? Number(line.defender.id) : null)
+        : actor
+      out.effects.push({ seq, actor_id: owner, effect, text })
     }
   })
 

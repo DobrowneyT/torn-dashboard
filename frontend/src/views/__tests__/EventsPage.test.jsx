@@ -45,9 +45,15 @@ describe('Navigation event tab', () => {
     expect(screen.getAllByText('Halloween').length).toBeGreaterThan(0)
   })
 
-  it('hides it with no event', () => {
+  it('hides it from members with no event', () => {
     nav(null)
     expect(screen.queryByText('Halloween')).toBeNull()
+    expect(screen.queryByText('Events')).toBeNull()
+  })
+
+  it('⚠️ always shows leadership an Events tab, so they can create one', () => {
+    render(<MemoryRouter><Navigation isLeadership event={null} /></MemoryRouter>)
+    expect(screen.getAllByText('Events')[0].closest('a').getAttribute('href')).toBe('/events')
   })
 
   it('⚠️ the Dashboard tab points at /dashboard, not `/`', () => {
@@ -85,6 +91,11 @@ describe('EventsPage', () => {
   it('⚠️ still serves Chain Watch with no event — sign-ups open before it starts', () => {
     page(null)
     expect(screen.getByText('chain-watch-section')).toBeTruthy()
+  })
+
+  it('opens Settings for leadership when nothing is scheduled', () => {
+    page(null, '/events', true)
+    expect(screen.getByText('Schedule an event')).toBeTruthy()
   })
 
   it('shows the event header in TCT', () => {
