@@ -18,6 +18,18 @@ surface it automatically.
 
 ---
 
+## [3.222.1] - 2026-10-17
+
+### Changed
+- **The Attack Logs disclosure no longer promises a call rate** (#968). MonChoon: *"Lets not
+  make any promises on the number of calls per minute."* The sentence *"Your key is used for
+  this at most 10 times a minute"* is gone; the attack-log archive keeps a per-key cap as an
+  internal courtesy, not a commitment on the page.
+  ⚠️ **A new version, `attack-logs-v2`, rather than editing v1's fingerprint** — any change
+  to this page re-prompts, removing a constraint included. It cost little: three members had
+  accepted v1 when this landed. Still not gated. A test now fails if a call-rate figure
+  reappears in the row.
+
 ## [3.222.0] - 2026-10-17
 
 ### Added

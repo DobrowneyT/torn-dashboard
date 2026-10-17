@@ -141,14 +141,16 @@ describe('consentIsCurrent', () => {
 // re-prompted and gated would silently drop the keys the event needs; one that
 // gated without re-prompting would be worse still.
 describe('attack-logs-v1 (#968)', () => {
-  it('is the current version', () => {
-    expect(CURRENT_DISCLOSURE_VERSION).toBe('attack-logs-v1')
+  it('is superseded by attack-logs-v2, which dropped the call-rate promise', () => {
+    expect(CURRENT_DISCLOSURE_VERSION).toBe('attack-logs-v2')
   })
 
-  it('⚠️ re-prompts a member who accepted the previous version', () => {
-    // The page changed, so the terms a member agreed to no longer match it.
+  it('⚠️ re-prompts a member who accepted any earlier version', () => {
+    // The page changed — including REMOVING a sentence — so the terms a
+    // member agreed to no longer match it.
     expect(consentIsCurrent('target-lookup-v1')).toBe(false)
-    expect(consentIsCurrent('attack-logs-v1')).toBe(true)
+    expect(consentIsCurrent('attack-logs-v1')).toBe(false)
+    expect(consentIsCurrent('attack-logs-v2')).toBe(true)
   })
 
   it('⚠️ is NOT a purpose gate — no key is skipped for attack logs', () => {
@@ -156,7 +158,8 @@ describe('attack-logs-v1 (#968)', () => {
     // the archive short of keys during the busiest event of the year, while
     // the re-prompts trickle in.
     expect(Object.values(PURPOSE_VERSIONS)).not.toContain('attack-logs-v1')
-    for (const accepted of ['login-v1', 'target-lookup-v1', 'attack-logs-v1']) {
+    expect(Object.values(PURPOSE_VERSIONS)).not.toContain('attack-logs-v2')
+    for (const accepted of ['login-v1', 'target-lookup-v1', 'attack-logs-v1', 'attack-logs-v2']) {
       expect(consentCovers(accepted, 'attack-logs')).toBe(true)
       expect(consentCovers(accepted)).toBe(true)
     }
@@ -168,4 +171,13 @@ describe('attack-logs-v1 (#968)', () => {
     // Newer still covers it — rank, not equality.
     expect(consentCovers('attack-logs-v1', 'target-lookup')).toBe(true)
   })
+})
+
+it('⚠️ the disclosure makes no call-rate promise (#968)', async () => {
+  // MonChoon: "Lets not make any promises on the number of calls per minute".
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../../frontend/src/components/ApiKeyDisclosure.jsx', import.meta.url), 'utf8')
+  const attackRow = src.split('\n').find((l) => l.includes("['Attack Logs'")) ?? ''
+  expect(attackRow).not.toBe('')
+  expect(attackRow).not.toMatch(/per minute|a minute|times a minute/i)
 })

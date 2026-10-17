@@ -72,6 +72,23 @@ export const DISCLOSURE_VERSIONS = [
       'at most 10 calls a minute from any one key.',
     rowsHash: 'b1f9757ee04bd0b4',
   },
+  {
+    // #968 follow-up. Removes the "at most 10 times a minute" sentence from
+    // the Attack Logs row — MonChoon: "Lets not make any promises on the number
+    // of calls per minute". The archive's per-key cap stays as an internal
+    // courtesy, not a commitment on the page.
+    //
+    // ⚠️ A NEW version rather than editing v1's hash, because the rule is that
+    // any change to this page re-prompts — and that includes removing a
+    // constraint members were shown. It cost little: three members had
+    // accepted v1 when this landed (2 forge, 1 tnl); everyone else sees only
+    // this wording. Still not in PURPOSE_VERSIONS — nothing is gated.
+    id: 'attack-logs-v2',
+    summary:
+      'Everything in target-lookup-v1, plus reading the faction\u2019s attack ' +
+      'logs during events (damage, mug amounts, weapon effects, items gained).',
+    rowsHash: '8c06bd9e55095fce',
+  },
 ] as const
 
 export type DisclosureVersion = (typeof DISCLOSURE_VERSIONS)[number]['id']
