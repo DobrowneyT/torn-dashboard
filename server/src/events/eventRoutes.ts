@@ -14,7 +14,7 @@ import {
   eventPhase, eventEndedAt, TORN_CHAIN_MAX, type EventPhase, type EventTimes,
 } from './eventLifecycle.js'
 import { chainReportEnded } from './eventChainReport.js'
-import { chainSection, dailySection, targetsSection, nameBook } from './eventReport.js'
+import { chainSection, dailySection, targetsSection, nameBook, reportVersion } from './eventReport.js'
 
 const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
 const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? null
@@ -124,6 +124,9 @@ export async function currentEvent(db: pg.Pool, now = Date.now()) {
   return live ?? upcoming
 }
 
+/** How long one answer to "has the report changed?" is reused (#972). */
+export const VERSION_TTL_MS = 3_000
+
 const HEX = /^#[0-9a-fA-F]{6}$/
 
 /** A timestamp from the client: epoch ms or an ISO string. */
@@ -232,6 +235,28 @@ export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
       daily: Number.isFinite(us) ? await dailySection(db, us, Number(r.daily_ms), until, names) : [],
       targets: Number.isFinite(us) ? await targetsSection(db, us, t.starts_at, until, names) : null,
     }
+  })
+
+  // #972 — "has the report changed?", asked by every open report page every
+  // few seconds. ⚠️ Memoised per event for VERSION_TTL_MS, so a hundred open
+  // tabs cost one query rather than a hundred. Deliberately its own pull
+  // endpoint rather than the War Room's push hub, which this shares nothing
+  // with (see chainSample.ts).
+  const versions = new Map<number, { at: number; version: string }>()
+  app.get('/api/events/:id/report/version', { preHandler: requireAuth() }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isInteger(id) || id <= 0) return reply.status(400).send({ error: 'Invalid event id' })
+    const now = Date.now()
+    const hit = versions.get(id)
+    if (hit && now - hit.at < VERSION_TTL_MS) return { version: hit.version }
+    const ev = await db.query(`${SELECT_EVENT} WHERE e.id = $1`, [id])
+    const r = ev.rows[0]
+    if (!r) return reply.status(404).send({ error: 'No such event' })
+    const t = times(r)
+    const us = Number((await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')).rows[0]?.torn_faction_id)
+    const version = await reportVersion(db, id, us, t.starts_at, Math.min(now, t.ended_at ?? now))
+    versions.set(id, { at: now, version })
+    return { version }
   })
 
   // #970 — the chain-report poller's health. ⚠️ `changes / polls` IS the

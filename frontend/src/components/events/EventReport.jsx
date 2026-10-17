@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet } from '../../utils/apiClient'
 import SortableTh, { useTableSort } from '../SortableTh'
 import { formatTct } from '../../utils/factionEvent'
@@ -14,7 +14,12 @@ import { formatTct } from '../../utils/factionEvent'
  * ⚠️ Respect is always shown both ways: raw, and capped at 10 per bonus hit
  * with the deduction named — the war report's rule.
  */
-const REFRESH_MS = 30_000
+/**
+ * How often an open page asks "has anything changed?" (#972). Cheap — the
+ * server answers from a few-second cache — and the full report is fetched only
+ * when the answer moves.
+ */
+export const VERSION_POLL_MS = 5_000
 const VIEWS = [
   { id: 'totals', label: 'Totals' },
   { id: 'members', label: 'Members' },
@@ -32,6 +37,7 @@ export default function EventReport({ event }) {
   const [view, setView] = useState('totals')
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
+  const seen = useRef(null)
 
   const load = useCallback(async () => {
     try {
@@ -43,11 +49,29 @@ export default function EventReport({ event }) {
     }
   }, [event.id])
 
+  // #972 — live updates. Refetch the report only when what it is built from
+  // has changed: a new attack id or a different chain report. ⚠️ Skipped while
+  // the tab is hidden, and caught up the moment it is shown again.
   useEffect(() => {
-    load()
-    const t = setInterval(load, REFRESH_MS)
-    return () => clearInterval(t)
-  }, [load])
+    let alive = true
+    seen.current = null
+    const check = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      try {
+        const { version } = await apiGet(`/api/events/${event.id}/report/version`)
+        if (!alive || version === seen.current) return
+        seen.current = version
+        await load()
+      } catch {
+        // The next check retries; the report on screen stays.
+      }
+    }
+    check()
+    const t = setInterval(check, VERSION_POLL_MS)
+    const onShow = () => { if (document.visibilityState === 'visible') check() }
+    document.addEventListener('visibilitychange', onShow)
+    return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', onShow) }
+  }, [event.id, load])
 
   const color = event.theme_color
   return (

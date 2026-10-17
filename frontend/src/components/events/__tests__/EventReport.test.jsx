@@ -2,12 +2,12 @@
 //
 // The event Report tab (#971).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
 
 const api = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('../../../utils/apiClient', () => ({ apiGet: (...a) => api.get(...a) }))
 
-import EventReport, { Respect } from '../EventReport'
+import EventReport, { Respect, VERSION_POLL_MS } from '../EventReport'
 
 const EVENT = { id: 1, name: 'Halloween', theme_color: '#f97316', phase: 'live',
   starts_at: Date.UTC(2026, 9, 25, 10), daily_from: Date.UTC(2026, 9, 26) }
@@ -42,7 +42,13 @@ const REPORT = {
   },
 }
 
-beforeEach(() => { api.get.mockReset(); api.get.mockResolvedValue(REPORT) })
+let version
+beforeEach(() => {
+  version = 'v1'
+  api.get.mockReset()
+  api.get.mockImplementation(async (path) => (path.endsWith('/version') ? { version } : REPORT))
+})
+const reportFetches = () => api.get.mock.calls.filter(([p]) => p === '/api/events/1/report').length
 afterEach(cleanup)
 
 describe('Respect', () => {
@@ -93,8 +99,26 @@ describe('EventReport', () => {
   })
 
   it('explains an empty report before the chain starts', async () => {
-    api.get.mockResolvedValue({ ...REPORT, chain: null })
+    api.get.mockImplementation(async (path) => (path.endsWith('/version') ? { version } : { ...REPORT, chain: null }))
     render(<EventReport event={{ ...EVENT, phase: 'upcoming' }} />)
     expect(await screen.findByText(/starts collecting when the event opens/)).toBeTruthy()
+  })
+})
+
+describe('live updates (#972)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('refetches the report when the version moves, and only then', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    render(<EventReport event={EVENT} />)
+    await screen.findByText('1,200')
+    expect(reportFetches()).toBe(1)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(VERSION_POLL_MS) })
+    expect(reportFetches()).toBe(1)
+
+    version = 'v2'
+    await act(async () => { await vi.advanceTimersByTimeAsync(VERSION_POLL_MS) })
+    expect(reportFetches()).toBe(2)
   })
 })

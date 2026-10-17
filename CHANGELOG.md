@@ -18,6 +18,14 @@ surface it automatically.
 
 ---
 
+## [3.226.0] - 2026-10-17
+
+### Added
+- **The event report updates live (#972).** An open Report page checks every 5 seconds whether anything it is built from has changed, and refetches only then: a new attack, a backfilled one, or a chain report that actually differs. Attacks-sync re-reading its newest attack, or an identical chain-report poll, changes nothing. The page stops checking while its tab is hidden and catches up when it is shown again.
+
+### Notes
+- The server caches the "has it changed?" answer for 3 seconds per event, so many open tabs cost one query. It is a separate endpoint and shares nothing with the War Room's push hub; a test now fails if events code imports anything from the War Room.
+
 ## [3.225.0] - 2026-10-17
 
 ### Added

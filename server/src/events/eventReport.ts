@@ -232,3 +232,29 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
     })),
   }
 }
+
+/**
+ * What the report was built from, as one string (#972). The page asks for this
+ * every few seconds and refetches the whole report only when it changes.
+ *
+ * ⚠️ **New attack ids, never `rows_written`.** Forge's attacks-sync reports
+ * `rows_written = 1` every two minutes with nothing new, because its cursor
+ * re-reads the newest attack on purpose. The count catches an outage backfill
+ * landing BELOW the newest id; the max catches the ordinary new attack.
+ *
+ * ⚠️ The chain report part is the poller's `content_hash`, which only moves
+ * when the report itself differs — an identical poll changes nothing here.
+ */
+export async function reportVersion(db: pg.Pool, eventId: number, us: number, fromMs: number, toMs: number) {
+  const from = Math.floor(fromMs / 1000)
+  const to = Math.ceil(toMs / 1000)
+  const [rep, atk] = await Promise.all([
+    db.query('SELECT content_hash FROM event_chain_report_latest WHERE event_id = $1', [eventId]),
+    db.query(
+      `SELECT count(*) AS n, max(attack_id) AS top FROM faction_attacks
+        WHERE started >= $1 AND started < $2
+          AND (attacker_faction_id = $3 OR defender_faction_id = $3)`,
+      [from, to, us]),
+  ])
+  return `${rep.rows[0]?.content_hash ?? '-'}:${atk.rows[0]?.n ?? 0}:${atk.rows[0]?.top ?? 0}`
+}
