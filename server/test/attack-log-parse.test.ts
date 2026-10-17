@@ -108,7 +108,7 @@ describe('highlightsSection', () => {
     expect(h.most_effects).toEqual([{ id: 1, name: 'Ann', total: 1, effects: { powerful: 1 } }])
     expect(h.effects_by_day).toEqual([{ day: '2026-10-26', starts_at: DAILY, effects: { powerful: 1 } }])
     expect(h.total_mugged).toBe(29000)
-    expect(h.bounties).toEqual({ claimed: 0, total: 0, top: [] })
+    expect(h.bounties).toEqual({ claimed: 0, total: 0, by_member: [], top: [] })
   })
 
   it('lists bounties our members claimed, not ones claimed on us', async () => {
@@ -116,6 +116,20 @@ describe('highlightsSection', () => {
     await archived({ from: 999, to: 2, incoming: true, log: [line('hosp', 'hospitalize', 'Z hospitalized Cal and claimed a $9,000,000 bounty', 999, 2)] })
     await parsePendingLogs(stack.db, US)
     const h = (await highlights())!
-    expect(h.bounties).toEqual({ claimed: 1, total: 444444, top: [expect.objectContaining({ name: 'Ann', amount: 444444, target: 'p50' })] })
+    expect(h.bounties).toEqual({ claimed: 1, total: 444444,
+      by_member: [{ id: 1, name: 'Ann', claims: 1, total: 444444 }],
+      top: [expect.objectContaining({ name: 'Ann', amount: 444444, target: 'p50' })] })
+  })
+
+  it('ranks most earned from bounties per member, by total value', async () => {
+    for (const amt of ['10', '20']) {
+      await archived({ from: 1, to: 50, log: [line('hosp', 'hospitalize', `Ann hospitalized X and claimed a $${amt} bounty`, 1, 50)] })
+    }
+    await archived({ from: 2, to: 51, log: [line('hosp', 'hospitalize', 'Cal hospitalized Y and claimed a $25 bounty', 2, 51)] })
+    await parsePendingLogs(stack.db, US)
+    const h = (await highlights())!
+    expect(h.bounties.by_member).toEqual([
+      { id: 1, name: 'Ann', claims: 2, total: 30 }, { id: 2, name: 'Cal', claims: 1, total: 25 }])
+    expect(h.bounties.top[0]).toMatchObject({ name: 'Cal', amount: 25 })
   })
 })

@@ -24,13 +24,18 @@ const get = async (path: string) => {
 }
 
 let seq = 1
-function attack(o: { at: number; from: number; to: number; result: string; incoming?: boolean; respect?: number; fromName?: string }) {
+function attack(o: { at: number; from: number | null; to: number; result: string; incoming?: boolean; respect?: number;
+  fromName?: string; theirFaction?: number | null; theirFactionName?: string; loss?: number; stealthed?: boolean }) {
+  const theirs = o.theirFaction === undefined ? (o.incoming ? 999 : 777) : o.theirFaction
+  const theirName = o.theirFactionName ?? (theirs == null ? null : `F${theirs}`)
   return stack.db.query(
-    `INSERT INTO faction_attacks (attack_id, started, attacker_id, attacker_name, attacker_faction_id,
-       defender_id, defender_name, defender_faction_id, result, respect_gain, is_incoming)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-    [seq++, Math.floor(o.at / 1000), o.from, o.fromName ?? `p${o.from}`, o.incoming ? 999 : US,
-      o.to, `p${o.to}`, o.incoming ? US : 777, o.result, o.respect ?? 0, !!o.incoming])
+    `INSERT INTO faction_attacks (attack_id, started, attacker_id, attacker_name, attacker_faction_id, attacker_faction_name,
+       defender_id, defender_name, defender_faction_id, defender_faction_name, result, respect_gain, respect_loss,
+       is_incoming, is_stealthed)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+    [seq++, Math.floor(o.at / 1000), o.from, o.fromName ?? `p${o.from}`, o.incoming ? theirs : US,
+      o.incoming ? theirName : 'Us', o.to, `p${o.to}`, o.incoming ? US : theirs, o.incoming ? 'Us' : theirName,
+      o.result, o.respect ?? 0, o.loss ?? 0, !!o.incoming, !!o.stealthed])
 }
 
 async function event() {
@@ -118,6 +123,42 @@ describe('targets', () => {
     expect(body.targets.top_attackers_on_us[0]).toMatchObject({ id: 999, hits: 3, on_members: 1 })
   })
 
+  it('counts retaliations per member per day (Torn\'s 1.5× retaliation modifier)', async () => {
+    const id = await event()
+    await attack({ at: DAILY + 1000, from: 1, to: 50, result: 'Attacked' })
+    await stack.db.query(`UPDATE faction_attacks SET retaliation_modifier = 1.5 WHERE attack_id = (SELECT max(attack_id) FROM faction_attacks)`)
+    await attack({ at: DAILY + 2000, from: 1, to: 51, result: 'Attacked' })
+    const { body } = await get(`/api/events/${id}/report`)
+    expect(body.daily[0].totals.retaliations).toBe(1)
+    expect(body.daily[0].members.find((m: any) => m.id === 1)).toMatchObject({ hits: 2, retaliations: 1 })
+  })
+
+  it('#987 — ranks the factions we hit, with wins and respect gained', async () => {
+    const id = await event()
+    await attack({ at: START + 1000, from: 1, to: 50, result: 'Mugged', respect: 3, theirFaction: 700, theirFactionName: 'Alpha' })
+    await attack({ at: START + 2000, from: 2, to: 51, result: 'Attacked', respect: 4, theirFaction: 700, theirFactionName: 'Alpha' })
+    await attack({ at: START + 3000, from: 1, to: 52, result: 'Lost', theirFaction: 700, theirFactionName: 'Alpha' })
+    await attack({ at: START + 4000, from: 1, to: 60, result: 'Attacked', respect: 2, theirFaction: null })
+    const { body } = await get(`/api/events/${id}/report`)
+    expect(body.targets.factions_we_hit).toEqual([
+      { id: 700, name: 'Alpha', attacks: 3, wins: 2, members: 2, respect_gained: 7 },
+      { id: null, name: 'No faction', attacks: 1, wins: 1, members: 1, respect_gained: 2 },
+    ])
+  })
+
+  it('#987 — ranks who hit us, with beaten, defended and respect lost; ⚠️ factionless and stealthed kept apart', async () => {
+    const id = await event()
+    await attack({ at: START + 1000, from: 900, to: 1, result: 'Attacked', incoming: true, loss: 1.5, theirFaction: 800, theirFactionName: 'Beta' })
+    await attack({ at: START + 2000, from: 901, to: 2, result: 'Lost', incoming: true, theirFaction: 800, theirFactionName: 'Beta' })
+    await attack({ at: START + 3000, from: 902, to: 1, result: 'Attacked', incoming: true, loss: 1, theirFaction: null })
+    await attack({ at: START + 4000, from: null, to: 1, result: 'Mugged', incoming: true, loss: 2, theirFaction: null, stealthed: true })
+    const { body } = await get(`/api/events/${id}/report`)
+    const rows = body.targets.factions_hit_us
+    expect(rows[0]).toEqual({ id: 800, kind: 'faction', name: 'Beta', attacks: 2, beaten: 1, defended: 1, members: 2, respect_lost: 1.5 })
+    expect(rows.map((r: any) => r.name).sort()).toEqual(['Beta', 'No faction', 'Stealthed'])
+    expect(rows.find((r: any) => r.kind === 'stealthed').respect_lost).toBe(2)
+  })
+
   it('⚠️ an attack between two of our own members is not incoming', async () => {
     const id = await event()
     await stack.db.query(
@@ -128,6 +169,7 @@ describe('targets', () => {
     const { body } = await get(`/api/events/${id}/report`)
     expect(body.targets.top_attackers_on_us).toEqual([])
     expect(body.targets.most_targeted).toEqual([])
+    expect(body.targets.factions_hit_us).toEqual([])
   })
 
   it('ignores attacks outside the event window', async () => {

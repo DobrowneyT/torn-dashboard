@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.230.0] - 2026-10-17
+
+### Added
+- **Factions on Targets (#987):**
+  - **Factions we hit most:** attacks, wins, members of ours involved, and respect gained.
+  - **Factions that hit us most:** attacks, how many beat us, how many we defended, members of ours hit, and respect lost.
+  - **Edge cases:** factionless players and stealthed attackers are rows of their own, never dropped. A stealthed attack hides the faction too, so it is never lumped in with "No faction". Attacks between our own members are excluded.
+- **Most earned from bounties** on Highlights: per member, by total value, with the number of claims, beside the highest single claims (now titled "Highest bounties claimed").
+- **Retaliations on Daily**, per member and per day, counted from Torn's 1.5× retaliation modifier on synced attacks. They were already in Totals and Members, from Torn's chain report.
+
 ## [3.229.0] - 2026-10-17
 
 ### Added
