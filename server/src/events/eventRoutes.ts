@@ -13,6 +13,7 @@ import { requireAuth, requireRole } from '../authz.js'
 import {
   eventPhase, eventEndedAt, TORN_CHAIN_MAX, type EventPhase, type EventTimes,
 } from './eventLifecycle.js'
+import { chainReportEnded } from './eventChainReport.js'
 
 const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
 const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? null
@@ -37,13 +38,33 @@ const times = (r: any): EventTimes => ({
 /**
  * When the chain this event waits on was over, at or after the minimum end.
  *
- * ⚠️ A lead marking the Chain Watch event ended wins, the same precedence Chain
- * Watch's payout uses. Otherwise it is the FIRST sample showing the chain dead —
- * from the append-only history, so the answer does not depend on when anybody
- * opened the page. ⚠️ Samples with no reading are not deaths.
+ * Precedence, most trusted first:
+ *   1. A lead marking the Chain Watch event ended — the same precedence Chain
+ *      Watch's payout uses.
+ *   2. The live chain report's own `end` (#970), once polls have run a margin
+ *      past it — Torn's exact time, where the sampler below is four minutes
+ *      coarse and blind during an outage. ⚠️ Judged against the last
+ *      SUCCESSFUL poll, not the last change: a finished report stops changing,
+ *      so its `sampled_at` would never move past its end.
+ *   3. The FIRST chain sample showing the chain dead — from the append-only
+ *      history, so the answer does not depend on when anybody opened the page.
+ *      ⚠️ Samples with no reading are not deaths.
  */
 async function chainEndedAt(db: pg.Pool, r: any): Promise<number | null> {
   if (r.chain_marked_end_ms != null) return Number(r.chain_marked_end_ms)
+  const rep = await db.query(
+    `SELECT (extract(epoch from l.chain_end) * 1000)::bigint AS end_ms,
+            (extract(epoch from s.last_ok_at) * 1000)::bigint AS ok_ms
+       FROM event_chain_report_latest l
+       LEFT JOIN event_chain_report_poll_state s ON s.event_id = l.event_id
+      WHERE l.event_id = $1`,
+    [r.id],
+  )
+  const row = rep.rows[0]
+  if (row?.end_ms != null && row.ok_ms != null
+      && chainReportEnded(Number(row.end_ms), Number(row.ok_ms))) {
+    return Number(row.end_ms)
+  }
   const res = await db.query(
     `SELECT (extract(epoch from min(sampled_at)) * 1000)::bigint AS ms
        FROM chain_samples
@@ -178,6 +199,42 @@ function constraintMessage(err: any): string | null {
 export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
   app.get('/api/events/current', { preHandler: requireAuth() }, async () => {
     return { event: await currentEvent(db), server_now: Date.now() }
+  })
+
+  // #970 — the chain-report poller's health. ⚠️ `changes / polls` IS the
+  // measurement the cadence is set from: if the report changes on one poll in
+  // six, polling every 5 s is buying nothing over 30 s.
+  app.get('/api/events/:id/chain-report/status', LEAD, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isInteger(id) || id <= 0) return reply.status(400).send({ error: 'Invalid event id' })
+    const { rows } = await db.query(
+      `SELECT s.polls, s.changes, s.failures, s.consecutive_failures, s.skipped,
+              s.last_error, s.last_skip_reason,
+              (extract(epoch from s.last_ok_at)     * 1000)::bigint AS last_ok_at,
+              (extract(epoch from s.last_change_at) * 1000)::bigint AS last_change_at,
+              (extract(epoch from s.last_error_at)  * 1000)::bigint AS last_error_at,
+              l.chain_id,
+              (l.details->>'chain')::bigint AS chain,
+              (SELECT count(*) FROM event_chain_report_snapshots x WHERE x.event_id = s.event_id) AS snapshots
+         FROM event_chain_report_poll_state s
+         LEFT JOIN event_chain_report_latest l ON l.event_id = s.event_id
+        WHERE s.event_id = $1`,
+      [id],
+    )
+    const r = rows[0]
+    if (!r) return { status: null }
+    const n = (v: unknown) => (v == null ? null : Number(v))
+    const polls = Number(r.polls)
+    return {
+      status: {
+        polls, changes: Number(r.changes), failures: Number(r.failures),
+        consecutive_failures: Number(r.consecutive_failures), skipped: Number(r.skipped),
+        change_rate: polls > 0 ? Number(r.changes) / polls : null,
+        last_ok_at: n(r.last_ok_at), last_change_at: n(r.last_change_at),
+        last_error_at: n(r.last_error_at), last_error: r.last_error, last_skip_reason: r.last_skip_reason,
+        chain_id: n(r.chain_id), chain: n(r.chain), snapshots: Number(r.snapshots),
+      },
+    }
   })
 
   app.post('/api/events', LEAD, async (req, reply) => {

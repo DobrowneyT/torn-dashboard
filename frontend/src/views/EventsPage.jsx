@@ -45,7 +45,12 @@ export default function EventsPage({ event, isLeadership, onChanged }) {
         <Route path="report" element={<ReportPlaceholder event={event} />} />
         <Route path="chain-watch" element={<ChainWatchSection isLeadership={isLeadership} />} />
         {isLeadership && (
-          <Route path="settings" element={<EventSettings event={event} onChanged={onChanged} />} />
+          <Route path="settings" element={
+            <div className="space-y-6">
+              <EventSettings event={event} onChanged={onChanged} />
+              {event && <ChainReportStatus event={event} />}
+            </div>
+          } />
         )}
         <Route path="*" element={<Navigate to="/events" replace />} />
       </Routes>
@@ -234,5 +239,88 @@ export function EventSettings({ event, onChanged }) {
         )}
       </div>
     </form>
+  )
+}
+
+const POLLER_REFRESH_MS = 15_000
+
+function ago(ms) {
+  if (ms == null) return 'never'
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
+  if (s < 90) return `${s}s ago`
+  if (s < 5400) return `${Math.round(s / 60)}m ago`
+  return `${Math.round(s / 3600)}h ago`
+}
+
+/**
+ * Leadership: is the live chain report being collected? (#970)
+ *
+ * ⚠️ "Changed" against "polls" is the measurement the poll cadence is set
+ * from — if the report changes on one poll in six, faster polling buys nothing.
+ */
+export function ChainReportStatus({ event }) {
+  const [status, setStatus] = useState(undefined)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => apiGet(`/api/events/${event.id}/chain-report/status`)
+      .then((r) => { if (alive) { setStatus(r.status); setError(null) } })
+      .catch((err) => { if (alive) setError(err.message || 'Could not load the poller status.') })
+    load()
+    const t = setInterval(load, POLLER_REFRESH_MS)
+    return () => { alive = false; clearInterval(t) }
+  }, [event.id])
+
+  let body
+  if (error) body = <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
+  else if (status === undefined) body = <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+  else if (status === null) {
+    body = (
+      <p className="text-sm text-gray-600 dark:text-gray-300">
+        {event.phase === 'live'
+          ? 'No poll recorded yet — the poller checks for a live event every 30 seconds.'
+          : 'Polling starts when the event opens.'}
+      </p>
+    )
+  } else {
+    const failing = status.consecutive_failures > 0
+    const rows = [
+      ['Chain', status.chain == null ? '—' : status.chain.toLocaleString()],
+      ['Last successful poll', ago(status.last_ok_at)],
+      ['Last change', ago(status.last_change_at)],
+      ['Polls', status.polls.toLocaleString()],
+      ['Changed', status.change_rate == null ? '—'
+        : `${status.changes.toLocaleString()} (${Math.round(status.change_rate * 100)}%)`],
+      ['Failures', status.failures.toLocaleString()],
+      ['Snapshots kept', status.snapshots.toLocaleString()],
+    ]
+    body = (
+      <>
+        {failing && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            Failing — {status.consecutive_failures} in a row, backing off. Last error: {status.last_error}
+          </p>
+        )}
+        {!failing && status.last_skip_reason && status.chain == null && (
+          <p className="text-sm text-amber-700 dark:text-amber-400">{status.last_skip_reason}</p>
+        )}
+        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          {rows.map(([k, v]) => (
+            <div key={k}>
+              <dt className="text-gray-500 dark:text-gray-400">{k}</dt>
+              <dd className="font-medium text-gray-900 dark:text-white tabular-nums">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </>
+    )
+  }
+
+  return (
+    <section className="card p-6 space-y-3 max-w-2xl">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Chain report collection</h3>
+      {body}
+    </section>
   )
 }

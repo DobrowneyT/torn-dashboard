@@ -18,7 +18,7 @@ vi.mock('../../components/chainWatch/ChainWatchSection', () => ({
 }))
 vi.mock('../MembersView', () => ({ default: () => <div>members-overview</div> }))
 
-import EventsPage from '../EventsPage'
+import EventsPage, { ChainReportStatus } from '../EventsPage'
 import MembersPage from '../MembersPage'
 import Navigation from '../../components/Navigation'
 
@@ -117,5 +117,34 @@ describe('EventsPage', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalled())
     expect(api.patch.mock.calls[0][0]).toBe('/api/events/1')
     expect(api.patch.mock.calls[0][1].min_ends_at).toBe(EVENT.min_ends_at)
+  })
+})
+
+describe('ChainReportStatus (#970)', () => {
+  it('shows the measurement: polls against changes', async () => {
+    api.get.mockResolvedValue({ status: {
+      polls: 120, changes: 30, failures: 0, consecutive_failures: 0, skipped: 0, change_rate: 0.25,
+      last_ok_at: Date.now(), last_change_at: Date.now(), last_error: null, last_skip_reason: null,
+      chain_id: 9, chain: 1234, snapshots: 4,
+    } })
+    render(<ChainReportStatus event={EVENT} />)
+    expect(await screen.findByText('30 (25%)')).toBeTruthy()
+    expect(screen.getByText('1,234')).toBeTruthy()
+  })
+
+  it('⚠️ says so loudly while failing', async () => {
+    api.get.mockResolvedValue({ status: {
+      polls: 10, changes: 2, failures: 4, consecutive_failures: 4, skipped: 0, change_rate: 0.2,
+      last_ok_at: null, last_change_at: null, last_error: 'Torn unavailable: HTTP 502', last_skip_reason: null,
+      chain_id: null, chain: null, snapshots: 0,
+    } })
+    render(<ChainReportStatus event={EVENT} />)
+    expect((await screen.findByRole('alert')).textContent).toMatch(/4 in a row.*HTTP 502/)
+  })
+
+  it('explains an event with no poll yet', async () => {
+    api.get.mockResolvedValue({ status: null })
+    render(<ChainReportStatus event={{ ...EVENT, phase: 'upcoming' }} />)
+    expect(await screen.findByText(/starts when the event opens/)).toBeTruthy()
   })
 })
