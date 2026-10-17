@@ -14,6 +14,7 @@ import {
   eventPhase, eventEndedAt, TORN_CHAIN_MAX, type EventPhase, type EventTimes,
 } from './eventLifecycle.js'
 import { chainReportEnded } from './eventChainReport.js'
+import { chainSection, dailySection, targetsSection, nameBook } from './eventReport.js'
 
 const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
 const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? null
@@ -199,6 +200,38 @@ function constraintMessage(err: any): string | null {
 export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
   app.get('/api/events/current', { preHandler: requireAuth() }, async () => {
     return { event: await currentEvent(db), server_now: Date.now() }
+  })
+
+  // #971 — the Report tab. Open to every member, like the page. Served for an
+  // ENDED event too: the report outlives the event it describes.
+  app.get('/api/events/:id/report', { preHandler: requireAuth() }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isInteger(id) || id <= 0) return reply.status(400).send({ error: 'Invalid event id' })
+    const ev = await db.query(`${SELECT_EVENT} WHERE e.id = $1`, [id])
+    const r = ev.rows[0]
+    if (!r) return reply.status(404).send({ error: 'No such event' })
+    const now = Date.now()
+    const t = times(r)
+    const until = Math.min(now, t.ended_at ?? now)
+
+    const us = Number((await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')).rows[0]?.torn_faction_id)
+    const names = nameBook((await db.query('SELECT member_id AS id, member_name AS name FROM members')).rows)
+
+    const latest = (await db.query(
+      `SELECT chain_id, details, attackers, bonuses, non_attackers,
+              (extract(epoch from chain_start) * 1000)::bigint AS start_ms,
+              (extract(epoch from chain_end)   * 1000)::bigint AS end_ms,
+              (extract(epoch from sampled_at)  * 1000)::bigint AS sampled_ms
+         FROM event_chain_report_latest WHERE event_id = $1`, [id])).rows[0]
+
+    const phase = r.ended_ms != null ? 'ended' : now < t.starts_at ? 'upcoming' : 'live'
+    return {
+      event: { ...shape(r, phase as EventPhase) },
+      server_now: now,
+      chain: latest ? chainSection(latest, names) : null,
+      daily: Number.isFinite(us) ? await dailySection(db, us, Number(r.daily_ms), until, names) : [],
+      targets: Number.isFinite(us) ? await targetsSection(db, us, t.starts_at, until, names) : null,
+    }
   })
 
   // #970 — the chain-report poller's health. ⚠️ `changes / polls` IS the

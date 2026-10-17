@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
 import ChainWatchSection from '../components/chainWatch/ChainWatchSection'
+import EventReport from '../components/events/EventReport'
 import { apiGet, apiPatch, apiPost } from '../utils/apiClient'
 import { parseDbTime } from '../utils/time'
 import { formatTct, halloweenDefaults, msToTctInput, tctInputToMs } from '../utils/factionEvent'
@@ -42,7 +43,7 @@ export default function EventsPage({ event, isLeadership, onChanged }) {
       <Routes>
         {/* With no event the report has nothing to say; Chain Watch still does. */}
         <Route index element={<Navigate to={event ? '/events/report' : '/events/chain-watch'} replace />} />
-        <Route path="report" element={<ReportPlaceholder event={event} />} />
+        <Route path="report" element={event ? <EventReport event={event} /> : <NoEvent />} />
         <Route path="chain-watch" element={<ChainWatchSection isLeadership={isLeadership} />} />
         {isLeadership && (
           <Route path="settings" element={
@@ -88,14 +89,8 @@ function EventHeader({ event }) {
   )
 }
 
-function ReportPlaceholder({ event }) {
-  return (
-    <div className="card p-6 text-sm text-gray-600 dark:text-gray-300">
-      {event
-        ? 'The live chain report arrives here once the event chain is running.'
-        : 'No event is scheduled.'}
-    </div>
-  )
+function NoEvent() {
+  return <div className="card p-6 text-sm text-gray-600 dark:text-gray-300">No event is scheduled.</div>
 }
 
 const FIELD = 'w-full rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-gray-900 dark:text-white'
