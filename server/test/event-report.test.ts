@@ -118,6 +118,18 @@ describe('targets', () => {
     expect(body.targets.top_attackers_on_us[0]).toMatchObject({ id: 999, hits: 3, on_members: 1 })
   })
 
+  it('⚠️ an attack between two of our own members is not incoming', async () => {
+    const id = await event()
+    await stack.db.query(
+      `INSERT INTO faction_attacks (attack_id, started, attacker_id, attacker_name, attacker_faction_id,
+         defender_id, defender_name, defender_faction_id, result, is_incoming)
+       VALUES (9001, $1, 1, 'Alice', $2, 2, 'Bob', $2, 'Attacked', true)`,
+      [Math.floor((START + 5000) / 1000), US])
+    const { body } = await get(`/api/events/${id}/report`)
+    expect(body.targets.top_attackers_on_us).toEqual([])
+    expect(body.targets.most_targeted).toEqual([])
+  })
+
   it('ignores attacks outside the event window', async () => {
     const id = await event()
     await attack({ at: START - 1000, from: 1, to: 50, result: 'Mugged' })

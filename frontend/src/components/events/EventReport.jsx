@@ -32,7 +32,16 @@ const fmt = (n, dp = 0) => (n == null ? '—' : Number(n).toLocaleString(undefin
   minimumFractionDigits: dp, maximumFractionDigits: dp,
 }))
 const TH = 'text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400'
-const TD = 'px-3 py-1.5 tabular-nums'
+const TD = 'px-3 py-1.5 tabular-nums whitespace-nowrap'
+// ⚠️ The name column stays put while the figures scroll — on a phone the
+// Members table shows three of fifteen columns at once, and a row you have
+// scrolled right on is otherwise anonymous. The repo's frozen-column idiom
+// (WarPayoutManagement, WarHistoryView): sticky, z above the cells, and an
+// OPAQUE background so the scrolling figures pass behind it.
+const FROZEN_TH = 'sticky left-0 z-[6] bg-white dark:bg-slate-800'
+// ⚠️ Table cards drop the card's padding (`p-0 sm:p-0`): a sticky cell sticks
+// INSIDE the padding, and the figures scrolling past showed through the
+// padding strip to the left of the frozen names (seen at phone width).
 
 export default function EventReport({ event }) {
   const [view, setView] = useState('totals')
@@ -77,7 +86,9 @@ export default function EventReport({ event }) {
   const color = event.theme_color
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2" role="tablist">
+      {/* One row that scrolls sideways on a phone, rather than wrapping the
+          fifth view onto a line of its own. */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1" role="tablist">
         {VIEWS.map((v) => (
           <button
             key={v.id}
@@ -85,7 +96,7 @@ export default function EventReport({ event }) {
             role="tab"
             aria-selected={view === v.id}
             onClick={() => setView(v.id)}
-            className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+            className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0"
             style={view === v.id
               ? { backgroundColor: color, color: '#fff' }
               : { boxShadow: `inset 0 0 0 1px ${color}`, color }}
@@ -136,9 +147,9 @@ export function Respect({ raw, capped, deduction, dp = 2 }) {
 
 function Stat({ label, children }) {
   return (
-    <div className="card p-4">
-      <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</div>
-      <div className="mt-1 text-xl text-gray-900 dark:text-white tabular-nums">{children}</div>
+    <div className="card p-3 sm:p-4 min-w-0">
+      <div className="text-[11px] sm:text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 truncate">{label}</div>
+      <div className="mt-1 text-base sm:text-xl text-gray-900 dark:text-white tabular-nums">{children}</div>
     </div>
   )
 }
@@ -147,21 +158,25 @@ function Totals({ chain, event }) {
   if (!chain) return <NoChain event={event} />
   const t = chain.totals
   const counters = [
-    ['Hits', t.hits], ['Leave', t.leave], ['Mugs', t.mug], ['Hospitalizations', t.hospitalize],
+    ['Hits', t.hits], ['Leave', t.leave], ['Mugs', t.mug], ['Hosps', t.hospitalize],
     ['Assists', t.assists], ['Retaliations', t.retaliations], ['Overseas', t.overseas],
     ['Losses', t.losses], ['Escapes', t.escapes], ['Draws', t.draws], ['Bonuses', t.bonuses],
     ['Members hitting', t.members],
   ]
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Stat label="Chain">{fmt(t.chain)}</Stat>
-        <Stat label="Respect">
-          <Respect raw={t.respect.raw} capped={t.respect.capped} deduction={t.respect.deduction} />
-        </Stat>
-        <Stat label="Best hit">{fmt(t.best, 2)}</Stat>
+      <div className="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-3">
+        {/* Phone: Respect across the top, Chain and Best side by side under
+            it. Wider: the three in a row, Respect in the middle. */}
+        <div className="col-span-2 sm:col-span-1 sm:order-2">
+          <Stat label="Respect">
+            <Respect raw={t.respect.raw} capped={t.respect.capped} deduction={t.respect.deduction} />
+          </Stat>
+        </div>
+        <div className="sm:order-1"><Stat label="Chain">{fmt(t.chain)}</Stat></div>
+        <div className="sm:order-3"><Stat label="Best respect">{fmt(t.best, 2)}</Stat></div>
       </div>
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+      <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-4">
         {counters.map(([k, v]) => <Stat key={k} label={k}>{fmt(v)}</Stat>)}
       </div>
       {chain.bonuses.length > 0 && (
@@ -213,19 +228,20 @@ function Members({ chain }) {
   if (!chain) return <NoChain event={{ phase: 'live' }} />
   return (
     <div className="space-y-4">
-      <div className="card overflow-x-auto">
+      <div className="card p-0 sm:p-0 overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className={TH}>
               {MEMBER_COLS.map((c) => (
-                <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}>{c.label}</SortableTh>
+                <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}
+                  className={c.key === 'name' ? FROZEN_TH : ''}>{c.label}</SortableTh>
               ))}
             </tr>
           </thead>
           <tbody>
             {sorted.map((m) => (
               <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
-                <td className="px-3 py-1.5 whitespace-nowrap">{m.name}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[9rem] truncate">{m.name}</td>
                 <td className={TD}>{fmt(m.attacks.total)}</td>
                 <td className={TD}>{fmt(m.respect.total, 2)}</td>
                 <td className={TD} title={m.respect.deduction > 0 ? `−${fmt(m.respect.deduction, 2)} bonus` : undefined}>
@@ -315,19 +331,20 @@ function Daily({ daily, event }) {
         <Stat label="Assists">{fmt(day.totals.assists)}</Stat>
         <Stat label="Hit by others">{fmt(day.totals.incoming)}</Stat>
       </div>
-      <div className="card overflow-x-auto">
+      <div className="card p-0 sm:p-0 overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className={TH}>
               {DAY_COLS.map((c) => (
-                <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}>{c.label}</SortableTh>
+                <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}
+                  className={c.key === 'name' ? FROZEN_TH : ''}>{c.label}</SortableTh>
               ))}
             </tr>
           </thead>
           <tbody>
             {sorted.map((m) => (
               <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
-                <td className="px-3 py-1.5 whitespace-nowrap">{m.name}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[9rem] truncate">{m.name}</td>
                 <td className={TD}>{fmt(m.hits)}</td>
                 <td className={TD}>{fmt(m.respect, 2)}</td>
                 <td className={TD}>{fmt(m.mug)}</td>
@@ -392,19 +409,20 @@ function Targets({ targets }) {
         <Ranked title="Busiest members" rows={targets.most_active} unit="attacks" render={(r) => fmt(r.outgoing)} />
         <Ranked title="Who we hit most" rows={targets.our_top_targets} unit="hits" render={(r) => fmt(r.hits)} />
       </div>
-      <div className="card overflow-x-auto">
+      <div className="card p-0 sm:p-0 overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className={TH}>
               {TARGET_COLS.map((c) => (
-                <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}>{c.label}</SortableTh>
+                <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}
+                  className={c.key === 'name' ? FROZEN_TH : ''}>{c.label}</SortableTh>
               ))}
             </tr>
           </thead>
           <tbody>
             {sorted.map((m) => (
               <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
-                <td className="px-3 py-1.5 whitespace-nowrap">{m.name}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[9rem] truncate">{m.name}</td>
                 <td className={TD}>{fmt(m.outgoing)}</td>
                 <td className={TD}>{fmt(m.distinct_targets)}</td>
                 <td className={TD}>{fmt(m.incoming)}</td>
@@ -471,7 +489,7 @@ function Highlights({ highlights }) {
         </div>
       </div>
       {h.effects_by_day.length > 0 && (
-        <div className="card overflow-x-auto">
+        <div className="card p-0 sm:p-0 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className={TH}>

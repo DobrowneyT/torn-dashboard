@@ -126,6 +126,7 @@ export async function dailySection(db: pg.Pool, us: number, fromMs: number, toMs
             count(*) FILTER (WHERE result = ANY($5))  AS defended
        FROM faction_attacks
       WHERE is_incoming AND defender_faction_id = $3
+        AND attacker_faction_id IS DISTINCT FROM $3
         AND started >= $1 AND started < $2
       GROUP BY 1, 2`,
     [from, to, us, WINS, LOSSES],
@@ -183,8 +184,12 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
               count(*) FILTER (WHERE result = ANY($5)) AS defended,
               count(DISTINCT attacker_id) AS distinct_attackers
          FROM faction_attacks
-        WHERE is_incoming AND defender_faction_id = $3 AND started >= $1 AND started < $2
+        WHERE is_incoming AND defender_faction_id = $3
+        AND attacker_faction_id IS DISTINCT FROM $3 AND started >= $1 AND started < $2
         GROUP BY 1)
+     -- ⚠️ An attack between two of OUR members (sparring, a chain feed) is
+     -- stored as incoming; it is neither, and counting it put our own members
+     -- in "Who hit us most" (found on staging, 2026-10-17).
      SELECT coalesce(o.id, i.id) AS id,
             coalesce(o.outgoing, 0) AS outgoing, coalesce(o.distinct_targets, 0) AS distinct_targets,
             coalesce(i.incoming, 0) AS incoming, coalesce(i.beaten, 0) AS beaten,
@@ -212,7 +217,8 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
     `SELECT attacker_id AS id, max(attacker_name) AS name, count(*) AS hits,
             count(DISTINCT defender_id) AS on_members
        FROM faction_attacks
-      WHERE is_incoming AND defender_faction_id = $3 AND started >= $1 AND started < $2
+      WHERE is_incoming AND defender_faction_id = $3
+        AND attacker_faction_id IS DISTINCT FROM $3 AND started >= $1 AND started < $2
         AND attacker_id IS NOT NULL
       GROUP BY 1 ORDER BY hits DESC, id LIMIT ${TOP_TARGETS}`,
     [from, to, us],

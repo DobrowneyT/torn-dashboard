@@ -27,6 +27,11 @@ surface it automatically.
   - **Burns and bleeds count once:** a multi-word damage-over-time tick ("Molotov Cocktail scorches X for 807") is no longer counted as a new proc each tick.
   - **Credited to the defender:** a parry and No Touching, as the log text shows.
   - The whole archive is re-read automatically.
+- **Attacks between two of our own members no longer count as incoming.** They are stored as incoming, which put our own members into "Who hit us most" and inflated "Attacked" on Targets and "Hit by others" on Daily.
+- **The report on a phone**, checked at 390 px against real staging data:
+  - **Members, Daily and Targets:** the name column stays put while the figures scroll sideways, and rows no longer change height when a figure wraps.
+  - **Report views:** they sit on one row that scrolls sideways, instead of wrapping.
+  - **Totals:** packed three to a row, with Respect across the top; "Best hit" is now "Best respect", which is what it is.
 
 ## [3.228.0] - 2026-10-17
 
