@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.227.0] - 2026-10-17
+
+### Added
+- **Every event attack's log is archived while it still exists (#973).** Torn's attack logs expire, so they are collected during the event. Outgoing and incoming are both fetched on pooled keys and stored raw (Torn's response, unparsed), ready for the parsers in #974 and #975.
+  - **Work list:** any event attack without a stored log is due, so the archive resumes by itself after an outage or restart.
+  - **Expired logs** (Torn error 28) are recorded and never asked for again. Other failures retry with backoff from 2 minutes up to an hour.
+  - **After the event:** archiving continues for 7 days, to pick up the last few logs.
+  - **Per-key limit:** no key makes more than 10 calls in any minute. This is a courtesy to members' own scripts, tunable as `event_attack_log_per_key_per_min`.
+- **Attack log archive panel** under Events → Settings (leadership): archived, waiting, expired and retrying counts. A backlog that keeps growing for ten minutes shows as a red warning.
+
 ## [3.226.0] - 2026-10-17
 
 ### Added

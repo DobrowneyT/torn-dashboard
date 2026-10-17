@@ -171,6 +171,18 @@ if (db) {
           flags: app.flagResolver,
         }).start()
         console.log(`[${factionSlug}] event chain-report poller armed (event-gated)`)
+
+        // #973 — archive every event attack's log while it still exists.
+        // Event-gated the same way; keeps going up to a week after the end to
+        // collect the stragglers.
+        const { createAttackLogArchiver } = await import('./events/attackLogArchiver.js')
+        createAttackLogArchiver({
+          db,
+          pool: createKeyPool({ db, encryptionKey: keyEncryptionKey }),
+          tornBaseUrl,
+          flags: app.flagResolver,
+        }).start()
+        console.log(`[${factionSlug}] event attack-log archiver armed (event-gated)`)
       }
     } catch (err) {
       console.error(

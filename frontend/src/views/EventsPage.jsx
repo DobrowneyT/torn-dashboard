@@ -50,6 +50,7 @@ export default function EventsPage({ event, isLeadership, onChanged }) {
             <div className="space-y-6">
               <EventSettings event={event} onChanged={onChanged} />
               {event && <ChainReportStatus event={event} />}
+              {event && <AttackLogStatus event={event} />}
             </div>
           } />
         )}
@@ -315,6 +316,70 @@ export function ChainReportStatus({ event }) {
   return (
     <section className="card p-6 space-y-3 max-w-2xl">
       <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Chain report collection</h3>
+      {body}
+    </section>
+  )
+}
+
+/**
+ * Leadership: are the event's attack logs being archived? (#973)
+ *
+ * ⚠️ Logs expire and cannot be fetched after the event, so a backlog that keeps
+ * growing is shown as a problem, not as a number.
+ */
+export function AttackLogStatus({ event }) {
+  const [status, setStatus] = useState(undefined)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = () => apiGet(`/api/events/${event.id}/attack-logs/status`)
+      .then((r) => { if (alive) { setStatus(r.status); setError(null) } })
+      .catch((err) => { if (alive) setError(err.message || 'Could not load the archive status.') })
+    load()
+    const t = setInterval(load, POLLER_REFRESH_MS)
+    return () => { alive = false; clearInterval(t) }
+  }, [event.id])
+
+  let body
+  if (error) body = <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
+  else if (status === undefined) body = <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+  else if (status === null) {
+    body = <p className="text-sm text-gray-600 dark:text-gray-300">Archiving starts when the event opens.</p>
+  } else {
+    const rows = [
+      ['Archived', status.archived.toLocaleString()],
+      ['Waiting', status.backlog.toLocaleString()],
+      ['Expired', status.gone.toLocaleString()],
+      ['Retrying', status.failed.toLocaleString()],
+      ['Keys in use', status.keys_available.toLocaleString()],
+      ['Last run', ago(status.last_run_at)],
+    ]
+    body = (
+      <>
+        {status.growing_since != null && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            The backlog has been growing since {ago(status.growing_since)} — logs are arriving faster than they are archived, and old ones may expire.
+          </p>
+        )}
+        {status.last_error && status.last_error_at != null && Date.now() - status.last_error_at < 10 * 60_000 && (
+          <p className="text-sm text-amber-700 dark:text-amber-400">Last error ({ago(status.last_error_at)}): {status.last_error}</p>
+        )}
+        <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          {rows.map(([k, v]) => (
+            <div key={k}>
+              <dt className="text-gray-500 dark:text-gray-400">{k}</dt>
+              <dd className="font-medium text-gray-900 dark:text-white tabular-nums">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </>
+    )
+  }
+
+  return (
+    <section className="card p-6 space-y-3 max-w-2xl">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Attack log archive</h3>
       {body}
     </section>
   )

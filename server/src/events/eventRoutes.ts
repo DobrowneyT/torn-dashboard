@@ -259,6 +259,35 @@ export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
     return { version }
   })
 
+  // #973 — the attack-log archive's health. ⚠️ A growing backlog is the
+  // number that matters: logs that wait too long expire and are lost.
+  app.get('/api/events/:id/attack-logs/status', LEAD, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isInteger(id) || id <= 0) return reply.status(400).send({ error: 'Invalid event id' })
+    const [st, counts] = await Promise.all([
+      db.query(
+        `SELECT backlog, calls, keys_available, last_error,
+                (extract(epoch from growing_since) * 1000)::bigint AS growing_since,
+                (extract(epoch from last_run_at)   * 1000)::bigint AS last_run_at,
+                (extract(epoch from last_error_at) * 1000)::bigint AS last_error_at
+           FROM event_attack_log_state WHERE event_id = $1`, [id]),
+      db.query(
+        `SELECT status, count(*) AS n FROM event_attack_logs WHERE event_id = $1 GROUP BY status`, [id]),
+    ])
+    const r = st.rows[0]
+    if (!r) return { status: null }
+    const by = Object.fromEntries(counts.rows.map((c) => [c.status, Number(c.n)]))
+    const n = (v: unknown) => (v == null ? null : Number(v))
+    return {
+      status: {
+        archived: by.archived ?? 0, gone: by.gone ?? 0, failed: by.failed ?? 0,
+        backlog: Number(r.backlog), calls: Number(r.calls), keys_available: Number(r.keys_available),
+        growing_since: n(r.growing_since), last_run_at: n(r.last_run_at),
+        last_error: r.last_error, last_error_at: n(r.last_error_at),
+      },
+    }
+  })
+
   // #970 — the chain-report poller's health. ⚠️ `changes / polls` IS the
   // measurement the cadence is set from: if the report changes on one poll in
   // six, polling every 5 s is buying nothing over 30 s.
