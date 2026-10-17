@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.229.0] - 2026-10-17
+
+### Added
+- **Bounties claimed (parser v3).** Read from the archived attack logs: Torn writes a claim on the hospitalize line ("X hospitalized Y and claimed a $100,000 bounty"), and only there, never on a leave or a mug. Highlights shows bounties claimed, their total, and the biggest claims. Our members' claims only; a bounty claimed on one of ours is not ours. The archive is re-read automatically (migration 0082).
+- **A position column on Members**, frozen beside the name, so a member scrolled to any figure can see where they stand. It numbers the rows in the current sort: sort by respect and it is a respect ranking.
+
+### Changed
+- **The report opens on Members**, the live chain report board, with Totals second.
+- **Settings** is pinned by tests to leadership and admins: no tab, and the URL does not open it, for anyone else. This was already true; the URL case was not tested.
+
 ## [3.228.1] - 2026-10-17
 
 ### Fixed

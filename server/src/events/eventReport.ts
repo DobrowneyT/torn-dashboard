@@ -290,6 +290,13 @@ export async function highlightsSection(
        FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
       WHERE p.event_id = $1 AND p.outgoing AND p.mug_amount IS NOT NULL
       ORDER BY p.mug_amount DESC, p.attack_id LIMIT ${TOP_TARGETS}`, [eventId])
+  // Bounties our members claimed (v3). ⚠️ Outgoing only — a bounty claimed ON
+  // one of ours is the opponent's prize, not a highlight.
+  const bounties = await db.query(
+    `SELECT p.member_id AS id, p.bounty_amount AS amount, a.defender_name AS target, p.started
+       FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
+      WHERE p.event_id = $1 AND p.outgoing AND p.bounty_amount IS NOT NULL
+      ORDER BY p.bounty_amount DESC, p.attack_id`, [eventId])
   const hits = await db.query(
     `SELECT p.member_id AS id, p.biggest_hit AS damage, p.outgoing,
             CASE WHEN p.outgoing THEN a.defender_name ELSE a.attacker_name END AS opponent, p.started
@@ -341,6 +348,14 @@ export async function highlightsSection(
       id: Number(r.id), name: names.get(r.id), damage: Number(r.damage), outgoing: !!r.outgoing,
       opponent: r.opponent ?? null, at: Number(r.started) * 1000,
     })),
+    bounties: {
+      claimed: bounties.rows.length,
+      total: bounties.rows.reduce((t, r) => t + Number(r.amount), 0),
+      top: bounties.rows.slice(0, TOP_TARGETS).map((r) => ({
+        id: Number(r.id), name: names.get(r.id), amount: Number(r.amount), target: r.target ?? null,
+        at: Number(r.started) * 1000,
+      })),
+    },
     most_effects: [...byMember.values()].sort((a, b) => b.total - a.total).slice(0, TOP_TARGETS),
     effect_totals: effectTotals,
     effects_by_day: [...days.entries()].sort((a, b) => a[0] - b[0]).map(([d, counts]) => ({

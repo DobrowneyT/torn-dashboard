@@ -46,6 +46,7 @@ const REPORT = {
     biggest_hits: [{ id: 2, name: 'Bob', damage: 3710, outgoing: true, opponent: 'Tank', at: 0 }],
     most_effects: [{ id: 1, name: 'Alice', total: 14, effects: { powerful: 9, stricken: 5 } }],
     effect_totals: { powerful: 9, stricken: 5 },
+    bounties: { claimed: 3, total: 2_100_010, top: [{ id: 2, name: 'Bob', amount: 2_000_000, target: 'Fiveseven', at: 0 }] },
     effects_by_day: [{ day: '2026-10-26', starts_at: Date.UTC(2026, 9, 26), effects: { powerful: 9, stricken: 5 } }],
   },
 }
@@ -71,25 +72,46 @@ describe('Respect', () => {
 })
 
 describe('EventReport', () => {
-  it('opens on the totals, from Torn\'s report', async () => {
+  it('⚠️ opens on Members, with Totals second', async () => {
     render(<EventReport event={EVENT} />)
-    expect(await screen.findByText('1,200')).toBeTruthy()
-    expect(screen.getByText(/4,690\.00 capped/)).toBeTruthy()
+    expect(await screen.findByText('Alice')).toBeTruthy()
+    expect(screen.getAllByRole('tab').map((t) => t.textContent).slice(0, 2)).toEqual(['Members', 'Totals'])
+    expect(screen.getByRole('tab', { name: 'Members' }).getAttribute('aria-selected')).toBe('true')
     expect(api.get).toHaveBeenCalledWith('/api/events/1/report')
+  })
+
+  it('shows Torn\'s totals on the second view', async () => {
+    render(<EventReport event={EVENT} />)
+    await screen.findByText('Alice')
+    fireEvent.click(screen.getByRole('tab', { name: 'Totals' }))
+    expect(screen.getByText('1,200')).toBeTruthy()
+    expect(screen.getByText(/4,690\.00 capped/)).toBeTruthy()
+  })
+
+  it('⚠️ numbers members by their place in the CURRENT sort', async () => {
+    render(<EventReport event={EVENT} />)
+    await screen.findByText('Alice')
+    const firstRow = () => screen.getAllByRole('row')[1]
+    // Default: hits, descending — Alice (1,000) first.
+    expect(within(firstRow()).getAllByRole('cell').slice(0, 2).map((c) => c.textContent)).toEqual(['1', 'Alice'])
+    // Sort by Retals: Bob has 3, Alice 1.
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by Retals' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by Retals' }))
+    const order = screen.getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').slice(0, 2).map((c) => c.textContent).join(' '))
+    expect(order[0]).toMatch(/^1 /)
+    expect(order).toContain('2 Alice')
   })
 
   it('lists members and who has not hit yet', async () => {
     render(<EventReport event={EVENT} />)
-    await screen.findByText('1,200')
-    fireEvent.click(screen.getByRole('tab', { name: 'Members' }))
-    expect(screen.getByText('Alice')).toBeTruthy()
+    expect(await screen.findByText('Alice')).toBeTruthy()
     expect(screen.getByText('Not hit yet (1)')).toBeTruthy()
     expect(screen.getByText('Cara')).toBeTruthy()
   })
 
   it('shows the latest day first, and any other day on request', async () => {
     render(<EventReport event={EVENT} />)
-    await screen.findByText('1,200')
+    await screen.findByText('Alice')
     fireEvent.click(screen.getByRole('tab', { name: 'Daily' }))
     expect(screen.getByText('Bob')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '26 Oct' }))
@@ -98,7 +120,7 @@ describe('EventReport', () => {
 
   it('shows who was targeted most, both ways', async () => {
     render(<EventReport event={EVENT} />)
-    await screen.findByText('1,200')
+    await screen.findByText('Alice')
     fireEvent.click(screen.getByRole('tab', { name: 'Targets' }))
     const card = screen.getByText('Most targeted members').closest('div')
     expect(within(card).getByText('Bob')).toBeTruthy()
@@ -109,6 +131,8 @@ describe('EventReport', () => {
   it('explains an empty report before the chain starts', async () => {
     api.get.mockImplementation(async (path) => (path.endsWith('/version') ? { version } : { ...REPORT, chain: null }))
     render(<EventReport event={{ ...EVENT, phase: 'upcoming' }} />)
+    await screen.findByRole('tab', { name: 'Totals' })
+    fireEvent.click(screen.getByRole('tab', { name: 'Totals' }))
     expect(await screen.findByText(/starts collecting when the event opens/)).toBeTruthy()
   })
 })
@@ -119,7 +143,7 @@ describe('live updates (#972)', () => {
   it('refetches the report when the version moves, and only then', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     render(<EventReport event={EVENT} />)
-    await screen.findByText('1,200')
+    await screen.findByText('Alice')
     expect(reportFetches()).toBe(1)
 
     await act(async () => { await vi.advanceTimersByTimeAsync(VERSION_POLL_MS) })
@@ -134,17 +158,19 @@ describe('live updates (#972)', () => {
 describe('highlights (#974)', () => {
   it('shows the highest mug, biggest hit and effects by name', async () => {
     render(<EventReport event={EVENT} />)
-    await screen.findByText('1,200')
+    await screen.findByText('Alice')
     fireEvent.click(screen.getByRole('tab', { name: 'Highlights' }))
     expect(screen.getByText('$1,791,890 from Richie')).toBeTruthy()
     expect(screen.getByText('3,710 on Tank')).toBeTruthy()
     expect(screen.getAllByText(/Stricken/).length).toBeGreaterThan(0)
+    expect(screen.getByText('$2,000,000 on Fiveseven')).toBeTruthy()
+    expect(screen.getByText('$2,100,010')).toBeTruthy()
   })
 
   it('explains an empty archive', async () => {
     api.get.mockImplementation(async (path) => (path.endsWith('/version') ? { version } : { ...REPORT, highlights: null }))
     render(<EventReport event={EVENT} />)
-    await screen.findByText('1,200')
+    await screen.findByText('Alice')
     fireEvent.click(screen.getByRole('tab', { name: 'Highlights' }))
     expect(screen.getByText(/appear once attack logs have been archived/)).toBeTruthy()
   })

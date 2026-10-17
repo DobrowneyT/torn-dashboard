@@ -37,16 +37,16 @@ export async function parsePendingLogs(db: pg.Pool, us: number, limit = PARSE_BA
       await client.query(
         `INSERT INTO event_attack_log_parsed
            (attack_id, event_id, parser_version, member_id, outgoing, mug_amount, respect, damage_dealt,
-            damage_taken, hits, misses, hit_damages, biggest_hit, started, parsed_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now())
+            damage_taken, hits, misses, hit_damages, biggest_hit, started, bounty_amount, parsed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
          ON CONFLICT (attack_id) DO UPDATE SET
            parser_version = EXCLUDED.parser_version, member_id = EXCLUDED.member_id,
            outgoing = EXCLUDED.outgoing, mug_amount = EXCLUDED.mug_amount, respect = EXCLUDED.respect,
            damage_dealt = EXCLUDED.damage_dealt, damage_taken = EXCLUDED.damage_taken, hits = EXCLUDED.hits,
            misses = EXCLUDED.misses, hit_damages = EXCLUDED.hit_damages, biggest_hit = EXCLUDED.biggest_hit,
-           started = EXCLUDED.started, parsed_at = now()`,
+           started = EXCLUDED.started, bounty_amount = EXCLUDED.bounty_amount, parsed_at = now()`,
         [r.attack_id, r.event_id, PARSER_VERSION, outgoing ? attacker : defender, outgoing, p.mug_amount,
-          p.respect, p.damage_dealt, p.damage_taken, p.hits, p.misses, p.hit_damages, p.biggest_hit, r.started],
+          p.respect, p.damage_dealt, p.damage_taken, p.hits, p.misses, p.hit_damages, p.biggest_hit, r.started, p.bounty_amount],
       )
       await client.query('DELETE FROM event_attack_log_effects WHERE attack_id = $1', [r.attack_id])
       for (const e of p.effects) {

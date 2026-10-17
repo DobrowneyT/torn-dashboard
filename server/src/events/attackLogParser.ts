@@ -24,7 +24,12 @@
 // are outcomes or actions rather than effects, credits the two effects the
 // TEXT proves are the defender's, and recognises every tick wording.
 
-export const PARSER_VERSION = 2
+//
+// v3 (2026-10-17): bounties. Claimed only on a hospitalize, on that line:
+// "X hospitalized Y and claimed a $100,000 bounty (+3.13)" — the one wording in
+// ~2,100 real logs, with or without the respect suffix.
+
+export const PARSER_VERSION = 3
 
 /** Icons on ordinary lines. Anything else on a line is a proc or an effect. */
 export const PLAIN_ICONS = new Set([
@@ -68,6 +73,8 @@ const TICK = /\b(damaged|scorches) .+ for [\d,]+$/
 const DAMAGE = /\bfor ([\d,]+)$/
 /** "X mugged Y for $1,791,890 (+2.90)" */
 const MUG = /\bmugged .+ for \$([\d,]+)/
+/** "X hospitalized Y and claimed a $100,000 bounty (+3.13)" */
+const BOUNTY = /\bhospitalized .+ and claimed a \$([\d,]+) bounty\b/
 /** The respect gain Torn appends to the finishing line: "(+2.90)". */
 const RESPECT = /\(\+([\d.]+)\)\s*$/
 
@@ -85,6 +92,8 @@ export interface ParsedEffect { seq: number; actor_id: number | null; effect: st
 
 export interface ParsedLog {
   mug_amount: number | null
+  /** A bounty claimed by the attacker on the hospitalize (v3). */
+  bounty_amount: number | null
   respect: number | null
   /** Damage our member dealt / took — Torn's own per-participant summary. */
   damage_dealt: number | null
@@ -121,7 +130,7 @@ export function actorOf(line: any, atk: AttackIdentity): number | null {
 export function parseAttackLog(raw: any, atk: AttackIdentity): ParsedLog {
   const lines = logLines(raw)
   const out: ParsedLog = {
-    mug_amount: null, respect: null, damage_dealt: null, damage_taken: null,
+    mug_amount: null, bounty_amount: null, respect: null, damage_dealt: null, damage_taken: null,
     hits: null, misses: null, hit_damages: [], biggest_hit: null, effects: [],
   }
 
@@ -134,6 +143,11 @@ export function parseAttackLog(raw: any, atk: AttackIdentity): ParsedLog {
     if (line?.action === 'mug') {
       const m = MUG.exec(text)
       if (m && actor === atk.attacker_id) out.mug_amount = toInt(m[1])
+    }
+    // ⚠️ Only on a hospitalize — never a leave, a mug or anything else.
+    if (line?.action === 'hosp') {
+      const b = BOUNTY.exec(text)
+      if (b && actor === atk.attacker_id) out.bounty_amount = toInt(b[1])
     }
     const r = RESPECT.exec(text)
     if (r && actor === atk.attacker_id) out.respect = Number(r[1])

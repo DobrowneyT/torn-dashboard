@@ -109,7 +109,7 @@ describe('parseAttackLog', () => {
   })
 
   it('has a version, so a changed parser re-runs over the archive', () => {
-    expect(PARSER_VERSION).toBe(2)
+    expect(PARSER_VERSION).toBe(3)
   })
 })
 
@@ -143,6 +143,28 @@ describe('v2 — from ~2,000 real forge logs', () => {
       line('hit', 'riot', 'Ann smashed Bob with his Sledgehammer in the Chest for 300', A, D),
     ]), atk)
     expect(p.effects.map((e) => [e.effect, e.actor_id])).toEqual([['parry', D], ['notouching', D], ['riot', A]])
+  })
+})
+
+describe('v3 — bounties', () => {
+  it('reads a bounty claimed on the hospitalize, with or without respect', () => {
+    expect(parseAttackLog(body([line('hosp', 'hospitalize', 'Ann hospitalized Bob and claimed a $100,000 bounty (+3.13)')]), atk).bounty_amount).toBe(100_000)
+    expect(parseAttackLog(body([line('hosp', 'hospitalize', 'Ann hospitalized Bob and claimed a $2,000,000 bounty')]), atk).bounty_amount).toBe(2_000_000)
+  })
+
+  it('⚠️ only on a hospitalize — never a leave or a mug', () => {
+    expect(parseAttackLog(body([line('leave', 'leave', 'Ann left Bob on the street and claimed a $5 bounty (+1.00)')]), atk).bounty_amount).toBeNull()
+    expect(parseAttackLog(body([line('mug', 'mug', 'Ann mugged Bob for $5 (+1.00)')]), atk).bounty_amount).toBeNull()
+  })
+
+  it('credits a stealthed claimer from the stored attack, and never the defender', () => {
+    expect(parseAttackLog(body([line('hosp', 'hospitalize', 'Someone hospitalized Bob and claimed a $10 bounty (+3.30)', null, D)]), atk).bounty_amount).toBe(10)
+    const inc = { attacker_id: D, defender_id: A, member_id: A, outgoing: false }
+    // The attack's own attacker claimed it — recorded on the attack; the report keeps outgoing only.
+    expect(parseAttackLog(body([line('hosp', 'hospitalize', 'Bob hospitalized Ann and claimed a $10 bounty', D, A)]), inc).bounty_amount).toBe(10)
+  })
+  it('is null when nothing was claimed', () => {
+    expect(parseAttackLog(body([line('hosp', 'hospitalize', 'Ann hospitalized Bob (+1.59)')]), atk).bounty_amount).toBeNull()
   })
 })
 

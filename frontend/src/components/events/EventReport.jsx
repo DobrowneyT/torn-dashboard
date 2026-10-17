@@ -20,9 +20,11 @@ import { formatTct } from '../../utils/factionEvent'
  * when the answer moves.
  */
 export const VERSION_POLL_MS = 5_000
+// Members first: it is the board members open the page for — where they
+// stand on the live chain report (MonChoon, 2026-10-17).
 const VIEWS = [
-  { id: 'totals', label: 'Totals' },
   { id: 'members', label: 'Members' },
+  { id: 'totals', label: 'Totals' },
   { id: 'daily', label: 'Daily' },
   { id: 'targets', label: 'Targets' },
   { id: 'highlights', label: 'Highlights' },
@@ -39,12 +41,24 @@ const TD = 'px-3 py-1.5 tabular-nums whitespace-nowrap'
 // (WarPayoutManagement, WarHistoryView): sticky, z above the cells, and an
 // OPAQUE background so the scrolling figures pass behind it.
 const FROZEN_TH = 'sticky left-0 z-[6] bg-white dark:bg-slate-800'
+/**
+ * Members: a POSITION column frozen beside the name, so a member scrolled to
+ * any column can see where they stand under whatever it is sorted by. ⚠️ The
+ * position is the row's place in the CURRENT sort, not a fixed rank by hits —
+ * sort by respect and it reads as a respect ranking.
+ * The name sticks just right of it: `left-10` matches the position column's
+ * `w-10` (2.5rem), so the two never overlap.
+ */
+const POS_TH = 'sticky left-0 z-[6] bg-white dark:bg-slate-800'
+const POS_TD = 'sticky left-0 z-[5] bg-white dark:bg-slate-800'
+const NAME_AFTER_POS_TH = 'sticky left-10 z-[6] bg-white dark:bg-slate-800'
+const NAME_AFTER_POS_TD = 'sticky left-10 z-[5] bg-white dark:bg-slate-800'
 // ⚠️ Table cards drop the card's padding (`p-0 sm:p-0`): a sticky cell sticks
 // INSIDE the padding, and the figures scrolling past showed through the
 // padding strip to the left of the frozen names (seen at phone width).
 
 export default function EventReport({ event }) {
-  const [view, setView] = useState('totals')
+  const [view, setView] = useState('members')
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const seen = useRef(null)
@@ -232,16 +246,18 @@ function Members({ chain }) {
         <table className="min-w-full text-sm">
           <thead>
             <tr className={TH}>
+              <th className={`px-2 py-1.5 font-medium text-right w-10 ${POS_TH}`} aria-label="Position">#</th>
               {MEMBER_COLS.map((c) => (
                 <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}
-                  className={c.key === 'name' ? FROZEN_TH : ''}>{c.label}</SortableTh>
+                  className={c.key === 'name' ? NAME_AFTER_POS_TH : ''}>{c.label}</SortableTh>
               ))}
             </tr>
           </thead>
           <tbody>
-            {sorted.map((m) => (
+            {sorted.map((m, i) => (
               <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
-                <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[9rem] truncate">{m.name}</td>
+                <td className={`px-2 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400 w-10 ${POS_TD}`}>{i + 1}</td>
+                <td className={`px-3 py-1.5 whitespace-nowrap max-w-[9rem] truncate ${NAME_AFTER_POS_TD}`}>{m.name}</td>
                 <td className={TD}>{fmt(m.attacks.total)}</td>
                 <td className={TD}>{fmt(m.respect.total, 2)}</td>
                 <td className={TD} title={m.respect.deduction > 0 ? `−${fmt(m.respect.deduction, 2)} bonus` : undefined}>
@@ -466,12 +482,22 @@ function Highlights({ highlights }) {
         <Stat label="Logs read">{fmt(h.logs_parsed)}</Stat>
         <Stat label="Money mugged">${fmt(h.total_mugged)}</Stat>
         <Stat label="Damage dealt">{fmt(h.total_damage)}</Stat>
+        {h.bounties && (
+          <Stat label="Bounties claimed">
+            {fmt(h.bounties.claimed)}
+            {h.bounties.claimed > 0 && <span className="block text-xs text-gray-500 dark:text-gray-400">${fmt(h.bounties.total)}</span>}
+          </Stat>
+        )}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <Ranked title="Highest mugs" rows={h.highest_mugs.map((m, i) => ({ ...m, id: `${m.id}-${i}` }))} unit=""
           render={(m) => `$${fmt(m.amount)}${m.target ? ` from ${m.target}` : ''}`} />
         <Ranked title="Biggest hits" rows={h.biggest_hits.map((m, i) => ({ ...m, id: `${m.id}-${i}` }))} unit=""
           render={(m) => `${fmt(m.damage)}${m.opponent ? ` on ${m.opponent}` : ''}`} />
+        {h.bounties?.top?.length > 0 && (
+          <Ranked title="Biggest bounties claimed" rows={h.bounties.top.map((b, i) => ({ ...b, id: `${b.id}-${i}` }))} unit=""
+            render={(b) => `$${fmt(b.amount)}${b.target ? ` on ${b.target}` : ''}`} />
+        )}
         <Ranked title="Most effects" rows={h.most_effects} unit="" render={(m) => fmt(m.total)} />
         <div className="card p-4">
           <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Effects seen</h4>
