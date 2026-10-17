@@ -82,7 +82,7 @@ describe('GET /api/events/:id/report/version', () => {
     const ask = async () => ((await (await fetch(`${stack.baseUrl}/api/events/${eventId}/report/version`,
       { headers: { authorization: `Bearer ${token}` } })).json()) as any).version
     const first = await ask()
-    expect(first).toMatch(/^-:0:0$/)
+    expect(first).toMatch(/^-:0:0:0$/)
     await attack(100, START + 1000)
     // ⚠️ Memoised — a hundred tabs asking within the window cost one query.
     expect(await ask()).toBe(first)

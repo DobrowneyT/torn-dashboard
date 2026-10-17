@@ -248,13 +248,99 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
 export async function reportVersion(db: pg.Pool, eventId: number, us: number, fromMs: number, toMs: number) {
   const from = Math.floor(fromMs / 1000)
   const to = Math.ceil(toMs / 1000)
-  const [rep, atk] = await Promise.all([
+  const [rep, atk, parsed] = await Promise.all([
     db.query('SELECT content_hash FROM event_chain_report_latest WHERE event_id = $1', [eventId]),
     db.query(
       `SELECT count(*) AS n, max(attack_id) AS top FROM faction_attacks
         WHERE started >= $1 AND started < $2
           AND (attacker_faction_id = $3 OR defender_faction_id = $3)`,
       [from, to, us]),
+    // #974 — the highlights move as logs are parsed, which can lag the attack.
+    db.query('SELECT count(*) AS n FROM event_attack_log_parsed WHERE event_id = $1', [eventId]),
   ])
-  return `${rep.rows[0]?.content_hash ?? '-'}:${atk.rows[0]?.n ?? 0}:${atk.rows[0]?.top ?? 0}`
+  return `${rep.rows[0]?.content_hash ?? '-'}:${atk.rows[0]?.n ?? 0}:${atk.rows[0]?.top ?? 0}:${parsed.rows[0]?.n ?? 0}`
+}
+
+/**
+ * Highlights from the parsed attack logs (#974): highest mug, biggest hit,
+ * most effects (procs), and effects per day. Our members only.
+ *
+ * ⚠️ Effects are named by the log line's icon — `stricken`, `plunder`,
+ * `powerful`… — so a proc nobody has seen yet (Revitalize) appears here under
+ * its own name the first time a real log carries it.
+ */
+export async function highlightsSection(
+  db: pg.Pool, eventId: number, fromDailyMs: number, names: NameBook,
+) {
+  const counts = await db.query(
+    `SELECT count(*) AS parsed, coalesce(sum(mug_amount) FILTER (WHERE outgoing), 0) AS mugged,
+            coalesce(sum(damage_dealt), 0) AS damage
+       FROM event_attack_log_parsed WHERE event_id = $1`, [eventId])
+  const parsed = Number(counts.rows[0]?.parsed ?? 0)
+  if (parsed === 0) return null
+
+  const mugs = await db.query(
+    `SELECT p.member_id AS id, p.mug_amount AS amount, a.defender_name AS target, p.started
+       FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
+      WHERE p.event_id = $1 AND p.outgoing AND p.mug_amount IS NOT NULL
+      ORDER BY p.mug_amount DESC, p.attack_id LIMIT ${TOP_TARGETS}`, [eventId])
+  const hits = await db.query(
+    `SELECT p.member_id AS id, p.biggest_hit AS damage, p.outgoing,
+            CASE WHEN p.outgoing THEN a.defender_name ELSE a.attacker_name END AS opponent, p.started
+       FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
+      WHERE p.event_id = $1 AND p.biggest_hit IS NOT NULL AND p.member_id IS NOT NULL
+      ORDER BY p.biggest_hit DESC, p.attack_id LIMIT ${TOP_TARGETS}`, [eventId])
+  // An effect counts for our member only when THEY made it — not the
+  // opponent's proc in the same fight.
+  const effects = await db.query(
+    `SELECT e.actor_id AS id, e.effect, count(*) AS n
+       FROM event_attack_log_effects e JOIN event_attack_log_parsed p ON p.attack_id = e.attack_id
+      WHERE e.event_id = $1 AND e.actor_id = p.member_id
+      GROUP BY 1, 2`, [eventId])
+  const perDay = await db.query(
+    `SELECT ((e.started - $2) / ${DAY_S})::int AS day, e.effect, count(*) AS n
+       FROM event_attack_log_effects e JOIN event_attack_log_parsed p ON p.attack_id = e.attack_id
+      WHERE e.event_id = $1 AND e.actor_id = p.member_id AND e.started >= $2
+      GROUP BY 1, 2 ORDER BY 1, 2`, [eventId, Math.floor(fromDailyMs / 1000)])
+
+  const byMember = new Map<number, { id: number; name: string; total: number; effects: Record<string, number> }>()
+  for (const r of effects.rows) {
+    const id = Number(r.id)
+    if (!byMember.has(id)) byMember.set(id, { id, name: names.get(id), total: 0, effects: {} })
+    const m = byMember.get(id)!
+    m.total += Number(r.n)
+    m.effects[r.effect] = Number(r.n)
+  }
+  const effectTotals: Record<string, number> = {}
+  for (const m of byMember.values()) {
+    for (const [k, v] of Object.entries(m.effects)) effectTotals[k] = (effectTotals[k] ?? 0) + v
+  }
+  const days = new Map<number, Record<string, number>>()
+  for (const r of perDay.rows) {
+    const d = Number(r.day)
+    if (!days.has(d)) days.set(d, {})
+    days.get(d)![r.effect] = Number(r.n)
+  }
+  const from = Math.floor(fromDailyMs / 1000)
+
+  return {
+    logs_parsed: parsed,
+    total_mugged: Number(counts.rows[0].mugged),
+    total_damage: Number(counts.rows[0].damage),
+    highest_mugs: mugs.rows.map((r) => ({
+      id: Number(r.id), name: names.get(r.id), amount: Number(r.amount), target: r.target ?? null,
+      at: Number(r.started) * 1000,
+    })),
+    biggest_hits: hits.rows.map((r) => ({
+      id: Number(r.id), name: names.get(r.id), damage: Number(r.damage), outgoing: !!r.outgoing,
+      opponent: r.opponent ?? null, at: Number(r.started) * 1000,
+    })),
+    most_effects: [...byMember.values()].sort((a, b) => b.total - a.total).slice(0, TOP_TARGETS),
+    effect_totals: effectTotals,
+    effects_by_day: [...days.entries()].sort((a, b) => a[0] - b[0]).map(([d, counts]) => ({
+      day: new Date((from + d * DAY_S) * 1000).toISOString().slice(0, 10), // db-time-safe: epoch maths
+      starts_at: (from + d * DAY_S) * 1000,
+      effects: counts,
+    })),
+  }
 }

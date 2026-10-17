@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.228.0] - 2026-10-17
+
+### Added
+- **Archived attack logs are read (#974).** For every event attack: the mug amount, each hit's damage and the biggest, damage dealt and taken (Torn's own per-fight summary), respect, and **one row per effect line** (weapon procs such as Stricken, Plunder, Powerful, Execute, and named effects such as Bleeding). The archiver parses new logs as they arrive. Re-running over the whole archive is idempotent, and a parser version bump re-reads everything (how the treat parser in #975 will catch up).
+- **Highlights** on Events → Report: highest mugs, biggest hits, most effects per member, every effect seen, and effects per day. Our members only; an opponent's proc in the same fight is never credited to us.
+
+### Notes
+- Built from 35 real forge logs. Effects are identified by the icon Torn puts on the log line, never by wording, so **Revitalize** needs no guessed text: it appears under its own name the first time a real log carries it. A damage-over-time tick ("Bleeding damaged X for 106") is not counted as a proc or a hit; only the line that starts it counts.
+- Stealthed attackers ("Someone") are attributed from the stored attack, never the log text.
+
 ## [3.227.0] - 2026-10-17
 
 ### Added
