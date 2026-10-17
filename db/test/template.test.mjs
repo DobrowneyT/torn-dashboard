@@ -134,6 +134,12 @@ const NEW_TABLES = [
   // #969: a faction event (Halloween) and the page hosting it. ⚠️ Separate
   // from chain_events and linked to it — an event will not always have a chain.
   'faction_events',
+  // #970: the live chain report — latest, per-change details, periodic full
+  // snapshots, and the poller's own health.
+  'event_chain_report_latest',
+  'event_chain_report_samples',
+  'event_chain_report_snapshots',
+  'event_chain_report_poll_state',
 ]
 
 let server

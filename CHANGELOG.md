@@ -18,6 +18,17 @@ surface it automatically.
 
 ---
 
+## [3.224.0] - 2026-10-17
+
+### Added
+- **Live chain report collection (#970).** While a faction event is live, the dashboard polls Torn's chain report for our own chain every 5 seconds on pooled keys. It keeps the latest report, the faction totals on every change, and a full per-member snapshot every 5 minutes (and always when the chain starts or ends). Both intervals are tunable per tenant (`event_chain_report_poll_sec`, 0 = off; `event_chain_report_snapshot_min`). Outside an event it makes no Torn calls.
+- **The event ends at the chain's exact end.** Once the minimum end has passed, the chain report's own end time is used, ahead of the four-minute chain sampler.
+- **Chain report collection panel** under Events → Settings (leadership): polls, how often the report actually changed, failures, last error.
+
+### Notes
+- Measured before building: Torn serves the same cached answer for ~30 seconds unless the request carries `timestamp`, so every poll sends it.
+- A report from another faction (a key whose owner has left) is never stored, and neither is the faction's last ordinary chain from before the event. During an outage, failures are recorded and polling backs off to once a minute, then resumes by itself.
+
 ## [3.223.0] - 2026-10-17
 
 ### Added
