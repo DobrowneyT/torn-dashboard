@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.228.1] - 2026-10-17
+
+### Fixed
+- **Leadership can find the Events page before an event exists.** The Events tab is now always shown to leadership ("Events" when nothing is scheduled) and opens on Settings, where an event is created. Before, it only appeared once an event existed, so creating the first one meant typing the URL. Members still see it only while an event is upcoming or live.
+- **The attack-log parser no longer counts non-effects as procs (parser v2).** Checked against ~2,000 real forge logs on staging:
+  - **Dropped:** losses, stalemates, loot, boosters, sledgehammer and wind-up stances, and recoil damage.
+  - **Burns and bleeds count once:** a multi-word damage-over-time tick ("Molotov Cocktail scorches X for 807") is no longer counted as a new proc each tick.
+  - **Credited to the defender:** a parry and No Touching, as the log text shows.
+  - The whole archive is re-read automatically.
+
 ## [3.228.0] - 2026-10-17
 
 ### Added

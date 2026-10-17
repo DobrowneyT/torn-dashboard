@@ -16,13 +16,16 @@ export default function Navigation({ isLeadership, event }) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const visibleTabs = TABS.filter(t => !t.requiresLeadership || isLeadership)
-  // #969 — the event tab exists only while an event is upcoming or live, and
-  // wears the event's own colour. The /events route itself always exists, so
-  // a stale link still lands somewhere sensible.
-  if (eventIsVisible(event)) {
+  // #969 — members see the event tab only while an event is upcoming or live,
+  // in the event's own colour. ⚠️ Leadership ALWAYS see it ("Events" when
+  // nothing is scheduled): Settings is where an event gets created, and a tab
+  // that only appears once an event exists left them typing the URL.
+  const showEvent = eventIsVisible(event)
+  if (showEvent || isLeadership) {
     const at = visibleTabs.findIndex(t => t.requiresLeadership)
-    visibleTabs.splice(at === -1 ? visibleTabs.length : at, 0,
-      { to: '/events', label: event.name, color: event.theme_color })
+    visibleTabs.splice(at === -1 ? visibleTabs.length : at, 0, showEvent
+      ? { to: '/events', label: event.name, color: event.theme_color }
+      : { to: '/events', label: 'Events' })
   }
   const tabStyle = (tab, isActive) => tab.color
     ? (isActive

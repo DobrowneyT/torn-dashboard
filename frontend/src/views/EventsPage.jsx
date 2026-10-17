@@ -42,7 +42,7 @@ export default function EventsPage({ event, isLeadership, onChanged }) {
       </div>
       <Routes>
         {/* With no event the report has nothing to say; Chain Watch still does. */}
-        <Route index element={<Navigate to={event ? '/events/report' : '/events/chain-watch'} replace />} />
+        <Route index element={<Navigate to={event ? '/events/report' : (isLeadership ? '/events/settings' : '/events/chain-watch')} replace />} />
         <Route path="report" element={event ? <EventReport event={event} /> : <NoEvent />} />
         <Route path="chain-watch" element={<ChainWatchSection isLeadership={isLeadership} />} />
         {isLeadership && (
