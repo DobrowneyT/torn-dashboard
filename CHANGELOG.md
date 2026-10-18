@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.234.0] - 2026-10-18
+
+### Changed
+- **The War Room shows the TRUE fair fight (#995)**, the same formula without Torn's 3.00 ceiling, so "4.27" says how far you are punching up where the capped value read a flat 3.00.
+  - **Colour:** the FF cell is double-ended: red at 1.00, green at 3.00, and red again at an upper limit (default 6). Too far below you pays little; too far above is a fight you will probably lose.
+  - **Tunable without a deploy:** set the `war_room_ff_red_high` flag in Global Admin to move the upper limit.
+  - **Respect maths are unchanged.** Respect is still paid on the capped value, and the "3x FF" filter still means "pays full respect".
+  - **Sorting:** the roster sorts by the true value, so "far above me" ranks above "even fight" rather than tying at 3.00.
+  - **Everywhere:** desktop, mobile (whose tooltip explains the cap) and the Book of Grudges.
+
 ## [3.233.1] - 2026-10-18
 
 ### Fixed

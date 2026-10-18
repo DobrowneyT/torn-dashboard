@@ -7,6 +7,7 @@ import {
   scoreIsEstimated, ffGradientPosition, isMaxFF, targetBattleStats,
   FF_MAX, FF_CAP_RATIO,
 } from '../fairFight'
+import { trueFairFight, ffTrueHue, FF_TRUE_RED_HIGH_DEFAULT } from '../fairFight'
 
 /** Even split across the four stats, which is how the examples were described. */
 const even = (total) => ({
@@ -118,7 +119,8 @@ describe('fairFight — unknowns', () => {
     // Sorting an unknown as 0 or 1.00 buries it mid-ranking, which is worse
     // than either end — #351 puts no-reading last in BOTH directions.
     expect(ffSortValue(even(5e9), { strength: 1 })).toBeNull()
-    expect(ffSortValue(even(5e9), even(5e9))).toBe(3)
+    // #995: sorts by TRUE FF — equal stats are 1 + 8/3, not the capped 3.
+    expect(ffSortValue(even(5e9), even(5e9))).toBeCloseTo(1 + 8 / 3, 9)
   })
 })
 
@@ -236,5 +238,41 @@ describe('targetBattleStats', () => {
     expect(fairFight(even(5e9), targetBattleStats({}))).toBeNull()
     expect(targetBattleStats(null)).toBeNull()
     expect(fairFight(even(5e9), targetBattleStats(null))).toBeNull()
+  })
+})
+
+describe('#995 — true (uncapped) FF and the double-ended colour', () => {
+  const me = { strength: 1e6, speed: 1e6, defense: 1e6, dexterity: 1e6 }
+  const scaled = (k) => ({ strength: 1e6 * k * k, speed: 1e6 * k * k, defense: 1e6 * k * k, dexterity: 1e6 * k * k })
+
+  it('⚠️ is the same formula without the 3.00 ceiling; the capped one is unchanged', () => {
+    // defender score = 2 × mine → 1 + 8/3 × 2
+    expect(trueFairFight(me, scaled(2))).toBeCloseTo(1 + 16 / 3, 6)
+    expect(fairFight(me, scaled(2))).toBe(3)
+    expect(trueFairFight(me, scaled(0.5))).toBeCloseTo(fairFight(me, scaled(0.5)), 9)
+  })
+
+  it('sorts by the true value, so far-above ranks above even', () => {
+    expect(ffSortValue(me, scaled(2))).toBeGreaterThan(ffSortValue(me, scaled(1)))
+  })
+
+  it('⚠️ the 3x filter still means "pays full respect"', () => {
+    expect(isMaxFF(trueFairFight(me, scaled(2)))).toBe(true)
+    expect(isMaxFF(trueFairFight(me, scaled(0.5)))).toBe(false)
+  })
+
+  it('colours red at 1, green at 3, red again at the upper anchor', () => {
+    expect(ffTrueHue(1)).toBe(0)
+    expect(ffTrueHue(2)).toBe(60)
+    expect(ffTrueHue(3)).toBe(120)
+    expect(ffTrueHue(4.5, 6)).toBe(60)
+    expect(ffTrueHue(6, 6)).toBe(0)
+    expect(ffTrueHue(9, 6)).toBe(0)
+  })
+
+  it('takes a tuned anchor, and ignores one at or below green', () => {
+    expect(ffTrueHue(4, 5)).toBe(60)
+    expect(ffTrueHue(4.5, 3)).toBe(ffTrueHue(4.5, FF_TRUE_RED_HIGH_DEFAULT))
+    expect(ffTrueHue(null)).toBeNull()
   })
 })

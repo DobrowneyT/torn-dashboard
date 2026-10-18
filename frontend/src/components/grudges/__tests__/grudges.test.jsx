@@ -302,9 +302,10 @@ describe('GrudgeList', () => {
   })
 
   it('computes FF from the viewer’s own stats', () => {
-    // Equal scores → ratio 1, which is past the 0.75 saturation point, so 3.00.
+    // Equal scores → ratio 1 → TRUE FF 1 + 8/3 = 3.67 (#995). Respect still
+    // pays at the 3.00 cap; the display shows how far past it this is.
     const { container } = render(<GrudgeList targets={[spied()]} viewerId={9010} myBattleStats={mine} />)
-    expect(container.querySelectorAll('tbody td')[3].textContent).toBe('3.00')
+    expect(container.querySelectorAll('tbody td')[3].textContent).toBe('3.67')
   })
 
   it('⚠️ the SAME target reads differently for a stronger viewer', () => {
