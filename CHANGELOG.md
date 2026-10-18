@@ -18,6 +18,11 @@ surface it automatically.
 
 ---
 
+## [3.232.1] - 2026-10-18
+
+### Fixed
+- **Ranked lists on Stats no longer run off a phone screen.** A long name with a long figure ("$2,000,000 on Fiveseven_ [340409]") pushed the card past the right edge and cut the figure off. The figure now drops under the name when both don't fit.
+
 ## [3.232.0] - 2026-10-18
 
 ### Added

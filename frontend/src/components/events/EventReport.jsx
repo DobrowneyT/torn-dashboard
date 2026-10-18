@@ -320,16 +320,20 @@ const DAY_COLS = [
  */
 function Ranked({ title, rows, unit = '', render, who = (r) => <PlayerLink id={r.id} name={r.name} />, empty = 'Nothing yet.' }) {
   return (
-    <div className="card p-4">
+    // ⚠️ `min-w-0` on the card, and rows that WRAP: on a phone a long name and
+    // a long figure ("$5,500,969 on Fivesevenseven [123]") do not fit one line,
+    // and without these the card grew past the screen edge and cut the figure
+    // off (seen at 390 px). The figure drops under the name, right-aligned.
+    <div className="card p-4 min-w-0">
       <h4 className="font-semibold text-gray-900 dark:text-white mb-2">{title}</h4>
       {rows.length === 0
         ? <p className="text-sm text-gray-500 dark:text-gray-400">{empty}</p>
         : (
           <ol className="space-y-1 text-sm">
             {rows.map((r, i) => (
-              <li key={i} className="flex justify-between gap-3">
-                <span className="truncate min-w-0"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{who(r)}</span>
-                <span className="tabular-nums text-gray-700 dark:text-gray-200 whitespace-nowrap">{render(r)}{unit ? ` ${unit}` : ''}</span>
+              <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <span className="truncate min-w-0 max-w-full"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{who(r)}</span>
+                <span className="ml-auto tabular-nums text-right text-gray-700 dark:text-gray-200 min-w-0 max-w-full truncate">{render(r)}{unit ? ` ${unit}` : ''}</span>
               </li>
             ))}
           </ol>
@@ -355,7 +359,7 @@ const TARGET_COLS = [
  */
 function FactionList({ title, rows, detail }) {
   return (
-    <div className="card p-4">
+    <div className="card p-4 min-w-0">
       <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
         {title} <span className="text-sm font-normal text-gray-500 dark:text-gray-400">({fmt(rows.length)})</span>
       </h4>
@@ -570,7 +574,7 @@ function Stats({ event, days, stamp }) {
               <div className="grid gap-3 md:grid-cols-2">
                 <Ranked title="Loot drops" rows={h.loot.by_member} render={(r) => `${fmt(r.drops)} ${r.drops === 1 ? 'drop' : 'drops'}`}
                   empty="No loot dropped in this range." />
-                <div className="card p-4 space-y-3 text-sm">
+                <div className="card p-4 space-y-3 text-sm min-w-0">
                   <h4 className="font-semibold text-gray-900 dark:text-white">Loot by item</h4>
                   {h.loot.by_item.length === 0 ? <p className="text-gray-500 dark:text-gray-400">None yet.</p> : (
                     <ul className="flex flex-wrap gap-2">
