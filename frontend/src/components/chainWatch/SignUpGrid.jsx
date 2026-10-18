@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { UserPlus, X, Repeat } from 'lucide-react'
+import { UserPlus, X, Repeat, MessageCircle } from 'lucide-react'
 import { groupByTctDay, localLabel, zoneLabel, bonusLabel, tctLabel } from '../../utils/chainWatch'
 import InfoTooltip from '../InfoTooltip'
 
@@ -185,7 +185,16 @@ export default function SignUpGrid({
                       >
                         {slot.member_name ?? slot.member_id}
                       </a>
-                      <span className="flex shrink-0 gap-0.5">
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        {/* #1007: claimed with the Discord board's Sign up button. */}
+                        {slot.via === 'discord' && (
+                          <MessageCircle
+                            size={12} aria-label="Signed up from Discord"
+                            className="text-indigo-400 dark:text-indigo-300"
+                          >
+                            <title>Signed up from Discord</title>
+                          </MessageCircle>
+                        )}
                         {canEdit && (
                           <button
                             type="button" disabled={busy}
