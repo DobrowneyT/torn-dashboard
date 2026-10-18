@@ -1,19 +1,37 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
+import { eventIsVisible } from '../utils/factionEvent'
 
 const TABS = [
-  { to: '/',            label: 'Dashboard', end: true },
+  // ⚠️ /dashboard, not `/` — `/` redirects to the event while one is live (#969).
+  { to: '/dashboard',   label: 'Dashboard' },
   { to: '/members',     label: 'Members' },
   { to: '/oc',          label: 'OC' },
   { to: '/rw',          label: 'RW' },
   { to: '/leadership',  label: 'Leadership', requiresLeadership: true },
 ]
 
-export default function Navigation({ isLeadership }) {
+export default function Navigation({ isLeadership, event }) {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const visibleTabs = TABS.filter(t => !t.requiresLeadership || isLeadership)
+  // #969 — members see the event tab only while an event is upcoming or live,
+  // in the event's own colour. ⚠️ Leadership ALWAYS see it ("Events" when
+  // nothing is scheduled): Settings is where an event gets created, and a tab
+  // that only appears once an event exists left them typing the URL.
+  const showEvent = eventIsVisible(event)
+  if (showEvent || isLeadership) {
+    const at = visibleTabs.findIndex(t => t.requiresLeadership)
+    visibleTabs.splice(at === -1 ? visibleTabs.length : at, 0, showEvent
+      ? { to: '/events', label: event.name, color: event.theme_color }
+      : { to: '/events', label: 'Events' })
+  }
+  const tabStyle = (tab, isActive) => tab.color
+    ? (isActive
+      ? { backgroundColor: tab.color, color: '#fff' }
+      : { color: tab.color, boxShadow: `inset 0 0 0 1px ${tab.color}` })
+    : undefined
 
   const linkClass = ({ isActive }) =>
     `px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap ${
@@ -51,6 +69,7 @@ export default function Navigation({ isLeadership }) {
               to={tab.to}
               end={tab.end}
               className={mobileLinkClass}
+              style={({ isActive }) => tabStyle(tab, isActive)}
               onClick={() => setMobileOpen(false)}
             >
               {tab.label}
@@ -63,7 +82,7 @@ export default function Navigation({ isLeadership }) {
       <div className="hidden md:block card p-2">
         <div className="flex gap-2 overflow-x-auto">
           {visibleTabs.map(tab => (
-            <NavLink key={tab.to} to={tab.to} end={tab.end} className={linkClass}>
+            <NavLink key={tab.to} to={tab.to} end={tab.end} className={linkClass} style={({ isActive }) => tabStyle(tab, isActive)}>
               {tab.label}
             </NavLink>
           ))}

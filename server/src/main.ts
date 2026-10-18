@@ -158,6 +158,32 @@ if (db) {
         health.ticker = true
         console.log(`[${factionSlug}] war-room ticker armed (config-gated)`)
       }
+
+      // #970 — the live chain report. Self-gates on a LIVE faction event, so
+      // outside one it costs a SELECT every 30 s and zero Torn calls.
+      {
+        const { createChainReportPoller } = await import('./events/chainReportPoller.js')
+        const { createKeyPool } = await import('./scraper/keyPool.js')
+        createChainReportPoller({
+          db,
+          pool: createKeyPool({ db, encryptionKey: keyEncryptionKey }),
+          tornBaseUrl,
+          flags: app.flagResolver,
+        }).start()
+        console.log(`[${factionSlug}] event chain-report poller armed (event-gated)`)
+
+        // #973 — archive every event attack's log while it still exists.
+        // Event-gated the same way; keeps going up to a week after the end to
+        // collect the stragglers.
+        const { createAttackLogArchiver } = await import('./events/attackLogArchiver.js')
+        createAttackLogArchiver({
+          db,
+          pool: createKeyPool({ db, encryptionKey: keyEncryptionKey }),
+          tornBaseUrl,
+          flags: app.flagResolver,
+        }).start()
+        console.log(`[${factionSlug}] event attack-log archiver armed (event-gated)`)
+      }
     } catch (err) {
       console.error(
         `[${factionSlug}] scraper startup failed — API continues without scrapers. ` +

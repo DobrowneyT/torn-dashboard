@@ -131,6 +131,23 @@ const NEW_TABLES = [
   // `is_termed` there are facts about the war, while this is how far we got
   // with it; one careless UPDATE should not be able to touch both.
   'war_wrap_up_state',
+  // #969: a faction event (Halloween) and the page hosting it. ⚠️ Separate
+  // from chain_events and linked to it — an event will not always have a chain.
+  'faction_events',
+  // #970: the live chain report — latest, per-change details, periodic full
+  // snapshots, and the poller's own health.
+  'event_chain_report_latest',
+  'event_chain_report_samples',
+  'event_chain_report_snapshots',
+  'event_chain_report_poll_state',
+  // #973: every event attack's raw log, archived before it expires, and the
+  // archiver's health.
+  'event_attack_logs',
+  'event_attack_log_state',
+  // #974: what the parser read out of each archived log, and one row per
+  // effect (proc) line.
+  'event_attack_log_parsed',
+  'event_attack_log_effects',
 ]
 
 let server

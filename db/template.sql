@@ -1349,6 +1349,222 @@ CREATE TABLE IF NOT EXISTS public.chain_events (
   CONSTRAINT chain_events_window CHECK (ends_at > starts_at)
 );
 
+-- #969 — a faction event (Halloween first), and the page that hosts it.
+--
+-- ⚠️ SEPARATE from `chain_events`, and linked to it rather than merged into it.
+-- `chain_events` is Chain Watch's sign-up board for ONE chain; a faction event
+-- is the page around it, and will not always have a chain at all. Chain Watch
+-- deliberately shares nothing with other features, and this keeps that true:
+-- the event points at a chain event, never the other way round.
+CREATE TABLE IF NOT EXISTS public.faction_events (
+  id               bigserial PRIMARY KEY,
+  name             text NOT NULL,
+
+  -- The page's accent, e.g. #f97316 for Halloween. A 6-digit hex, so the
+  -- frontend can use it directly and a typo cannot reach a style attribute.
+  theme_color      text NOT NULL DEFAULT '#f97316'
+                   CHECK (theme_color ~ '^#[0-9a-fA-F]{6}$'),
+
+  -- When the event opens — and when the page becomes the landing page.
+  starts_at        timestamptz NOT NULL,
+
+  -- Where "day one" begins for daily figures. ⚠️ NOT starts_at: members may
+  -- start their own chain anywhere from 10:00 to 16:00 TCT on the first day, so
+  -- day one would be unequal. Daily runs from the next midnight TCT instead.
+  daily_from       timestamptz NOT NULL,
+
+  -- ⚠️ The END IS NOT A DATE. The event lasts at least until min_ends_at, and
+  -- after that, while `ends_with_chain` is set, until the chain finishes or
+  -- breaks (MonChoon: "The event will end when our chain reaches 100k or when
+  -- the chain dies... at minimum the event will last until November 1 16:00
+  -- TCT."). So "is it live" is a question, never a comparison against a stored
+  -- end — see eventLifecycle.ts.
+  min_ends_at      timestamptz NOT NULL,
+  ends_with_chain  boolean NOT NULL DEFAULT true,
+
+  -- Set when the event is over: by a lead, or by the lifecycle once the chain
+  -- has ended past min_ends_at. NULL while it has not ended.
+  ended_at         timestamptz,
+
+  -- The Chain Watch board for this event's chain, if there is one. ⚠️ SET NULL
+  -- on delete: removing a Chain Watch event must never delete the faction event.
+  chain_event_id   bigint REFERENCES public.chain_events(id) ON DELETE SET NULL,
+
+  created_by       text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_by       text,
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT faction_events_daily_after_start CHECK (daily_from >= starts_at),
+  CONSTRAINT faction_events_min_end_after_start CHECK (min_ends_at > starts_at)
+);
+
+-- The page asks "what is the current event?" on every load.
+CREATE INDEX IF NOT EXISTS faction_events_open_idx
+  ON public.faction_events (starts_at)
+  WHERE ended_at IS NULL;
+
+-- #970 — the live chain report, polled from Torn while a faction event is live.
+--
+-- ⚠️ The chain report is the SOURCE OF TRUTH for per-member event totals (#967):
+-- the numbers members will check us against. It is cumulative, so after an
+-- outage the first successful poll is complete again.
+--
+-- ⚠️ Three tables, because storing every attacker row on every 5-second poll
+-- would cost ~3 GB per tenant over an eight-day event:
+--   * `event_chain_report_latest`    — the newest full report, one row per event
+--                                      (what the live page reads)
+--   * `event_chain_report_samples`   — the faction `details` on EVERY change
+--                                      (small; the time series)
+--   * `event_chain_report_snapshots` — the full report every few minutes, and
+--                                      always when the chain changes or ends
+--                                      (change over time per member)
+CREATE TABLE IF NOT EXISTS public.event_chain_report_latest (
+  event_id      bigint PRIMARY KEY REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  chain_id      bigint NOT NULL,
+  chain_start   timestamptz NOT NULL,
+  -- ⚠️ As Torn reports it. A finished chain's `end` is fixed and in the past;
+  -- what a RUNNING chain's `end` holds has not been observed yet, so "ended"
+  -- is decided by eventChainReport.ts, not by this column being non-null.
+  chain_end     timestamptz,
+  details       jsonb NOT NULL,
+  attackers     jsonb NOT NULL,
+  bonuses       jsonb NOT NULL,
+  non_attackers jsonb NOT NULL,
+  content_hash  text NOT NULL,
+  sampled_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.event_chain_report_samples (
+  id          bigserial PRIMARY KEY,
+  event_id    bigint NOT NULL REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  chain_id    bigint NOT NULL,
+  chain_start timestamptz NOT NULL,
+  chain_end   timestamptz,
+  details     jsonb NOT NULL,
+  sampled_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS event_chain_report_samples_event_time
+  ON public.event_chain_report_samples (event_id, sampled_at);
+
+CREATE TABLE IF NOT EXISTS public.event_chain_report_snapshots (
+  id            bigserial PRIMARY KEY,
+  event_id      bigint NOT NULL REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  chain_id      bigint NOT NULL,
+  chain_start   timestamptz NOT NULL,
+  chain_end     timestamptz,
+  details       jsonb NOT NULL,
+  attackers     jsonb NOT NULL,
+  bonuses       jsonb NOT NULL,
+  non_attackers jsonb NOT NULL,
+  sampled_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS event_chain_report_snapshots_event_time
+  ON public.event_chain_report_snapshots (event_id, sampled_at);
+
+-- The poller's own health, one row per event: how often it polled, how often
+-- the report actually CHANGED (the measurement #970 sets the cadence from),
+-- and its failures. ⚠️ An outage must show here as failures, never as quiet
+-- successes (#963).
+CREATE TABLE IF NOT EXISTS public.event_chain_report_poll_state (
+  event_id             bigint PRIMARY KEY REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  polls                bigint NOT NULL DEFAULT 0,
+  changes              bigint NOT NULL DEFAULT 0,
+  failures             bigint NOT NULL DEFAULT 0,
+  consecutive_failures integer NOT NULL DEFAULT 0,
+  skipped              bigint NOT NULL DEFAULT 0,
+  last_ok_at           timestamptz,
+  last_change_at       timestamptz,
+  last_error           text,
+  last_error_at        timestamptz,
+  last_skip_reason     text,
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+
+-- #973 — every event attack's log, archived while it still exists.
+--
+-- ⚠️ Attack logs EXPIRE (31 days fetch; last Halloween's return error 28). They
+-- cannot be backfilled after the event, so this is collected DURING it.
+-- ⚠️ `raw` is Torn's response, UNPARSED. The parser will change once a treat
+-- has been seen in a log (#975), and the logs will not exist to re-fetch.
+-- ⚠️ Identity is `attack_id` from attacks-sync: stealthed attackers appear as
+-- "Someone" in the log text.
+CREATE TABLE IF NOT EXISTS public.event_attack_logs (
+  attack_id       bigint PRIMARY KEY,
+  event_id        bigint NOT NULL REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  code            text NOT NULL,
+  -- archived: stored. gone: Torn says the log does not exist (expired or never
+  -- valid) — never retried. failed: will be retried at next_attempt_at.
+  status          text NOT NULL CHECK (status IN ('archived', 'gone', 'failed')),
+  raw             jsonb,
+  lines           integer,
+  attempts        integer NOT NULL DEFAULT 0,
+  last_error      text,
+  next_attempt_at timestamptz,
+  fetched_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS event_attack_logs_event_status
+  ON public.event_attack_logs (event_id, status);
+
+-- The archiver's health, one row per event. ⚠️ A backlog that grows instead of
+-- shrinking must be visible, not silent — logs that wait too long are lost.
+CREATE TABLE IF NOT EXISTS public.event_attack_log_state (
+  event_id        bigint PRIMARY KEY REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  backlog         integer NOT NULL DEFAULT 0,
+  growing_since   timestamptz,
+  calls           bigint NOT NULL DEFAULT 0,
+  keys_available  integer NOT NULL DEFAULT 0,
+  last_run_at     timestamptz,
+  last_error      text,
+  last_error_at   timestamptz,
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- #974 — what the parser read out of each archived attack log.
+--
+-- Rebuilt from `event_attack_logs.raw` at any time: re-running the parser over
+-- the whole archive is idempotent (one row per attack, effects replaced
+-- wholesale). `parser_version` is how a changed parser finds what to redo.
+CREATE TABLE IF NOT EXISTS public.event_attack_log_parsed (
+  attack_id      bigint PRIMARY KEY REFERENCES public.event_attack_logs(attack_id) ON DELETE CASCADE,
+  event_id       bigint NOT NULL REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  parser_version integer NOT NULL,
+  -- Our member in this attack: the attacker outgoing, the defender incoming.
+  member_id      bigint,
+  outgoing       boolean NOT NULL,
+  mug_amount     bigint,
+  -- Parser v3 (0082): a bounty claimed on the hospitalize, if any.
+  bounty_amount  bigint,
+  respect        numeric(10,2),
+  damage_dealt   integer,
+  damage_taken   integer,
+  hits           integer,
+  misses         integer,
+  hit_damages    integer[] NOT NULL DEFAULT '{}',
+  biggest_hit    integer,
+  started        bigint NOT NULL,
+  parsed_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS event_attack_log_parsed_event
+  ON public.event_attack_log_parsed (event_id, member_id);
+
+-- One row per effect line — a weapon proc such as Stricken or Plunder, or
+-- another named effect. ⚠️ Named by the line's icon, never matched by wording.
+CREATE TABLE IF NOT EXISTS public.event_attack_log_effects (
+  attack_id bigint NOT NULL REFERENCES public.event_attack_logs(attack_id) ON DELETE CASCADE,
+  seq       integer NOT NULL,
+  event_id  bigint NOT NULL REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  actor_id  bigint,
+  effect    text NOT NULL,
+  text      text NOT NULL,
+  started   bigint NOT NULL,
+  PRIMARY KEY (attack_id, seq)
+);
+CREATE INDEX IF NOT EXISTS event_attack_log_effects_event
+  ON public.event_attack_log_effects (event_id, actor_id);
+
+
+
 CREATE TABLE IF NOT EXISTS public.chain_watch_signups (
   id             bigserial PRIMARY KEY,
   event_id       bigint NOT NULL REFERENCES public.chain_events(id) ON DELETE CASCADE,

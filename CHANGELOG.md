@@ -18,6 +18,107 @@ surface it automatically.
 
 ---
 
+## [3.230.1] - 2026-10-17
+
+### Fixed
+- **Chain Watch stays in the Members tabs**, now linking to its new home on the Events page. Members only see the Events tab once an event exists, but Chain Watch sign-ups open before that: tnl and forge both had Halloween sign-ups open with no event created yet.
+
+## [3.230.0] - 2026-10-17
+
+### Added
+- **Factions on Targets (#987):**
+  - **Factions we hit most:** attacks, wins, members of ours involved, and respect gained.
+  - **Factions that hit us most:** attacks, how many beat us, how many we defended, members of ours hit, and respect lost.
+  - **Edge cases:** factionless players and stealthed attackers are rows of their own, never dropped. A stealthed attack hides the faction too, so it is never lumped in with "No faction". Attacks between our own members are excluded.
+- **Most earned from bounties** on Highlights: per member, by total value, with the number of claims, beside the highest single claims (now titled "Highest bounties claimed").
+- **Retaliations on Daily**, per member and per day, counted from Torn's 1.5× retaliation modifier on synced attacks. They were already in Totals and Members, from Torn's chain report.
+
+## [3.229.0] - 2026-10-17
+
+### Added
+- **Bounties claimed (parser v3).** Read from the archived attack logs: Torn writes a claim on the hospitalize line ("X hospitalized Y and claimed a $100,000 bounty"), and only there, never on a leave or a mug. Highlights shows bounties claimed, their total, and the biggest claims. Our members' claims only; a bounty claimed on one of ours is not ours. The archive is re-read automatically (migration 0082).
+- **A position column on Members**, frozen beside the name, so a member scrolled to any figure can see where they stand. It numbers the rows in the current sort: sort by respect and it is a respect ranking.
+
+### Changed
+- **The report opens on Members**, the live chain report board, with Totals second.
+- **Settings** is pinned by tests to leadership and admins: no tab, and the URL does not open it, for anyone else. This was already true; the URL case was not tested.
+
+## [3.228.1] - 2026-10-17
+
+### Fixed
+- **Leadership can find the Events page before an event exists.** The Events tab is now always shown to leadership ("Events" when nothing is scheduled) and opens on Settings, where an event is created. Before, it only appeared once an event existed, so creating the first one meant typing the URL. Members still see it only while an event is upcoming or live.
+- **The attack-log parser no longer counts non-effects as procs (parser v2).** Checked against ~2,000 real forge logs on staging:
+  - **Dropped:** losses, stalemates, loot, boosters, sledgehammer and wind-up stances, and recoil damage.
+  - **Burns and bleeds count once:** a multi-word damage-over-time tick ("Molotov Cocktail scorches X for 807") is no longer counted as a new proc each tick.
+  - **Credited to the defender:** a parry and No Touching, as the log text shows.
+  - The whole archive is re-read automatically.
+- **Attacks between two of our own members no longer count as incoming.** They are stored as incoming, which put our own members into "Who hit us most" and inflated "Attacked" on Targets and "Hit by others" on Daily.
+- **The report on a phone**, checked at 390 px against real staging data:
+  - **Members, Daily and Targets:** the name column stays put while the figures scroll sideways, and rows no longer change height when a figure wraps.
+  - **Report views:** they sit on one row that scrolls sideways, instead of wrapping.
+  - **Totals:** packed three to a row, with Respect across the top; "Best hit" is now "Best respect", which is what it is.
+
+## [3.228.0] - 2026-10-17
+
+### Added
+- **Archived attack logs are read (#974).** For every event attack: the mug amount, each hit's damage and the biggest, damage dealt and taken (Torn's own per-fight summary), respect, and **one row per effect line** (weapon procs such as Stricken, Plunder, Powerful, Execute, and named effects such as Bleeding). The archiver parses new logs as they arrive. Re-running over the whole archive is idempotent, and a parser version bump re-reads everything (how the treat parser in #975 will catch up).
+- **Highlights** on Events → Report: highest mugs, biggest hits, most effects per member, every effect seen, and effects per day. Our members only; an opponent's proc in the same fight is never credited to us.
+
+### Notes
+- Built from 35 real forge logs. Effects are identified by the icon Torn puts on the log line, never by wording, so **Revitalize** needs no guessed text: it appears under its own name the first time a real log carries it. A damage-over-time tick ("Bleeding damaged X for 106") is not counted as a proc or a hit; only the line that starts it counts.
+- Stealthed attackers ("Someone") are attributed from the stored attack, never the log text.
+
+## [3.227.0] - 2026-10-17
+
+### Added
+- **Every event attack's log is archived while it still exists (#973).** Torn's attack logs expire, so they are collected during the event. Outgoing and incoming are both fetched on pooled keys and stored raw (Torn's response, unparsed), ready for the parsers in #974 and #975.
+  - **Work list:** any event attack without a stored log is due, so the archive resumes by itself after an outage or restart.
+  - **Expired logs** (Torn error 28) are recorded and never asked for again. Other failures retry with backoff from 2 minutes up to an hour.
+  - **After the event:** archiving continues for 7 days, to pick up the last few logs.
+  - **Per-key limit:** no key makes more than 10 calls in any minute. This is a courtesy to members' own scripts, tunable as `event_attack_log_per_key_per_min`.
+- **Attack log archive panel** under Events → Settings (leadership): archived, waiting, expired and retrying counts. A backlog that keeps growing for ten minutes shows as a red warning.
+
+## [3.226.0] - 2026-10-17
+
+### Added
+- **The event report updates live (#972).** An open Report page checks every 5 seconds whether anything it is built from has changed, and refetches only then: a new attack, a backfilled one, or a chain report that actually differs. Attacks-sync re-reading its newest attack, or an identical chain-report poll, changes nothing. The page stops checking while its tab is hidden and catches up when it is shown again.
+
+### Notes
+- The server caches the "has it changed?" answer for 3 seconds per event, so many open tabs cost one query. It is a separate endpoint and shares nothing with the War Room's push hub; a test now fails if events code imports anything from the War Room.
+
+## [3.225.0] - 2026-10-17
+
+### Added
+- **The event's live chain report (#971)** on Events → Report, with four views:
+  - **Totals:** chain, respect raw and capped (10 per bonus hit, with the deduction named), hits, mugs, hospitalizations, assists, retaliations, overseas, losses, escapes, draws and bonuses, plus every bonus hit and what capping it costs.
+  - **Members:** the same per member, plus respect average and best, sortable, and who has **not hit yet**.
+  - **Daily:** per member per TCT day from the daily start, from our synced attacks, so a day interrupted by an outage fills in once Torn is back.
+  - **Targets:** attacks made and received per member, most-targeted members, who hit us most, and who we hit most.
+- Totals and Members are Torn's own chain report, the numbers members will check us against. The report refreshes every 30 seconds and stays readable after the event ends.
+
+## [3.224.0] - 2026-10-17
+
+### Added
+- **Live chain report collection (#970).** While a faction event is live, the dashboard polls Torn's chain report for our own chain every 5 seconds on pooled keys. It keeps the latest report, the faction totals on every change, and a full per-member snapshot every 5 minutes (and always when the chain starts or ends). Both intervals are tunable per tenant (`event_chain_report_poll_sec`, 0 = off; `event_chain_report_snapshot_min`). Outside an event it makes no Torn calls.
+- **The event ends at the chain's exact end.** Once the minimum end has passed, the chain report's own end time is used, ahead of the four-minute chain sampler.
+- **Chain report collection panel** under Events → Settings (leadership): polls, how often the report actually changed, failures, last error.
+
+### Notes
+- Measured before building: Torn serves the same cached answer for ~30 seconds unless the request carries `timestamp`, so every poll sends it.
+- A report from another faction (a key whose owner has left) is never stored, and neither is the faction's last ordinary chain from before the event. During an outage, failures are recorded and polling backs off to once a minute, then resumes by itself.
+
+## [3.223.0] - 2026-10-17
+
+### Added
+- **Events page (#969).** A faction event (Halloween first) now has its own page at **Events**, in the event's colour. While an event is live it is the landing page; the nav tab appears only while one is upcoming or live. Leadership schedule and edit it under Events → Settings (all times TCT): opens, daily figures from, runs at least until, and whether it then runs until the chain ends (dies or reaches 100k). The end is stamped from the chain samples, so a later ordinary chain cannot revive a finished event, and a Torn outage keeps it live rather than ending it.
+- **Chain Watch moved to Events.** `/members/chain-watch` redirects there, so the bot's sign-up link and old bookmarks still work. Sign-ups stay reachable with no event scheduled.
+
+### Changed
+- **The dashboard lives at `/dashboard`.** `/` now redirects — to the event while one is live, otherwise to the dashboard — so the Dashboard tab still works mid-event.
+
+### Fixed
+- **Path-style links land on the right page.** A link like `https://<faction>.monchoon.me/members/chain-watch` (the bot's sign-up link) used to open the home page; it now opens the page it names.
+
 ## [3.222.1] - 2026-10-17
 
 ### Changed
