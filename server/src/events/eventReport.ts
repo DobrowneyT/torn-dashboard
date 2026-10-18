@@ -101,11 +101,29 @@ const LOSSES = [...LOSS_RESULTS]
  * midnight; `day` is the date that window starts on.
  */
 export async function dailySection(db: pg.Pool, us: number, fromMs: number, toMs: number, names: NameBook) {
+  return memberDays(db, us, fromMs, toMs, names, true)
+}
+
+/**
+ * Per-member figures over ONE range (#Stats view) — the daily figures without
+ * the split by day, so "Overall" and a custom range add up the same way a day
+ * does.
+ */
+export async function rangeMembers(db: pg.Pool, us: number, fromMs: number, toMs: number, names: NameBook) {
+  const [only] = await memberDays(db, us, fromMs, toMs, names, false)
+  return only ?? { totals: emptyTotals(), members: [] }
+}
+
+const emptyTotals = () => ({ hits: 0, mug: 0, hospitalize: 0, assists: 0, retaliations: 0, losses: 0,
+  respect: 0, incoming: 0, beaten: 0, defended: 0 })
+
+async function memberDays(db: pg.Pool, us: number, fromMs: number, toMs: number, names: NameBook, byDay: boolean) {
   if (toMs <= fromMs) return []
   const from = Math.floor(fromMs / 1000)
   const to = Math.ceil(toMs / 1000)
+  const dayExpr = byDay ? `((started - $1) / ${DAY_S})::int` : '0'
   const out = await db.query(
-    `SELECT ((started - $1) / ${DAY_S})::int AS day, attacker_id AS id,
+    `SELECT ${dayExpr} AS day, attacker_id AS id,
             count(*) FILTER (WHERE result = ANY($4))         AS hits,
             count(*) FILTER (WHERE result = 'Attacked')      AS leave,
             count(*) FILTER (WHERE result = 'Mugged')        AS mug,
@@ -122,7 +140,7 @@ export async function dailySection(db: pg.Pool, us: number, fromMs: number, toMs
     [from, to, us, WINS, LOSSES, ASSIST_RESULT],
   )
   const inc = await db.query(
-    `SELECT ((started - $1) / ${DAY_S})::int AS day, defender_id AS id,
+    `SELECT ${dayExpr} AS day, defender_id AS id,
             count(*)                                  AS incoming,
             count(*) FILTER (WHERE result = ANY($4))  AS beaten,
             count(*) FILTER (WHERE result = ANY($5))  AS defended
@@ -226,17 +244,18 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
       GROUP BY 1 ORDER BY hits DESC, id LIMIT ${TOP_TARGETS}`,
     [from, to, us],
   )
-  // #987 — the same, by FACTION. ⚠️ Factionless players and stealthed
-  // attackers are rows of their own, never dropped: a quarter of forge's
-  // incoming in a quiet week came from players with no faction. A stealthed
-  // attack hides the attacker's faction too, so it cannot be "No faction".
+  // #987 — the same, by FACTION, EVERY faction (the page scrolls past ten).
+  // ⚠️ Factionless players and stealthed attackers are left out: MonChoon
+  // reviewed them as rows on staging and found them no use ("kind of
+  // useless"). Both still count everywhere else on Targets.
   const weHit = await db.query(
     `SELECT coalesce(defender_faction_id, 0) AS id, max(defender_faction_name) AS name,
             count(*) AS attacks, count(*) FILTER (WHERE result = ANY($4)) AS wins,
             count(DISTINCT attacker_id) AS members, coalesce(sum(respect_gain), 0) AS respect
        FROM faction_attacks
       WHERE NOT is_incoming AND attacker_faction_id = $3 AND started >= $1 AND started < $2
-      GROUP BY 1 ORDER BY attacks DESC, respect DESC LIMIT ${TOP_TARGETS}`,
+        AND defender_faction_id IS NOT NULL
+      GROUP BY 1 ORDER BY attacks DESC, respect DESC`,
     [from, to, us, WINS],
   )
   const hitUs = await db.query(
@@ -249,8 +268,9 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
        FROM faction_attacks
       WHERE is_incoming AND defender_faction_id = $3
         AND attacker_faction_id IS DISTINCT FROM $3
+        AND attacker_faction_id IS NOT NULL
         AND started >= $1 AND started < $2
-      GROUP BY 1 ORDER BY attacks DESC, respect DESC LIMIT ${TOP_TARGETS}`,
+      GROUP BY 1 ORDER BY attacks DESC, respect DESC`,
     [from, to, us, WINS, LOSSES],
   )
   const label = (key: string, name: string | null) =>
@@ -310,112 +330,145 @@ export async function reportVersion(db: pg.Pool, eventId: number, us: number, fr
 }
 
 /**
- * Highlights from the parsed attack logs (#974): highest mug, biggest hit,
- * most effects (procs), and effects per day. Our members only.
+ * Effects worth a leaderboard of their own (MonChoon, 2026-10-18: Revitalize
+ * and treat drops "will be important data points"; of the other effects "im
+ * not sure we care about any").
  *
- * ⚠️ Effects are named by the log line's icon — `stricken`, `plunder`,
- * `powerful`… — so a proc nobody has seen yet (Revitalize) appears here under
- * its own name the first time a real log carries it.
+ * ⚠️ Matched by PART of the icon name, because neither has been seen in a log
+ * yet — Torn's exact icon for a Revitalize proc or a treat drop is unknown, and
+ * `revital` / `treat` catch any spelling of it. Every other effect is still
+ * stored and listed as "all effects seen", which is how the real names will be
+ * spotted the first time they appear (#975).
+ */
+export const TRACKED_EFFECTS = [
+  { key: 'revitalize', label: 'Revitalize', match: 'revital' },
+  { key: 'treats', label: 'Treats', match: 'treat' },
+] as const
+
+/** "looted a Jawbreaker" / "looted 3x Concussion Grenade" / "looted some Pixie Sticks" … "from Jimmy". */
+const LOOT = /\blooted (?:(\d+)x |an? |some )?(.+?) from (.+)$/
+
+export function parseLoot(text: string): { qty: number; item: string; from: string } | null {
+  const m = LOOT.exec(text)
+  if (!m) return null
+  return { qty: m[1] ? Number(m[1]) : 1, item: m[2].trim(), from: m[3].trim() }
+}
+
+/**
+ * Highlights from the parsed attack logs, over a RANGE (#974, the Stats view):
+ * highest mugs, biggest hits, bounties, the tracked effects, and loot. Our
+ * members only. Every name carries its id, so the page can link it.
  */
 export async function highlightsSection(
-  db: pg.Pool, eventId: number, fromDailyMs: number, names: NameBook,
+  db: pg.Pool, eventId: number, fromMs: number, toMs: number, names: NameBook,
 ) {
+  const from = Math.floor(fromMs / 1000)
+  const to = Math.ceil(toMs / 1000)
+  const RANGE = 'p.event_id = $1 AND p.started >= $2 AND p.started < $3'
+  const args = [eventId, from, to]
   const counts = await db.query(
     `SELECT count(*) AS parsed, coalesce(sum(mug_amount) FILTER (WHERE outgoing), 0) AS mugged,
             coalesce(sum(damage_dealt), 0) AS damage
-       FROM event_attack_log_parsed WHERE event_id = $1`, [eventId])
+       FROM event_attack_log_parsed p WHERE ${RANGE}`, args)
   const parsed = Number(counts.rows[0]?.parsed ?? 0)
   if (parsed === 0) return null
 
   const mugs = await db.query(
-    `SELECT p.member_id AS id, p.mug_amount AS amount, a.defender_name AS target, p.started
+    `SELECT p.member_id AS id, p.mug_amount AS amount, a.defender_id AS target_id, a.defender_name AS target, p.started
        FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
-      WHERE p.event_id = $1 AND p.outgoing AND p.mug_amount IS NOT NULL
-      ORDER BY p.mug_amount DESC, p.attack_id LIMIT ${TOP_TARGETS}`, [eventId])
+      WHERE ${RANGE} AND p.outgoing AND p.mug_amount IS NOT NULL
+      ORDER BY p.mug_amount DESC, p.attack_id LIMIT ${TOP_TARGETS}`, args)
   // Bounties our members claimed (v3). ⚠️ Outgoing only — a bounty claimed ON
   // one of ours is the opponent's prize, not a highlight.
   const bounties = await db.query(
-    `SELECT p.member_id AS id, p.bounty_amount AS amount, a.defender_name AS target, p.started
+    `SELECT p.member_id AS id, p.bounty_amount AS amount, a.defender_id AS target_id, a.defender_name AS target, p.started
        FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
-      WHERE p.event_id = $1 AND p.outgoing AND p.bounty_amount IS NOT NULL
-      ORDER BY p.bounty_amount DESC, p.attack_id`, [eventId])
+      WHERE ${RANGE} AND p.outgoing AND p.bounty_amount IS NOT NULL
+      ORDER BY p.bounty_amount DESC, p.attack_id`, args)
   const hits = await db.query(
     `SELECT p.member_id AS id, p.biggest_hit AS damage, p.outgoing,
+            CASE WHEN p.outgoing THEN a.defender_id ELSE a.attacker_id END AS opponent_id,
             CASE WHEN p.outgoing THEN a.defender_name ELSE a.attacker_name END AS opponent, p.started
        FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
-      WHERE p.event_id = $1 AND p.biggest_hit IS NOT NULL AND p.member_id IS NOT NULL
-      ORDER BY p.biggest_hit DESC, p.attack_id LIMIT ${TOP_TARGETS}`, [eventId])
+      WHERE ${RANGE} AND p.biggest_hit IS NOT NULL AND p.member_id IS NOT NULL
+      ORDER BY p.biggest_hit DESC, p.attack_id LIMIT ${TOP_TARGETS}`, args)
   // An effect counts for our member only when THEY made it — not the
   // opponent's proc in the same fight.
   const effects = await db.query(
-    `SELECT e.actor_id AS id, e.effect, count(*) AS n
+    `SELECT e.actor_id AS id, e.effect, e.text
        FROM event_attack_log_effects e JOIN event_attack_log_parsed p ON p.attack_id = e.attack_id
-      WHERE e.event_id = $1 AND e.actor_id = p.member_id
-      GROUP BY 1, 2`, [eventId])
-  const perDay = await db.query(
-    `SELECT ((e.started - $2) / ${DAY_S})::int AS day, e.effect, count(*) AS n
-       FROM event_attack_log_effects e JOIN event_attack_log_parsed p ON p.attack_id = e.attack_id
-      WHERE e.event_id = $1 AND e.actor_id = p.member_id AND e.started >= $2
-      GROUP BY 1, 2 ORDER BY 1, 2`, [eventId, Math.floor(fromDailyMs / 1000)])
+      WHERE ${RANGE} AND e.actor_id = p.member_id`, args)
 
-  const byMember = new Map<number, { id: number; name: string; total: number; effects: Record<string, number> }>()
+  const effectTotals: Record<string, number> = {}
+  const tracked = Object.fromEntries(TRACKED_EFFECTS.map((t) => [t.key, new Map<number, number>()]))
+  const loot = new Map<number, { id: number; name: string; drops: number; items: Record<string, number> }>()
+  const lootItems = new Map<string, number>()
+  const lootSources = new Map<string, number>()
   for (const r of effects.rows) {
     const id = Number(r.id)
-    if (!byMember.has(id)) byMember.set(id, { id, name: names.get(id), total: 0, effects: {} })
-    const m = byMember.get(id)!
-    m.total += Number(r.n)
-    m.effects[r.effect] = Number(r.n)
+    effectTotals[r.effect] = (effectTotals[r.effect] ?? 0) + 1
+    for (const t of TRACKED_EFFECTS) {
+      if (String(r.effect).includes(t.match)) tracked[t.key].set(id, (tracked[t.key].get(id) ?? 0) + 1)
+    }
+    if (r.effect === 'loot') {
+      const l = parseLoot(String(r.text))
+      if (!l) continue
+      if (!loot.has(id)) loot.set(id, { id, name: names.get(id), drops: 0, items: {} })
+      const m = loot.get(id)!
+      m.drops++
+      m.items[l.item] = (m.items[l.item] ?? 0) + l.qty
+      lootItems.set(l.item, (lootItems.get(l.item) ?? 0) + l.qty)
+      lootSources.set(l.from, (lootSources.get(l.from) ?? 0) + 1)
+    }
   }
-  const effectTotals: Record<string, number> = {}
-  for (const m of byMember.values()) {
-    for (const [k, v] of Object.entries(m.effects)) effectTotals[k] = (effectTotals[k] ?? 0) + v
+  const board = (m: Map<number, number>) => [...m.entries()]
+    .map(([id, n]) => ({ id, name: names.get(id), count: n }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+
+  const bountyBy = new Map<number, { id: number; name: string; claims: number; total: number }>()
+  for (const r of bounties.rows) {
+    const id = Number(r.id)
+    if (!bountyBy.has(id)) bountyBy.set(id, { id, name: names.get(id), claims: 0, total: 0 })
+    const x = bountyBy.get(id)!
+    x.claims++
+    x.total += Number(r.amount)
   }
-  const days = new Map<number, Record<string, number>>()
-  for (const r of perDay.rows) {
-    const d = Number(r.day)
-    if (!days.has(d)) days.set(d, {})
-    days.get(d)![r.effect] = Number(r.n)
-  }
-  const from = Math.floor(fromDailyMs / 1000)
+  const idOrNull = (v: unknown) => (v == null ? null : Number(v))
 
   return {
     logs_parsed: parsed,
     total_mugged: Number(counts.rows[0].mugged),
     total_damage: Number(counts.rows[0].damage),
     highest_mugs: mugs.rows.map((r) => ({
-      id: Number(r.id), name: names.get(r.id), amount: Number(r.amount), target: r.target ?? null,
-      at: Number(r.started) * 1000,
+      id: Number(r.id), name: names.get(r.id), amount: Number(r.amount),
+      target_id: idOrNull(r.target_id), target: r.target ?? null, at: Number(r.started) * 1000,
     })),
     biggest_hits: hits.rows.map((r) => ({
       id: Number(r.id), name: names.get(r.id), damage: Number(r.damage), outgoing: !!r.outgoing,
-      opponent: r.opponent ?? null, at: Number(r.started) * 1000,
+      opponent_id: idOrNull(r.opponent_id), opponent: r.opponent ?? null, at: Number(r.started) * 1000,
     })),
     bounties: {
       claimed: bounties.rows.length,
       total: bounties.rows.reduce((t, r) => t + Number(r.amount), 0),
       // Most earned from bounties: per member, by total value.
-      by_member: (() => {
-        const m = new Map<number, { id: number; name: string; claims: number; total: number }>()
-        for (const r of bounties.rows) {
-          const id = Number(r.id)
-          if (!m.has(id)) m.set(id, { id, name: names.get(id), claims: 0, total: 0 })
-          const x = m.get(id)!
-          x.claims++
-          x.total += Number(r.amount)
-        }
-        return [...m.values()].sort((a, b) => b.total - a.total || b.claims - a.claims).slice(0, TOP_TARGETS)
-      })(),
+      by_member: [...bountyBy.values()].sort((a, b) => b.total - a.total || b.claims - a.claims).slice(0, TOP_TARGETS),
       top: bounties.rows.slice(0, TOP_TARGETS).map((r) => ({
-        id: Number(r.id), name: names.get(r.id), amount: Number(r.amount), target: r.target ?? null,
-        at: Number(r.started) * 1000,
+        id: Number(r.id), name: names.get(r.id), amount: Number(r.amount),
+        target_id: idOrNull(r.target_id), target: r.target ?? null, at: Number(r.started) * 1000,
       })),
     },
-    most_effects: [...byMember.values()].sort((a, b) => b.total - a.total).slice(0, TOP_TARGETS),
+    tracked: TRACKED_EFFECTS.map((t) => {
+      const rows = board(tracked[t.key])
+      return { key: t.key, label: t.label, total: rows.reduce((n, r) => n + r.count, 0), by_member: rows }
+    }),
+    loot: {
+      drops: [...loot.values()].reduce((n, m) => n + m.drops, 0),
+      by_member: [...loot.values()].sort((a, b) => b.drops - a.drops || a.name.localeCompare(b.name)),
+      by_item: [...lootItems.entries()].map(([item, qty]) => ({ item, qty })).sort((a, b) => b.qty - a.qty),
+      by_source: [...lootSources.entries()].map(([from, drops]) => ({ from, drops })).sort((a, b) => b.drops - a.drops),
+    },
+    // Everything else, for discovery: the first Revitalize or treat line shows
+    // up here under its real name.
     effect_totals: effectTotals,
-    effects_by_day: [...days.entries()].sort((a, b) => a[0] - b[0]).map(([d, counts]) => ({
-      day: new Date((from + d * DAY_S) * 1000).toISOString().slice(0, 10), // db-time-safe: epoch maths
-      starts_at: (from + d * DAY_S) * 1000,
-      effects: counts,
-    })),
   }
 }
