@@ -28,6 +28,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import BirthdayCard from './BirthdayCard'
 import EventWindowPanel from './EventWindowPanel'
 import InfoTooltip from '../InfoTooltip'
+import TruncatedText from '../TruncatedText'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -289,12 +290,7 @@ function WeekRow({ cells, events, todayKey, onSelectDay }) {
               <div style={{ height: reserved }} />
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((e) => (
-                  <InfoTooltip
-                    key={e.id}
-                    decoration="no-underline"
-                    className={`block w-full min-w-0 text-[10px] leading-tight px-1 py-0.5 rounded ${TONE[EVENT_KINDS[e.kind]?.tone ?? 'slate']}`}
-                    label={<span className="block truncate">{e.title}</span>}
-                  >{e.title}</InfoTooltip>
+                  <TruncatedText key={e.id} text={e.title} className={`block w-full min-w-0 text-[10px] leading-tight px-1 py-0.5 rounded ${TONE[EVENT_KINDS[e.kind]?.tone ?? 'slate']}`} />
                 ))}
                 {/* Counts only what is actually hidden in THIS cell. The old
                     per-day rendering counted a five-day war five times. */}

@@ -67,7 +67,7 @@ describe('chain section (from the chain report)', () => {
       `INSERT INTO event_chain_report_latest (event_id, chain_id, chain_start, details, attackers, bonuses, non_attackers, content_hash)
        VALUES ($1, 5, now(), $2, $3, $4, $5, 'h')`,
       [id,
-        JSON.stringify({ chain: 120, respect: 1100, members: 2, mug: 40 }),
+        JSON.stringify({ chain: 120, respect: 1100, members: 2, mug: 40, best: 40960 }),
         JSON.stringify([
           { id: 1, respect: { total: 1000, average: 9, best: 320 }, attacks: { total: 100, mug: 30 } },
           { id: 2, respect: { total: 100, average: 5, best: 10 }, attacks: { total: 20, mug: 10 } }]),
@@ -77,6 +77,8 @@ describe('chain section (from the chain report)', () => {
     expect(body.chain.totals.respect).toEqual({ raw: 1100, capped: 790, deduction: 310 })
     expect(body.chain.totals.hits).toBe(120)
     expect(body.chain.totals.bonuses).toBe(2)
+    // ⚠️ Best hit WITHOUT chain bonuses: Torn's details.best would be 320 here.
+    expect(body.chain.totals.best).toBe(320)
     const alice = body.chain.members.find((m: any) => m.id === 1)
     expect(alice.name).toBe('Alice')
     expect(alice.respect).toMatchObject({ total: 1000, capped: 690, deduction: 310 })

@@ -253,3 +253,20 @@
   }
 
 }
+
+/* Scrollbars that match the page (MonChoon, 2026-10-18: the browser's default
+   grey bars stood out against the dark theme). Thin, rounded, the page's own
+   neutrals; the track stays the surface behind it. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: theme(colors.gray.300) transparent;
+}
+.dark * {
+  scrollbar-color: theme(colors.slate.600) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background-color: theme(colors.gray.300); border-radius: 9999px; }
+.dark *::-webkit-scrollbar-thumb { background-color: theme(colors.slate.600); }
+*::-webkit-scrollbar-thumb:hover { background-color: theme(colors.gray.400); }
+.dark *::-webkit-scrollbar-thumb:hover { background-color: theme(colors.slate.500); }

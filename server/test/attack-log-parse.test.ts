@@ -106,9 +106,12 @@ describe('highlightsSection — tracked effects and loot', () => {
     await parsePendingLogs(stack.db, US)
     const h = (await highlights())!
     expect(h.loot.drops).toBe(3)
-    expect(h.loot.by_member[0]).toEqual({ id: 1, name: 'Ann', drops: 3, items: { Jawbreaker: 1, 'Concussion Grenade': 3, 'Pixie Sticks': 1 } })
+    expect(h.loot.by_member[0]).toMatchObject({ id: 1, name: 'Ann', drops: 3, items: { Jawbreaker: 1, 'Concussion Grenade': 3, 'Pixie Sticks': 1 } })
+    // Each drop, with WHO it came from — the source linked by its id.
+    expect(h.loot.by_member[0].detail.map((d) => [d.item, d.qty, d.from, d.from_id]))
+      .toEqual([['Jawbreaker', 1, 'Jimmy', 50], ['Concussion Grenade', 3, 'Jimmy', 50], ['Pixie Sticks', 1, 'Jimmy', 50]])
     expect(h.loot.by_item[0]).toEqual({ item: 'Concussion Grenade', qty: 3 })
-    expect(h.loot.by_source).toEqual([{ from: 'Jimmy', drops: 3 }])
+    expect(h.loot.by_source).toEqual([{ from: 'Jimmy', from_id: 50, drops: 3 }])
   })
 
   it('respects the range', async () => {

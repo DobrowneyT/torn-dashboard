@@ -56,8 +56,9 @@ const HIGHLIGHTS = {
     { key: 'revitalize', label: 'Revitalize', total: 5, by_member: [{ id: 1, name: 'Alice', count: 4 }, { id: 2, name: 'Bob', count: 1 }] },
     { key: 'treats', label: 'Treats', total: 0, by_member: [] },
   ],
-  loot: { drops: 2, by_member: [{ id: 1, name: 'Alice', drops: 2, items: { Jawbreaker: 1, 'Pixie Sticks': 1 } }],
-    by_item: [{ item: 'Jawbreaker', qty: 1 }, { item: 'Pixie Sticks', qty: 1 }], by_source: [{ from: 'Jimmy', drops: 2 }] },
+  loot: { drops: 2, by_member: [{ id: 1, name: 'Alice', drops: 2, items: { Jawbreaker: 1, 'Pixie Sticks': 3 },
+    detail: [{ item: 'Jawbreaker', qty: 1, from: 'Jimmy', from_id: 19, at: 0 }, { item: 'Pixie Sticks', qty: 3, from: 'Jimmy', from_id: 19, at: 0 }] }],
+    by_item: [{ item: 'Jawbreaker', qty: 1 }, { item: 'Pixie Sticks', qty: 3 }], by_source: [{ from: 'Jimmy', from_id: 19, drops: 2 }] },
   effect_totals: { powerful: 9, stricken: 5 },
 }
 const STATS = (over = {}) => ({
@@ -111,7 +112,7 @@ describe('Respect', () => {
 describe('views', () => {
   it('⚠️ opens on Members; Totals, Stats, Targets follow', async () => {
     await open()
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Members', 'Totals', 'Stats', 'Targets'])
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Report', 'Totals', 'Stats', 'Targets'])
     expect(screen.getByText('Not hit yet (1)')).toBeTruthy()
     expect(screen.getByText('Cara [3]')).toBeTruthy()
   })
@@ -120,6 +121,14 @@ describe('views', () => {
     await open('Totals')
     expect(screen.getByText('1,200')).toBeTruthy()
     expect(screen.getAllByText('Alice [1]').length).toBeGreaterThan(0)
+  })
+
+  it('⚠️ says Stalemates, as Torn does, and has no Bonuses card', async () => {
+    await open('Totals')
+    expect(screen.getByText('Stalemates')).toBeTruthy()
+    expect(screen.queryByText('Draws')).toBeNull()
+    expect(screen.queryByText('Bonuses')).toBeNull()
+    expect(screen.getByText('Best hit (no bonus)')).toBeTruthy()
   })
 
   it('⚠️ numbers members by their place in the CURRENT sort', async () => {
@@ -132,7 +141,7 @@ describe('views', () => {
 describe('Stats (Daily + Highlights merged)', () => {
   it('⚠️ starts on Overall, and a day asks for exactly that day', async () => {
     await open('Stats')
-    await screen.findByText('Revitalize (5)')
+    await screen.findByText(/Revitalize · 5 procs/)
     expect(api.get).toHaveBeenCalledWith('/api/events/1/stats')
     fireEvent.click(screen.getByRole('button', { name: '27 Oct' }))
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(`/api/events/1/stats?from=${D2}&to=${D2 + 86_400_000}`))
@@ -140,7 +149,7 @@ describe('Stats (Daily + Highlights merged)', () => {
 
   it('takes a custom range of whole TCT days, inclusive', async () => {
     await open('Stats')
-    await screen.findByText('Revitalize (5)')
+    await screen.findByText(/Revitalize · 5 procs/)
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
     fireEvent.change(screen.getByLabelText('From (TCT)'), { target: { value: '2026-10-26' } })
     fireEvent.change(screen.getByLabelText('To (TCT, inclusive)'), { target: { value: '2026-10-27' } })
@@ -150,24 +159,24 @@ describe('Stats (Daily + Highlights merged)', () => {
 
   it('⚠️ leads with the Revitalize and treat leaderboards, explaining an empty one', async () => {
     await open('Stats')
-    expect(await screen.findByText('Revitalize (5)')).toBeTruthy()
+    expect(await screen.findByText(/Revitalize · 5 procs/)).toBeTruthy()
     expect(screen.getByText('Treats')).toBeTruthy()
     expect(screen.getByText(/No treat seen in a log yet/)).toBeTruthy()
   })
 
   it('shows loot, bounties, mugs and hits with the other side linked', async () => {
     await open('Stats')
-    await screen.findByText('Revitalize (5)')
+    await screen.findByText(/Revitalize · 5 procs/)
     expect(screen.getByText('Loot by item')).toBeTruthy()
-    expect(screen.getByText(/From: Jimmy \(2\)/)).toBeTruthy()
-    expect(screen.getByText('$2,000,010 · 2 claims')).toBeTruthy()
+    expect(screen.getAllByText('Jimmy [19]').length).toBeGreaterThan(0)
+    expect(screen.getByText('$2,000,010')).toBeTruthy()
     expect(screen.getByText('Richie [77]').closest('a').getAttribute('href')).toContain('XID=77')
     expect(screen.getByText('Tank [78]')).toBeTruthy()
   })
 
   it('keeps every other effect folded away, for spotting new ones', async () => {
     await open('Stats')
-    await screen.findByText('Revitalize (5)')
+    await screen.findByText(/Revitalize · 5 procs/)
     expect(screen.getByText('All effects seen (2)')).toBeTruthy()
   })
 
@@ -180,6 +189,28 @@ describe('Stats (Daily + Highlights merged)', () => {
   it('rangeQuery', () => {
     expect(rangeQuery({ kind: 'overall' })).toBe('')
     expect(rangeQuery({ kind: 'day', from: 1, to: 2 })).toBe('?from=1&to=2')
+  })
+})
+
+describe('member boards', () => {
+  it('⚠️ list the whole faction, sortable, in a scrolling window', async () => {
+    await open('Stats')
+    await screen.findByText(/Revitalize · 5 procs/)
+    const board = screen.getByText(/Revitalize · 5 procs/).closest('.card')
+    expect(board.querySelector('.overflow-y-auto')).toBeTruthy()
+    const names = () => within(board).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell')[1].textContent)
+    expect(names()).toEqual(['Alice [1]', 'Bob [2]'])
+    fireEvent.click(within(board).getByRole('button', { name: 'Sort by Procs' }))
+    expect(names()).toEqual(['Bob [2]', 'Alice [1]'])
+  })
+
+  it('⚠️ loot: clicking a member\'s drops shows what and from whom, linked', async () => {
+    await open('Stats')
+    await screen.findByText(/Revitalize · 5 procs/)
+    const board = screen.getByText('Loot drops', { selector: 'h4' }).closest('.card')
+    fireEvent.click(within(board).getByRole('button', { name: /2/ }))
+    expect(within(board).getByText(/3× Pixie Sticks from/)).toBeTruthy()
+    expect(within(board).getAllByText('Jimmy [19]').length).toBe(2)
   })
 })
 

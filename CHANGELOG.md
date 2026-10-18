@@ -18,6 +18,22 @@ surface it automatically.
 
 ---
 
+## [3.233.0] - 2026-10-18
+
+### Changed
+- **Per-member boards list the whole faction**, sortable, in a window about ten rows tall that scrolls: Revitalize, Treats, Loot drops, Most earned from bounties, Most targeted and Busiest. `#` is the place in the current sort.
+- **One-off lists go to the top 100**, also scrolling with ten in view: highest mugs, biggest hits, highest bounties, who hit us, who we hit.
+- **Loot drops expand:** click a member's drops to see each item, how many, when, and who it came from, linked (e.g. Jimmy [19]).
+- **Totals:**
+  - "Best hit (no bonus)" is the best ordinary hit. Torn's own figure counts chain bonuses (the 100k bonus is 40,960).
+  - "Draws" is now "Stalemates", as Torn says in game.
+  - The "Bonuses" card is gone; the bonus hits are listed below it.
+- **The "Members" view is now "Report".**
+- **Scrollbars match the page**, thin and in the page's own greys in both themes, site-wide.
+
+### Fixed
+- **Tooltips that repeated their own text** (CPR role names, payout names, stat-picker and threshold labels, calendar titles, scraper errors) now only appear when the text is actually cut off on screen.
+
 ## [3.232.1] - 2026-10-18
 
 ### Fixed
