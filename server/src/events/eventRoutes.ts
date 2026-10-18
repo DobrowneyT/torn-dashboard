@@ -24,6 +24,7 @@ const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? nul
 
 const SELECT_EVENT = `
   SELECT e.id, e.name, e.theme_color, e.ends_with_chain, e.site_accent, e.wanted_min_attacks, e.chain_event_id,
+         coalesce((SELECT b.enabled FROM event_bingo_cards b WHERE b.event_id = e.id), false) AS bingo_enabled,
          (extract(epoch from e.starts_at)   * 1000)::bigint AS starts_ms,
          (extract(epoch from e.daily_from)  * 1000)::bigint AS daily_ms,
          (extract(epoch from e.min_ends_at) * 1000)::bigint AS min_end_ms,
@@ -92,6 +93,8 @@ function shape(r: any, phase: EventPhase) {
     site_accent: r.site_accent !== false,
     wanted_min_attacks: Number(r.wanted_min_attacks ?? 3),
     chain_event_id: r.chain_event_id == null ? null : Number(r.chain_event_id),
+    // #965: whether members see the Bingo tab.
+    bingo_enabled: r.bingo_enabled === true,
     ended_at: r.ended_ms == null ? null : Number(r.ended_ms),
     phase,
   }

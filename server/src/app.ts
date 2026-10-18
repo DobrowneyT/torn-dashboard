@@ -31,6 +31,7 @@ import { registerMemberHofRoutes } from './memberHofRoutes.js'
 import { registerGrudgeRoutes } from './grudgeRoutes.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
 import { registerEventRoutes } from './events/eventRoutes.js'
+import { registerBingoRoutes } from './events/bingoRoutes.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
 import { registerChainWatchSignupInternalRoutes } from './chainWatchSignupInternal.js'
 import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
@@ -572,6 +573,8 @@ export async function buildServer(
     registerChainWatchRoutes(app, opts.db, opts.factionSlug)
     // #969 — the faction event page (Halloween first) that now hosts Chain Watch.
     registerEventRoutes(app, opts.db)
+    // #965 — event bingo.
+    registerBingoRoutes(app, opts.db)
     // #995 — display tunables (the true-FF gradient's upper anchor).
     registerDisplaySettings(app, app.flagResolver)
     registerExportRoutes(app, opts.db)
