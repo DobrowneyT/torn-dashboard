@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet } from '../../utils/apiClient'
 import SortableTh, { useTableSort } from '../SortableTh'
 import { formatTct } from '../../utils/factionEvent'
+import { PlayerLink, FactionLink } from './TornLink'
 
 /**
  * The event's live chain report (#971).
@@ -25,9 +26,10 @@ export const VERSION_POLL_MS = 5_000
 const VIEWS = [
   { id: 'members', label: 'Members' },
   { id: 'totals', label: 'Totals' },
-  { id: 'daily', label: 'Daily' },
+  // Daily + Highlights, merged (MonChoon, 2026-10-18): one view, any range —
+  // a day, the whole event, or a custom span.
+  { id: 'stats', label: 'Stats' },
   { id: 'targets', label: 'Targets' },
-  { id: 'highlights', label: 'Highlights' },
 ]
 
 const fmt = (n, dp = 0) => (n == null ? '—' : Number(n).toLocaleString(undefined, {
@@ -126,9 +128,8 @@ export default function EventReport({ event }) {
         <>
           {view === 'totals' && <Totals chain={data.chain} event={event} />}
           {view === 'members' && <Members chain={data.chain} />}
-          {view === 'daily' && <Daily daily={data.daily} event={event} />}
+          {view === 'stats' && <Stats event={event} days={data.daily} stamp={data.server_now} />}
           {view === 'targets' && <Targets targets={data.targets} />}
-          {view === 'highlights' && <Highlights highlights={data.highlights} />}
         </>
       )}
     </div>
@@ -202,7 +203,7 @@ function Totals({ chain, event }) {
               {chain.bonuses.map((b) => (
                 <tr key={b.chain} className="border-t border-gray-100 dark:border-slate-700">
                   <td className={TD}>{fmt(b.chain)}</td>
-                  <td className="px-3 py-1.5">{b.attacker}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap"><PlayerLink id={b.attacker_id} name={b.attacker} /></td>
                   <td className={TD}>{fmt(b.respect, 2)}</td>
                   <td className={TD}>{b.respect > 10 ? `−${fmt(b.respect - 10, 2)}` : '—'}</td>
                 </tr>
@@ -257,7 +258,7 @@ function Members({ chain }) {
             {sorted.map((m, i) => (
               <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
                 <td className={`px-2 py-1.5 text-right tabular-nums text-gray-500 dark:text-gray-400 w-10 ${POS_TD}`}>{i + 1}</td>
-                <td className={`px-3 py-1.5 whitespace-nowrap max-w-[9rem] truncate ${NAME_AFTER_POS_TD}`}>{m.name}</td>
+                <td className={`px-3 py-1.5 whitespace-nowrap max-w-[12rem] truncate ${NAME_AFTER_POS_TD}`}><PlayerLink id={m.id} name={m.name} /></td>
                 <td className={TD}>{fmt(m.attacks.total)}</td>
                 <td className={TD}>{fmt(m.respect.total, 2)}</td>
                 <td className={TD} title={m.respect.deduction > 0 ? `−${fmt(m.respect.deduction, 2)} bonus` : undefined}>
@@ -289,7 +290,7 @@ function Members({ chain }) {
           : (
             <ul className="mt-2 flex flex-wrap gap-2">
               {chain.non_attackers.map((m) => (
-                <li key={m.id} className="text-sm px-2 py-0.5 rounded bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-gray-200">{m.name}</li>
+                <li key={m.id} className="text-sm px-2 py-0.5 rounded bg-gray-100 dark:bg-slate-700"><PlayerLink id={m.id} name={m.name} /></li>
               ))}
             </ul>
           )}
@@ -312,92 +313,23 @@ const DAY_COLS = [
   { key: 'defended', label: 'Defended', kind: 'number' },
 ]
 
-function Daily({ daily, event }) {
-  const [pick, setPick] = useState(null)
-  const day = daily.find((d) => d.day === pick) ?? daily[daily.length - 1] ?? null
-  const rows = useMemo(() => day?.members ?? [], [day])
-  const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, DAY_COLS, { initialCol: 'hits', initialDir: 'desc', tieBreak: 'name' })
-  if (!day) {
-    return (
-      <div className="card p-6 text-sm text-gray-600 dark:text-gray-300">
-        Daily figures start {formatTct(event.daily_from)}.
-      </div>
-    )
-  }
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        {daily.map((d) => (
-          <button
-            key={d.day}
-            type="button"
-            onClick={() => setPick(d.day)}
-            aria-pressed={d.day === day.day}
-            className={`px-3 py-1 rounded-lg text-sm tabular-nums ${d.day === day.day
-              ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-              : 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-200'}`}
-          >
-            {formatTct(d.starts_at).replace(/ \d\d:\d\d TCT$/, '')}
-          </button>
-        ))}
-      </div>
-      <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-6">
-        <Stat label="Hits">{fmt(day.totals.hits)}</Stat>
-        <Stat label="Respect">{fmt(day.totals.respect, 2)}</Stat>
-        <Stat label="Mugs">{fmt(day.totals.mug)}</Stat>
-        <Stat label="Assists">{fmt(day.totals.assists)}</Stat>
-        <Stat label="Retaliations">{fmt(day.totals.retaliations)}</Stat>
-        <Stat label="Hit by others">{fmt(day.totals.incoming)}</Stat>
-      </div>
-      <div className="card p-0 sm:p-0 overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className={TH}>
-              {DAY_COLS.map((c) => (
-                <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}
-                  className={c.key === 'name' ? FROZEN_TH : ''}>{c.label}</SortableTh>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((m) => (
-              <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
-                <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[9rem] truncate">{m.name}</td>
-                <td className={TD}>{fmt(m.hits)}</td>
-                <td className={TD}>{fmt(m.respect, 2)}</td>
-                <td className={TD}>{fmt(m.mug)}</td>
-                <td className={TD}>{fmt(m.hospitalize)}</td>
-                <td className={TD}>{fmt(m.leave)}</td>
-                <td className={TD}>{fmt(m.assists)}</td>
-                <td className={TD}>{fmt(m.losses)}</td>
-                <td className={TD}>{fmt(m.retaliations)}</td>
-                <td className={TD}>{fmt(m.incoming)}</td>
-                <td className={TD}>{fmt(m.defended)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-xs text-gray-500 dark:text-gray-400">
-        From our synced attacks, so a day interrupted by an outage fills in once Torn is back.
-        Respect here is raw, per attack.
-      </p>
-    </div>
-  )
-}
-
-function Ranked({ title, rows, unit, render }) {
+/**
+ * A short ranked list. `who` renders the left side (a player link by default);
+ * `render` the figure. ⚠️ Rows can repeat a member (their two biggest hits),
+ * so the key is the position, not the id.
+ */
+function Ranked({ title, rows, unit = '', render, who = (r) => <PlayerLink id={r.id} name={r.name} />, empty = 'Nothing yet.' }) {
   return (
     <div className="card p-4">
       <h4 className="font-semibold text-gray-900 dark:text-white mb-2">{title}</h4>
       {rows.length === 0
-        ? <p className="text-sm text-gray-500 dark:text-gray-400">Nothing yet.</p>
+        ? <p className="text-sm text-gray-500 dark:text-gray-400">{empty}</p>
         : (
           <ol className="space-y-1 text-sm">
             {rows.map((r, i) => (
-              <li key={r.id} className="flex justify-between gap-3">
-                <span className="truncate"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{r.name}</span>
-                <span className="tabular-nums text-gray-700 dark:text-gray-200 whitespace-nowrap">{render(r)} {unit}</span>
+              <li key={i} className="flex justify-between gap-3">
+                <span className="truncate min-w-0"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{who(r)}</span>
+                <span className="tabular-nums text-gray-700 dark:text-gray-200 whitespace-nowrap">{render(r)}{unit ? ` ${unit}` : ''}</span>
               </li>
             ))}
           </ol>
@@ -418,23 +350,25 @@ const TARGET_COLS = [
 
 /**
  * #987 — one faction per row: name and attacks on the first line, the detail
- * under it, so it reads at phone width without a table. "No faction" and
- * "Stealthed" are rows like any other — never dropped.
+ * under it, so it reads at phone width without a table. EVERY faction is
+ * listed; the box shows about ten and scrolls (MonChoon, 2026-10-18).
  */
 function FactionList({ title, rows, detail }) {
   return (
     <div className="card p-4">
-      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">{title}</h4>
+      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
+        {title} <span className="text-sm font-normal text-gray-500 dark:text-gray-400">({fmt(rows.length)})</span>
+      </h4>
       {rows.length === 0
         ? <p className="text-sm text-gray-500 dark:text-gray-400">Nothing yet.</p>
         : (
-          <ol className="space-y-2 text-sm">
+          <ol className="space-y-2 text-sm max-h-[30rem] overflow-y-auto pr-1">
             {rows.map((r, i) => (
-              <li key={`${r.kind ?? 'faction'}-${r.id ?? r.name}`}>
+              <li key={r.id ?? i}>
                 <div className="flex justify-between gap-3">
-                  <span className="truncate">
+                  <span className="truncate min-w-0">
                     <span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>
-                    <span className={r.id == null ? 'italic text-gray-600 dark:text-gray-300' : ''}>{r.name}</span>
+                    <FactionLink id={r.id} name={r.name} />
                   </span>
                   <span className="tabular-nums text-gray-700 dark:text-gray-200 whitespace-nowrap">{fmt(r.attacks)} attacks</span>
                 </div>
@@ -483,7 +417,7 @@ function Targets({ targets }) {
           <tbody>
             {sorted.map((m) => (
               <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
-                <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[9rem] truncate">{m.name}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[12rem] truncate"><PlayerLink id={m.id} name={m.name} /></td>
                 <td className={TD}>{fmt(m.outgoing)}</td>
                 <td className={TD}>{fmt(m.distinct_targets)}</td>
                 <td className={TD}>{fmt(m.incoming)}</td>
@@ -503,89 +437,218 @@ function Targets({ targets }) {
   )
 }
 
+const DAY_MS = 86_400_000
+
+/** "2026-10-26" (a TCT date) → epoch ms at its 00:00 TCT. */
+const tctDayMs = (v) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v ?? '')
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null
+}
+const dayLabel = (ms) => formatTct(ms).replace(/ \d\d:\d\d TCT$/, '')
+
+/** The query for a range, or '' for the whole event. */
+export function rangeQuery(range) {
+  if (!range || range.kind === 'overall') return ''
+  return `?from=${range.from}&to=${range.to}`
+}
+
 /** "stricken" → "Stricken"; "eviscareted" is Torn's own spelling, kept. */
 const effectLabel = (e) => e.charAt(0).toUpperCase() + e.slice(1).replace(/-/g, ' ')
 
+const TRACKED_EMPTY = {
+  revitalize: 'No Revitalize proc in a log yet. The first one shows up here, under whatever name Torn gives it.',
+  treats: 'No treat seen in a log yet. Treats show up here once the first one is read.',
+}
+
 /**
- * From the archived attack logs (#974). ⚠️ "Effects" rather than "procs":
- * each is named by the icon Torn put on the log line, and a few of those
- * (Riot, Windup) may be armour or a stance rather than a weapon bonus.
+ * Stats (Daily + Highlights, merged): every figure for ONE range — the whole
+ * event, a single TCT day, or a custom span of days. Fetched per range, and
+ * again whenever the report itself reloads (`stamp`), so it stays live.
  */
-function Highlights({ highlights }) {
-  if (!highlights) {
-    return (
-      <div className="card p-6 text-sm text-gray-600 dark:text-gray-300">
-        Highlights appear once attack logs have been archived and read — usually within a minute or two of an attack.
-      </div>
-    )
+function Stats({ event, days, stamp }) {
+  const [range, setRange] = useState({ kind: 'overall' })
+  const [custom, setCustom] = useState({ from: '', to: '' })
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+  const q = rangeQuery(range)
+
+  useEffect(() => {
+    let alive = true
+    apiGet(`/api/events/${event.id}/stats${q}`)
+      .then((d) => { if (alive) { setData(d); setError(null) } })
+      .catch((err) => { if (alive) setError(err.message || 'Could not load the stats.') })
+    return () => { alive = false }
+  }, [event.id, q, stamp])
+
+  const rows = useMemo(() => data?.members ?? [], [data])
+  const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, DAY_COLS, { initialCol: 'hits', initialDir: 'desc', tieBreak: 'name' })
+
+  const chip = (active) => `px-3 py-1 rounded-lg text-sm whitespace-nowrap shrink-0 tabular-nums ${active
+    ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
+    : 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-200'}`
+  const applyCustom = () => {
+    const from = tctDayMs(custom.from)
+    const to = tctDayMs(custom.to)
+    if (from == null || to == null || to < from) return
+    setRange({ kind: 'custom', from, to: to + DAY_MS })
   }
-  const h = highlights
-  const effectNames = Object.keys(h.effect_totals).sort((a, b) => h.effect_totals[b] - h.effect_totals[a])
+
+  const t = data?.totals
+  const h = data?.highlights
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
-        <Stat label="Logs read">{fmt(h.logs_parsed)}</Stat>
-        <Stat label="Money mugged">${fmt(h.total_mugged)}</Stat>
-        <Stat label="Damage dealt">{fmt(h.total_damage)}</Stat>
-        {h.bounties && (
-          <Stat label="Bounties claimed">
-            {fmt(h.bounties.claimed)}
-            {h.bounties.claimed > 0 && <span className="block text-xs text-gray-500 dark:text-gray-400">${fmt(h.bounties.total)}</span>}
-          </Stat>
-        )}
+      <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Range">
+        <button type="button" className={chip(range.kind === 'overall')} aria-pressed={range.kind === 'overall'}
+          onClick={() => setRange({ kind: 'overall' })}>Overall</button>
+        {days.map((d) => {
+          const active = range.kind === 'day' && range.from === d.starts_at
+          return (
+            <button key={d.day} type="button" className={chip(active)} aria-pressed={active}
+              onClick={() => setRange({ kind: 'day', from: d.starts_at, to: d.starts_at + DAY_MS })}>
+              {dayLabel(d.starts_at)}
+            </button>
+          )
+        })}
+        <button type="button" className={chip(range.kind === 'custom' || range.kind === 'picking')}
+          aria-pressed={range.kind === 'custom'} onClick={() => setRange((r) => (r.kind === 'custom' ? r : { kind: 'picking' }))}>
+          Custom
+        </button>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Ranked title="Highest mugs" rows={h.highest_mugs.map((m, i) => ({ ...m, id: `${m.id}-${i}` }))} unit=""
-          render={(m) => `$${fmt(m.amount)}${m.target ? ` from ${m.target}` : ''}`} />
-        <Ranked title="Biggest hits" rows={h.biggest_hits.map((m, i) => ({ ...m, id: `${m.id}-${i}` }))} unit=""
-          render={(m) => `${fmt(m.damage)}${m.opponent ? ` on ${m.opponent}` : ''}`} />
-        {h.bounties?.by_member?.length > 0 && (
-          <Ranked title="Most earned from bounties" rows={h.bounties.by_member} unit=""
-            render={(b) => `$${fmt(b.total)} · ${fmt(b.claims)} ${b.claims === 1 ? 'claim' : 'claims'}`} />
-        )}
-        {h.bounties?.top?.length > 0 && (
-          <Ranked title="Highest bounties claimed" rows={h.bounties.top.map((b, i) => ({ ...b, id: `${b.id}-${i}` }))} unit=""
-            render={(b) => `$${fmt(b.amount)}${b.target ? ` on ${b.target}` : ''}`} />
-        )}
-        <Ranked title="Most effects" rows={h.most_effects} unit="" render={(m) => fmt(m.total)} />
-        <div className="card p-4">
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Effects seen</h4>
-          {effectNames.length === 0
-            ? <p className="text-sm text-gray-500 dark:text-gray-400">None yet.</p>
-            : (
-              <ul className="flex flex-wrap gap-2 text-sm">
-                {effectNames.map((e) => (
+      {(range.kind === 'picking' || range.kind === 'custom') && (
+        <div className="card p-3 flex flex-wrap items-end gap-3 text-sm">
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600 dark:text-gray-300">From (TCT)</span>
+            <input type="date" className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1"
+              value={custom.from} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-gray-600 dark:text-gray-300">To (TCT, inclusive)</span>
+            <input type="date" className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1"
+              value={custom.to} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
+          </label>
+          <button type="button" onClick={applyCustom} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium">Show</button>
+        </div>
+      )}
+
+      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {!data ? (!error && <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>) : (
+        <>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{formatTct(data.from)} → {formatTct(data.to)}</p>
+          <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-6">
+            <Stat label="Hits">{fmt(t?.hits ?? 0)}</Stat>
+            <Stat label="Respect">{fmt(t?.respect ?? 0, 2)}</Stat>
+            <Stat label="Mugs">{fmt(t?.mug ?? 0)}</Stat>
+            <Stat label="Assists">{fmt(t?.assists ?? 0)}</Stat>
+            <Stat label="Retaliations">{fmt(t?.retaliations ?? 0)}</Stat>
+            <Stat label="Hit by others">{fmt(t?.incoming ?? 0)}</Stat>
+          </div>
+
+          {/* The two that matter most: Revitalize and treats (#975). */}
+          <div className="grid gap-3 md:grid-cols-2">
+            {(h?.tracked ?? [{ key: 'revitalize', label: 'Revitalize', total: 0, by_member: [] }, { key: 'treats', label: 'Treats', total: 0, by_member: [] }])
+              .map((tr) => (
+                <Ranked key={tr.key} title={`${tr.label}${tr.total ? ` (${fmt(tr.total)})` : ''}`} rows={tr.by_member}
+                  render={(r) => fmt(r.count)} empty={TRACKED_EMPTY[tr.key] ?? 'None yet.'} />
+              ))}
+          </div>
+
+          {!h ? (
+            <div className="card p-6 text-sm text-gray-600 dark:text-gray-300">
+              Highlights appear once attack logs for this range have been archived and read, usually within a minute or two of an attack.
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-2 sm:gap-3 grid-cols-2 sm:grid-cols-4">
+                <Stat label="Money mugged">${fmt(h.total_mugged)}</Stat>
+                <Stat label="Damage dealt">{fmt(h.total_damage)}</Stat>
+                <Stat label="Bounties claimed">
+                  {fmt(h.bounties.claimed)}
+                  {h.bounties.claimed > 0 && <span className="block text-xs text-gray-500 dark:text-gray-400">${fmt(h.bounties.total)}</span>}
+                </Stat>
+                <Stat label="Loot drops">{fmt(h.loot.drops)}</Stat>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Ranked title="Loot drops" rows={h.loot.by_member} render={(r) => `${fmt(r.drops)} ${r.drops === 1 ? 'drop' : 'drops'}`}
+                  empty="No loot dropped in this range." />
+                <div className="card p-4 space-y-3 text-sm">
+                  <h4 className="font-semibold text-gray-900 dark:text-white">Loot by item</h4>
+                  {h.loot.by_item.length === 0 ? <p className="text-gray-500 dark:text-gray-400">None yet.</p> : (
+                    <ul className="flex flex-wrap gap-2">
+                      {h.loot.by_item.map((x) => (
+                        <li key={x.item} className="px-2 py-0.5 rounded bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-gray-200">
+                          {x.item} <span className="tabular-nums text-gray-500 dark:text-gray-400">×{fmt(x.qty)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {h.loot.by_source.length > 0 && (
+                    <p className="text-gray-600 dark:text-gray-300">
+                      From: {h.loot.by_source.map((x) => `${x.from} (${fmt(x.drops)})`).join(', ')}
+                    </p>
+                  )}
+                </div>
+                <Ranked title="Most earned from bounties" rows={h.bounties.by_member}
+                  render={(r) => `$${fmt(r.total)} · ${fmt(r.claims)} ${r.claims === 1 ? 'claim' : 'claims'}`} empty="No bounties claimed." />
+                <Ranked title="Highest bounties claimed" rows={h.bounties.top}
+                  render={(r) => <>${fmt(r.amount)} on <PlayerLink id={r.target_id} name={r.target} /></>} empty="No bounties claimed." />
+                <Ranked title="Highest mugs" rows={h.highest_mugs}
+                  render={(r) => <>${fmt(r.amount)} from <PlayerLink id={r.target_id} name={r.target} /></>} />
+                <Ranked title="Biggest hits" rows={h.biggest_hits}
+                  render={(r) => <>{fmt(r.damage)} on <PlayerLink id={r.opponent_id} name={r.opponent} /></>} />
+              </div>
+            </>
+          )}
+
+          <div className="card p-0 sm:p-0 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className={TH}>
+                  {DAY_COLS.map((c) => (
+                    <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}
+                      className={c.key === 'name' ? FROZEN_TH : ''}>{c.label}</SortableTh>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((m) => (
+                  <tr key={m.id} className="border-t border-gray-100 dark:border-slate-700">
+                    <td className="px-3 py-1.5 whitespace-nowrap sticky left-0 z-[5] bg-white dark:bg-slate-800 max-w-[12rem] truncate"><PlayerLink id={m.id} name={m.name} /></td>
+                    <td className={TD}>{fmt(m.hits)}</td>
+                    <td className={TD}>{fmt(m.respect, 2)}</td>
+                    <td className={TD}>{fmt(m.mug)}</td>
+                    <td className={TD}>{fmt(m.hospitalize)}</td>
+                    <td className={TD}>{fmt(m.leave)}</td>
+                    <td className={TD}>{fmt(m.assists)}</td>
+                    <td className={TD}>{fmt(m.losses)}</td>
+                    <td className={TD}>{fmt(m.retaliations)}</td>
+                    <td className={TD}>{fmt(m.incoming)}</td>
+                    <td className={TD}>{fmt(m.defended)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {h && Object.keys(h.effect_totals).length > 0 && (
+            <details className="card p-4 text-sm">
+              <summary className="cursor-pointer font-semibold text-gray-900 dark:text-white">
+                All effects seen ({fmt(Object.keys(h.effect_totals).length)})
+              </summary>
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {Object.entries(h.effect_totals).sort((a, b) => b[1] - a[1]).map(([e, n]) => (
                   <li key={e} className="px-2 py-0.5 rounded bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-gray-200">
-                    {effectLabel(e)} <span className="tabular-nums text-gray-500 dark:text-gray-400">{fmt(h.effect_totals[e])}</span>
+                    {effectLabel(e)} <span className="tabular-nums text-gray-500 dark:text-gray-400">{fmt(n)}</span>
                   </li>
                 ))}
               </ul>
-            )}
-        </div>
-      </div>
-      {h.effects_by_day.length > 0 && (
-        <div className="card p-0 sm:p-0 overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className={TH}>
-                <th className="px-3 py-1.5">Day</th>
-                {effectNames.map((e) => <th key={e} className="px-3 py-1.5">{effectLabel(e)}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {h.effects_by_day.map((d) => (
-                <tr key={d.day} className="border-t border-gray-100 dark:border-slate-700">
-                  <td className="px-3 py-1.5 whitespace-nowrap">{formatTct(d.starts_at).replace(/ \d\d:\d\d TCT$/, '')}</td>
-                  {effectNames.map((e) => <td key={e} className={TD}>{fmt(d.effects[e] ?? 0)}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            </details>
+          )}
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            From our synced attacks and their archived logs, so a stretch interrupted by an outage fills in once Torn is back.
+            Respect here is raw, per attack.
+          </p>
+        </>
       )}
-      <p className="text-xs text-gray-500 dark:text-gray-400">
-        From the archived attack logs. Effects are named as Torn names them on the log line; a few may be armour or stance effects rather than weapon bonuses.
-      </p>
     </div>
   )
 }

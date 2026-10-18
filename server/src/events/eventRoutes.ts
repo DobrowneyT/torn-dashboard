@@ -14,7 +14,9 @@ import {
   eventPhase, eventEndedAt, TORN_CHAIN_MAX, type EventPhase, type EventTimes,
 } from './eventLifecycle.js'
 import { chainReportEnded } from './eventChainReport.js'
-import { chainSection, dailySection, targetsSection, highlightsSection, nameBook, reportVersion } from './eventReport.js'
+import {
+  chainSection, dailySection, targetsSection, highlightsSection, rangeMembers, nameBook, reportVersion,
+} from './eventReport.js'
 
 const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
 const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? null
@@ -236,7 +238,41 @@ export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
       chain: latest ? chainSection(latest, names) : null,
       daily: Number.isFinite(us) ? await dailySection(db, us, Number(r.daily_ms), until, names) : [],
       targets: Number.isFinite(us) ? await targetsSection(db, us, t.starts_at, until, names) : null,
-      highlights: await highlightsSection(db, id, Number(r.daily_ms), names),
+    }
+  })
+
+  // The Stats view (Daily + Highlights merged): every per-member figure and
+  // highlight over ONE range — a day, the whole event ("Overall"), or a custom
+  // span. `from`/`to` are epoch ms; both default to the event's own window.
+  // ⚠️ Clamped to the event: a range can narrow it, never widen it.
+  app.get('/api/events/:id/stats', { preHandler: requireAuth() }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id)
+    if (!Number.isInteger(id) || id <= 0) return reply.status(400).send({ error: 'Invalid event id' })
+    const ev = await db.query(`${SELECT_EVENT} WHERE e.id = $1`, [id])
+    const r = ev.rows[0]
+    if (!r) return reply.status(404).send({ error: 'No such event' })
+    const now = Date.now()
+    const t = times(r)
+    const end = Math.min(now, t.ended_at ?? now)
+    const q = req.query as { from?: string; to?: string }
+    const want = (v: string | undefined, dflt: number) => {
+      if (v === undefined || v === '') return dflt
+      const n = Number(v)
+      return Number.isFinite(n) ? n : NaN
+    }
+    const from = Math.max(t.starts_at, want(q.from, t.starts_at))
+    const to = Math.min(end, want(q.to, end))
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return reply.status(400).send({ error: 'from and to must be epoch ms' })
+    const us = Number((await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')).rows[0]?.torn_faction_id)
+    const names = nameBook((await db.query('SELECT member_id AS id, member_name AS name FROM members')).rows)
+    const range = to > from && Number.isFinite(us)
+      ? await rangeMembers(db, us, from, to, names)
+      : { totals: null, members: [] }
+    return {
+      from, to, server_now: now,
+      totals: range.totals,
+      members: range.members,
+      highlights: to > from ? await highlightsSection(db, id, from, to, names) : null,
     }
   })
 

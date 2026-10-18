@@ -18,6 +18,18 @@ surface it automatically.
 
 ---
 
+## [3.232.0] - 2026-10-18
+
+### Added
+- **Stats replaces Daily and Highlights** on the event report. One view, any range: **Overall**, a single TCT day, or a **custom** span of days. Totals, the member table and every highlight follow the range.
+- **Revitalize and treat leaderboards** lead the Stats view. Neither has been seen in a log yet, so each matches any spelling of Torn's icon and says plainly when it has nothing yet.
+- **Loot drops are tracked again** (parser v4): who looted what, how many, and from whom (in the test window, NPC "Jimmy"), in every wording seen ("a Jawbreaker", "3x Concussion Grenade", "some Pixie Sticks").
+- **Every name is a link**, written `name [id]`: members, opponents, bonus hitters, non-attackers, bounty and mug targets, and factions. Each opens the Torn profile or faction page.
+
+### Changed
+- **Factions on Targets list every faction**, in a box that scrolls past about ten. "No faction" and "Stealthed" rows are gone (reviewed as not useful); those attacks still count everywhere else.
+- **Other effects** (Powerful, Stricken and the rest) are folded into an "All effects seen" list. That is where the real Revitalize and treat names will first appear.
+
 ## [3.231.0] - 2026-10-17
 
 ### Added
