@@ -26,6 +26,7 @@ import {
   resolveCountryFromDescription,
 } from './warRoomRevive.js'
 import type { WarRoomHub } from './warRoom.js'
+import { OUTBOX_KINDS, warSubject } from './memberThreads.js'
 
 export interface WarRoomWriteDeps {
   db: pg.Pool
@@ -706,6 +707,8 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
         notes_public: d.notes_public ?? null,
       }
       const expected = d.expected_updated_at ?? null
+      const before = await db.query('SELECT war_type FROM war_room_notes_v2 WHERE war_id = $1', [d.war_id])
+      const typeBefore = before.rows[0]?.war_type ?? null
 
       if (expected) {
         const updated = await db.query(
@@ -763,8 +766,25 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
         )
       }
 
+      // ⚠️ **A war type set after the reports posted corrects them.** The
+      // member reports carry it in their title, and leads often only label the
+      // war once it is over. Re-opening the posted entries keeps their
+      // message ids, so the bot EDITS each post rather than adding a second.
+      // Only posted ones: an unposted entry will read the new type anyway.
+      let reportsRequeued = 0
+      if ((publicCols.war_type ?? null) !== typeBefore) {
+        const rq = await db.query(
+          `UPDATE member_thread_outbox
+              SET posted_at = NULL, claimed_at = NULL, attempts = 0,
+                  last_error = NULL, queued_at = now()
+            WHERE kind = $1 AND subject = $2 AND posted_at IS NOT NULL`,
+          [OUTBOX_KINDS.war_report, warSubject(Number(d.war_id))],
+        )
+        reportsRequeued = rq.rowCount ?? 0
+      }
+
       const fresh = await db.query('SELECT updated_at FROM war_room_notes_v2 WHERE war_id = $1', [d.war_id])
-      return { ok: true, updated_at: fresh.rows[0]?.updated_at ?? null }
+      return { ok: true, updated_at: fresh.rows[0]?.updated_at ?? null, reports_requeued: reportsRequeued }
     }
   )
 
