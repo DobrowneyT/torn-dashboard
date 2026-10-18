@@ -262,7 +262,7 @@ export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
     }
     const from = Math.max(t.starts_at, want(q.from, t.starts_at))
     const to = Math.min(end, want(q.to, end))
-    if (!Number.isFinite(from) || !Number.isFinite(to)) return reply.status(400).send({ error: 'from and to must be epoch ms' })
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return reply.status(400).send({ error: "That time range isn't valid." })
     const us = Number((await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')).rows[0]?.torn_faction_id)
     const names = nameBook((await db.query('SELECT member_id AS id, member_name AS name FROM members')).rows)
     const range = to > from && Number.isFinite(us)

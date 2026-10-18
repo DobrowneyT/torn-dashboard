@@ -18,6 +18,12 @@ surface it automatically.
 
 ---
 
+## [3.233.1] - 2026-10-18
+
+### Fixed
+- **Custom ranges on Stats take a date AND a time**, to the second (TCT), pre-filled with the range on screen. Clicking **Custom** no longer asks the server for an empty range, which is what showed "from and to must be epoch ms". If the end is before the start, the page says so in plain words.
+- **"Highest respect hit"** replaces "Best hit (no bonus)" on Totals, with the unit written after the figure.
+
 ## [3.233.0] - 2026-10-18
 
 ### Changed

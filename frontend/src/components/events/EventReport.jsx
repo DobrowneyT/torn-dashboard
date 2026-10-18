@@ -192,7 +192,8 @@ function Totals({ chain, event }) {
           </Stat>
         </div>
         <div className="sm:order-1"><Stat label="Chain">{fmt(t.chain)}</Stat></div>
-        <div className="sm:order-3"><Stat label="Best hit (no bonus)">{fmt(t.best, 2)}</Stat></div>
+        {/* ⚠️ The best ORDINARY hit: Torn's own "best" counts chain bonuses. */}
+        <div className="sm:order-3"><Stat label="Highest respect hit">{fmt(t.best, 2)} <span className="text-sm text-gray-500 dark:text-gray-400">respect</span></Stat></div>
       </div>
       <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-4">
         {counters.map(([k, v]) => <Stat key={k} label={k}>{fmt(v)}</Stat>)}
@@ -547,16 +548,29 @@ function Targets({ targets }) {
 
 const DAY_MS = 86_400_000
 
-/** "2026-10-26" (a TCT date) → epoch ms at its 00:00 TCT. */
-const tctDayMs = (v) => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v ?? '')
-  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null
+/**
+ * "2026-10-26T14:30:05" (TCT, from a datetime-local input with seconds) →
+ * epoch ms. ⚠️ Read as UTC — TCT is UTC, and the input carries no zone.
+ * Seconds are optional: browsers drop ":00" from the value.
+ */
+export function tctDateTimeMs(v) {
+  // ⚠️ Seconds AND a fraction are optional: an input normalises "14:30:05" to
+  // "14:30:05.000" (seen in jsdom; browsers may too) and drops ":00" entirely.
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/.exec(v ?? '')
+  return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] ?? 0)) : null
 }
+/** epoch ms → "2026-10-26T14:30:05", as TCT, for a datetime-local input. */
+const msToTctSeconds = (ms) => new Date(ms).toISOString().slice(0, 19) // db-time-safe: epoch ms
 const dayLabel = (ms) => formatTct(ms).replace(/ \d\d:\d\d TCT$/, '')
 
-/** The query for a range, or '' for the whole event. */
+/**
+ * The query for a range, or '' for the whole event.
+ * ⚠️ Only a range with both ends ever reaches the server — an unfinished one
+ * once sent `from=undefined` and surfaced the server's 400 to the member.
+ */
 export function rangeQuery(range) {
   if (!range || range.kind === 'overall') return ''
+  if (!Number.isFinite(range.from) || !Number.isFinite(range.to)) return ''
   return `?from=${range.from}&to=${range.to}`
 }
 
@@ -575,7 +589,9 @@ const TRACKED_EMPTY = {
  */
 function Stats({ event, days, stamp }) {
   const [range, setRange] = useState({ kind: 'overall' })
+  const [picking, setPicking] = useState(false)
   const [custom, setCustom] = useState({ from: '', to: '' })
+  const [customError, setCustomError] = useState(null)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const q = rangeQuery(range)
@@ -594,11 +610,19 @@ function Stats({ event, days, stamp }) {
   const chip = (active) => `px-3 py-1 rounded-lg text-sm whitespace-nowrap shrink-0 tabular-nums ${active
     ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
     : 'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-200'}`
+  const openCustom = () => {
+    // Start from the range on screen, so a small adjustment is a small edit.
+    if (!picking && data) setCustom({ from: msToTctSeconds(data.from), to: msToTctSeconds(data.to) })
+    setCustomError(null)
+    setPicking(true)
+  }
   const applyCustom = () => {
-    const from = tctDayMs(custom.from)
-    const to = tctDayMs(custom.to)
-    if (from == null || to == null || to < from) return
-    setRange({ kind: 'custom', from, to: to + DAY_MS })
+    const from = tctDateTimeMs(custom.from)
+    const to = tctDateTimeMs(custom.to)
+    if (from == null || to == null) { setCustomError('Pick a date and a time for both ends.'); return }
+    if (to <= from) { setCustomError('The end has to be after the start.'); return }
+    setCustomError(null)
+    setRange({ kind: 'custom', from, to })
   }
 
   const t = data?.totals
@@ -607,34 +631,35 @@ function Stats({ event, days, stamp }) {
     <div className="space-y-4">
       <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Range">
         <button type="button" className={chip(range.kind === 'overall')} aria-pressed={range.kind === 'overall'}
-          onClick={() => setRange({ kind: 'overall' })}>Overall</button>
+          onClick={() => { setRange({ kind: 'overall' }); setPicking(false) }}>Overall</button>
         {days.map((d) => {
           const active = range.kind === 'day' && range.from === d.starts_at
           return (
             <button key={d.day} type="button" className={chip(active)} aria-pressed={active}
-              onClick={() => setRange({ kind: 'day', from: d.starts_at, to: d.starts_at + DAY_MS })}>
+              onClick={() => { setRange({ kind: 'day', from: d.starts_at, to: d.starts_at + DAY_MS }); setPicking(false) }}>
               {dayLabel(d.starts_at)}
             </button>
           )
         })}
-        <button type="button" className={chip(range.kind === 'custom' || range.kind === 'picking')}
-          aria-pressed={range.kind === 'custom'} onClick={() => setRange((r) => (r.kind === 'custom' ? r : { kind: 'picking' }))}>
+        <button type="button" className={chip(range.kind === 'custom' || picking)}
+          aria-pressed={range.kind === 'custom'} onClick={openCustom}>
           Custom
         </button>
       </div>
-      {(range.kind === 'picking' || range.kind === 'custom') && (
+      {(picking || range.kind === 'custom') && (
         <div className="card p-3 flex flex-wrap items-end gap-3 text-sm">
           <label className="flex flex-col gap-1">
             <span className="text-gray-600 dark:text-gray-300">From (TCT)</span>
-            <input type="date" className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1"
+            <input type="datetime-local" step="1" className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1"
               value={custom.from} onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))} />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-gray-600 dark:text-gray-300">To (TCT, inclusive)</span>
-            <input type="date" className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1"
+            <span className="text-gray-600 dark:text-gray-300">To (TCT)</span>
+            <input type="datetime-local" step="1" className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1"
               value={custom.to} onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))} />
           </label>
           <button type="button" onClick={applyCustom} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium">Show</button>
+          {customError && <p role="alert" className="w-full text-sm text-red-600 dark:text-red-400">{customError}</p>}
         </div>
       )}
 
