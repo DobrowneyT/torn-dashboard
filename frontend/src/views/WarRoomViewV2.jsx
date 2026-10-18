@@ -2238,7 +2238,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     dibsAbortRef.current = controller
 
     try {
-      await claimDibsV2(memberId, null)
+      // #997 — record the FF this member is LOOKING AT, so the post-war dibs
+      // report can set it beside what the hit actually paid.
+      const row = members.find((m) => Number(m.member_id ?? m.id) === Number(memberId))
+      const targetStats = row ? targetBattleStats(row) : null
+      const shown = targetStats ? trueFairFight(myBattleStats, targetStats) : null
+      const ff = shown == null ? null
+        : { value: shown, estimated: scoreIsEstimated(myBattleStats) || scoreIsEstimated(targetStats) }
+      await claimDibsV2(memberId, null, ff)
       await pollNow()
     } catch (e) {
       if (e.name === 'AbortError') return

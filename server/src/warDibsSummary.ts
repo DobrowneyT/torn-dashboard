@@ -90,6 +90,8 @@ interface ClaimRow extends GreenObservations {
   /** epoch seconds, or null while still held */
   deleted_at: number | null
   release_reason: string | null
+  /** #997: the FF the holder's page showed at claim time (true, uncapped). */
+  ff_shown?: number | string | null
 }
 
 interface AttackRow {
@@ -100,7 +102,21 @@ interface AttackRow {
   /** epoch seconds */
   started: number
   result: string | null
+  /** #997: Torn's own fair-fight modifier on this attack (capped at 3). */
+  fair_fight?: number | string | null
 }
+
+/**
+ * #997 — how far below the FF shown an actual hit must land to count as the
+ * board having OVERSTATED it.
+ *
+ * ⚠️ Stated tunable. Torn reports FF to two decimals and estimates wobble, so a
+ * hair under is noise; half a multiplier is a hit that paid noticeably less
+ * than the member had reason to expect. Compared against the shown value
+ * CAPPED at 3, because Torn caps the actual — a "true FF 4.2" target that pays
+ * 3.00 did exactly what the board promised.
+ */
+export const FF_OVERSTATED_MARGIN = 0.5
 
 export interface ClaimVerdict {
   claim_id: number
@@ -114,6 +130,16 @@ export interface ClaimVerdict {
    *  because "we collided" is a real thing leads will want to see rather than
    *  an absence of data. */
   raced: boolean
+  /** #997: FF the holder was shown, or null when the claim did not say. */
+  ffShown: number | null
+  /** #997: FF Torn gave the holder's FIRST hit on the target in the claim. */
+  ffActual: number | null
+}
+
+const ffNum = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : null
 }
 
 /** ⚠️ Through `Number()`: faction ids arrive as strings from some payloads. */
@@ -164,6 +190,10 @@ export function classifyClaim({
   let holderLoss = false
   let takenBy: number | null = null
   let raced = false
+  // #997: the holder's FIRST swing in the claim — the hit the board's number
+  // was a prediction for. Later hits on the same target say nothing about it.
+  let firstHolderStart = Infinity
+  let ffActual: number | null = null
 
   for (const a of attacks) {
     if (Number(a.defender_id) !== Number(claim.target_id)) continue
@@ -178,6 +208,7 @@ export function classifyClaim({
       // ⚠️ The holder is never racing themselves; grace applies to others only.
       if (isWin(a.result)) holderWin = true
       else holderLoss = true
+      if (started < firstHolderStart) { firstHolderStart = started; ffActual = ffNum(a.fair_fight) }
       continue
     }
     // ⚠️ A teammate's LOSS steals nothing: it does not put the target in
@@ -213,6 +244,8 @@ export function classifyClaim({
     holderSwung,
     takenBy: outcome === CLAIM_OUTCOMES.taken ? takenBy : null,
     raced,
+    ffShown: ffNum(claim.ff_shown),
+    ffActual,
   }
 }
 
@@ -240,12 +273,21 @@ export interface MemberDibsRow {
    *  live claim. "Stolen" is two numbers that cannot share a column, and the
    *  top-offenders question needs this one. */
   tookFromOthers: number
+  /** #997: claims where both the FF shown and the hit's actual FF are known. */
+  ffCompared: number
+  /** Averages over those claims; null when there were none. The shown average
+   *  is CAPPED at 3, so it compares like-for-like with Torn's capped actual. */
+  ffShownAvg: number | null
+  ffActualAvg: number | null
+  /** Of those, how many paid at least FF_OVERSTATED_MARGIN under what was shown. */
+  ffOverstated: number
 }
 
 const emptyRow = (member_id: number, member_name: string | null): MemberDibsRow => ({
   member_id, member_name, claims: 0, converted: 0, attempted: 0, takenFrom: 0,
   noSwing: 0, outside: 0, released: 0, hopped: 0, overridden: 0, boardReset: 0,
   open: 0, unknown: 0, greenMeansGo: 0, swung: 0, tookFromOthers: 0,
+  ffCompared: 0, ffShownAvg: null, ffActualAvg: null, ffOverstated: 0,
 })
 
 /** ⚠️ Narrowed to the COUNT fields only. `keyof MemberDibsRow` includes
@@ -298,6 +340,7 @@ export function summariseWarDibs({
   }
 
   const verdicts: ClaimVerdict[] = []
+  const ffSums = new Map<number, { shown: number; actual: number }>()
   for (const claim of claims) {
     const v = classifyClaim({ claim, attacks, ourFactionId, warEndTs, graceSeconds })
     verdicts.push(v)
@@ -306,6 +349,15 @@ export function summariseWarDibs({
     const field = OUTCOME_FIELD[v.outcome]
     r[field] += 1
     if (v.holderSwung) r.swung += 1
+    if (v.ffShown != null && v.ffActual != null) {
+      const shownCapped = Math.min(3, v.ffShown)
+      const sum = ffSums.get(v.member_id) ?? { shown: 0, actual: 0 }
+      sum.shown += shownCapped
+      sum.actual += v.ffActual
+      ffSums.set(v.member_id, sum)
+      r.ffCompared += 1
+      if (shownCapped - v.ffActual >= FF_OVERSTATED_MARGIN) r.ffOverstated += 1
+    }
     // The offender's own row. ⚠️ Created even if they never claimed anything
     // themselves — somebody who only ever takes other people's targets must not
     // be absent from the table that exists to show exactly that.
@@ -313,6 +365,12 @@ export function summariseWarDibs({
       const taker = attacks.find((a) => Number(a.attacker_id) === v.takenBy)
       row(v.takenBy, taker?.attacker_name ?? null).tookFromOthers += 1
     }
+  }
+
+  for (const [id, sum] of ffSums) {
+    const r = rows.get(id)!
+    r.ffShownAvg = Math.round((sum.shown / r.ffCompared) * 100) / 100
+    r.ffActualAvg = Math.round((sum.actual / r.ffCompared) * 100) / 100
   }
 
   return {
@@ -381,4 +439,7 @@ export function warAttacksSettled({
  *  longer a steal on either axis. Every already-summarised war is recomputed,
  *  which is the point: wars counted under rule 1 contain steals that this rule
  *  says never happened, and leaving them would keep an accusation standing. */
-export const DIBS_SUMMARY_VERSION = 2
+export const DIBS_SUMMARY_VERSION = 3
+// 3 — #997: FF shown at claim time against the FF of the holder's first hit.
+// Recomputing older wars changes nothing for them (no claim recorded an FF),
+// but keeps every summarised war on the current rules.
