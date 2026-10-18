@@ -23,6 +23,7 @@ import { scraperRunsPruneJob } from './jobs/scraperRunsPrune.js'
 import { warsSyncJob } from './jobs/warsSync.js'
 import { attacksSyncJob } from './jobs/attacksSync.js'
 import { dibsSummaryJob } from './jobs/dibsSummary.js'
+import { statMeasurementsJob } from './jobs/statMeasurements.js'
 import { memberThreadSweepJob } from './jobs/memberThreadSweep.js'
 import { revivesContinuousJob } from './jobs/revivesSync.js'
 import { factionsSyncJob } from './jobs/factionsSync.js'
@@ -143,6 +144,9 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // the half-hour gap between the two attacks-sync runs (:20 and :50) so it
   // never reads the table mid-write.
   ['dibs-summary', '0 35 * * * *', dibsSummaryJob],
+  // #996 — measured target stats from our own hits. ⚠️ No Torn calls: it reads
+  // what attacks-sync (:20/:50) already stored, five minutes behind it.
+  ['stat-measurements', '0 25,55 * * * *', statMeasurementsJob],
   // #942 — queue membership notes for the Discord member threads. Every five
   // minutes: a join or a leave is worth logging promptly, and the sweep is two
   // small queries when nothing has changed, which is almost always.

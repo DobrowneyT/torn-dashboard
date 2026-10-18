@@ -170,6 +170,11 @@ export default function WarNotesPanel({ currentWar, notes, privateNotes = '', on
           No matched war detected yet. Notes can be saved once a war is set up.
         </p>
       )}
+      {currentWar?.endAt ? (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          This war has ended. You can still correct its type and notes; changing the type updates the member reports already posted.
+        </p>
+      ) : null}
 
       {/* War type + scores */}
       <div className="flex flex-wrap items-center gap-2 mb-3">

@@ -848,6 +848,34 @@ describe('war notes', () => {
     expect((await call('PUT', '/api/war-room/notes', { war_id: 700 }, 'member')).status).toBe(403)
   })
 
+  it('changing the war type after the reports posted re-opens them for an edit', async () => {
+    await stack.db.query(
+      `INSERT INTO member_thread_outbox (member_id, kind, subject, payload, posted_at, message_id)
+       VALUES ('9101', 'war_report', 'war:701', '{"war_id":701}', now(), '555'),
+              ('9102', 'war_report', 'war:701', '{"war_id":701}', NULL, NULL),
+              ('9103', 'war_report', 'war:702', '{"war_id":702}', now(), '556')`)
+    const first = await call('PUT', '/api/war-room/notes', { war_id: 701, notes_public: 'x' }, 'warlead')
+    expect(first.body.reports_requeued).toBe(0)
+
+    const typed = await call('PUT', '/api/war-room/notes', {
+      war_id: 701, war_type: 'termed', notes_public: 'x', expected_updated_at: first.body.updated_at,
+    }, 'warlead')
+    expect(typed.status).toBe(200)
+    expect(typed.body.reports_requeued).toBe(1)
+    const rows = await stack.db.query(
+      `SELECT member_id, posted_at, message_id FROM member_thread_outbox
+        WHERE member_id IN ('9101','9103') ORDER BY member_id`)
+    // Re-opened, message id kept so the bot edits; another war untouched.
+    expect(rows.rows[0]).toMatchObject({ member_id: '9101', posted_at: null, message_id: '555' })
+    expect(rows.rows[1].posted_at).not.toBeNull()
+
+    // Saving again with the same type re-opens nothing.
+    const same = await call('PUT', '/api/war-room/notes', {
+      war_id: 701, war_type: 'termed', notes_public: 'y', expected_updated_at: typed.body.updated_at,
+    }, 'warlead')
+    expect(same.body.reports_requeued).toBe(0)
+  })
+
   it('public notes readable by any member; the private note only by leads', async () => {
     const pub = await call('GET', '/api/war-room/notes/700')
     expect(pub.status).toBe(200)

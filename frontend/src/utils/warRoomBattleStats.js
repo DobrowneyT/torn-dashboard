@@ -15,6 +15,8 @@
  * places to get it wrong.
  */
 
+import { battleStatsScore } from './fairFight'
+
 /** Index the endpoint's rows by member id, as strings — roster ids are numbers. */
 export function indexBattleStats(rows = []) {
   const byId = {}
@@ -40,7 +42,7 @@ export function indexBattleStats(rows = []) {
  * Unknown sources fall back to the weakest claim rather than the strongest —
  * enemy rows carry no `source` at all, and under-claiming is the safe error.
  */
-const SOURCE_LABEL = { torn: 'API', tornstats: 'TS', bsp: 'BSP' }
+const SOURCE_LABEL = { torn: 'API', tornstats: 'TS', bsp: 'BSP', measured: 'DB' }
 
 export function statsSourceLabel(source) {
   return SOURCE_LABEL[source] ?? 'BSP'
@@ -108,4 +110,49 @@ export function matchesStatsSource(row, filter) {
   // A member with no reading has no source, so they cannot match a real one.
   if (row?.bsp_total == null) return false
   return (row?.spy_source ?? 'bsp') === filter
+}
+
+/**
+ * A target row with its MEASURED score applied, when it has one (#996).
+ *
+ * The server measures a target's battle-stat score from our own hits and sends
+ * it as `measured_score` only where it beats the spy (newer than a TornStats
+ * capture; always over BSP, which has no capture time). Expiry is decided there
+ * too. All this does is put it under the `bsp_*` names every surface already
+ * reads (the Stats cell, both sorts, the FF), labelled "DB".
+ *
+ * ⚠️ **A score, not four stats.** It is a sum of square roots, so it cannot be
+ * split back out. The spy's breakdown is SCALED to it, keeping the build's
+ * shape; with no breakdown it is split evenly (`measured_split: 'even'`). Either
+ * way the four stats reproduce the measured score exactly, so the FF built on
+ * them is not marked as an estimate.
+ *
+ * The estimate it replaced stays on the row (`est_total`, `est_source`) so the
+ * tooltip can show what changed.
+ */
+export function applyMeasuredStats(row) {
+  const score = Number(row?.measured_score)
+  if (!row || row.measured_score == null || !Number.isFinite(score) || score <= 0) return row
+  const four = [row.bsp_str, row.bsp_spd, row.bsp_def, row.bsp_dex]
+  const hasSplit = four.every((v) => v != null && Number(v) > 0)
+  const spyScore = hasSplit
+    ? battleStatsScore({ strength: row.bsp_str, speed: row.bsp_spd, defense: row.bsp_def, dexterity: row.bsp_dex })
+    : null
+  let str, spd, def, dex
+  if (spyScore) {
+    // Multiplying every stat by c multiplies the score by √c.
+    const c = (score / spyScore) ** 2
+    ;[str, spd, def, dex] = four.map((v) => Math.round(Number(v) * c))
+  } else {
+    str = spd = def = dex = Math.round((score / 4) ** 2)
+  }
+  return {
+    ...row,
+    bsp_str: str, bsp_spd: spd, bsp_def: def, bsp_dex: dex,
+    bsp_total: str + spd + def + dex,
+    spy_source: 'measured',
+    measured_split: spyScore ? 'spy' : 'even',
+    est_total: row.bsp_total ?? null,
+    est_source: row.spy_source ?? null,
+  }
 }

@@ -45,7 +45,7 @@ import {
   SCORE_DECAY_SEC, bestCaseChance,
   indexRevivesByTarget, reviveChanceHue, formatReviveChance, modelError,
 } from '../utils/reviveChance'
-import { indexBattleStats, withBattleStats } from '../utils/warRoomBattleStats'
+import { indexBattleStats, withBattleStats, applyMeasuredStats } from '../utils/warRoomBattleStats'
 
 // Flag glyph tones (#339). The muted revive is the load-bearing one: it must
 // read as a weaker claim than the green one at a glance, not just on hover.
@@ -1716,7 +1716,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // flowing, so a player leaving fed reappears on the next tick and audit
   // queries keep the original snapshot.
   const members = useMemo(
-    () => rawMembers.filter(m => m.status_state !== 'Federal'),
+    // #996: a target's measured score, where the server says it beats the spy.
+    () => rawMembers.filter(m => m.status_state !== 'Federal').map(applyMeasuredStats),
     [rawMembers]
   )
 
@@ -1741,6 +1742,10 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // ── Roll call + war notes ───────────────────────────────────────────────────
   const [notesPanelOpen, setNotesPanelOpen] = useState(() => persistedState.notesPanelOpen ?? false)
   const [currentWar, setCurrentWar]   = useState(null)   // { id, opponentId, opponentName, startAt, endAt }
+  // The latest war against this opponent, ENDED OR NOT. ⚠️ Notes key off this,
+  // not `currentWar`: leads label the war type once it is over, and the member
+  // reports read it then — gating notes on "not ended" made that impossible.
+  const [notesWar, setNotesWar]       = useState(null)
   const [warNotes, setWarNotes]       = useState(null)
   const [rollCallRows, setRollCallRows] = useState([])
   const [rollCallLoaded, setRollCallLoaded] = useState(false)  // gate waits for this
@@ -2037,7 +2042,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // is what roll call + summary key off of; null = no active war (no gate).
   useEffect(() => {
     const oppId = config?.faction_id
-    if (!oppId) { setCurrentWar(null); return }
+    if (!oppId) { setCurrentWar(null); setNotesWar(null); return }
     if (!tokenReady) return  // wait for the session token (RLS) before resolving
     let cancelled = false
     const resolve = apiGet('/api/wars?limit=20').then(({ wars }) =>
@@ -2047,6 +2052,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     )
     resolve.then((data) => {
       if (cancelled) return
+      setNotesWar(data ? { id: data.id, opponentId: data.opponent_id, opponentName: data.opponent_name, startAt: data.start_at, endAt: data.end_at } : null)
       // Only treat as "current" when the war hasn't ended yet.
       if (data && !data.end_at) {
         // endAt feeds pollingState (#342) — without it the board cannot tell
@@ -2062,28 +2068,28 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // Load roll-call rows + notes for the current war; refresh periodically so the
   // summary counts + leader results stay reasonably live (data changes slowly).
   const refreshRollCall = useCallback(async () => {
-    if (!currentWar?.id) { setRollCallRows([]); setWarNotes(null); setRollCallLoaded(true); return }
+    if (!notesWar?.id) { setRollCallRows([]); setWarNotes(null); setRollCallLoaded(true); return }
     // Per-channel guard (#167): a transient failure must NOT overwrite
     // known-good rows with [] — that would drop a submitted response and
     // re-trip the gate on a backgrounded/throttled tab. Adopt only a
     // successful read; only mark "loaded" once roll call actually loaded.
     const [rcRes, ntRes] = await Promise.allSettled([
-      fetchRollCall(currentWar.id),
-      fetchWarNotes(currentWar.id),
+      fetchRollCall(notesWar.id),
+      fetchWarNotes(notesWar.id),
     ])
     if (rcRes.status === 'fulfilled') { setRollCallRows(rcRes.value ?? []); setRollCallLoaded(true) }
     if (ntRes.status === 'fulfilled') setWarNotes(ntRes.value ?? null)
-  }, [currentWar?.id])
+  }, [notesWar?.id])
 
   useEffect(() => {
     // Wait for the session token — an RLS-denied read before it's ready returns
     // empty, which would wrongly trip the gate for someone who already responded.
     if (!tokenReady) return
     refreshRollCall()
-    if (!currentWar?.id) return
+    if (!notesWar?.id) return
     const t = setInterval(refreshRollCall, 30_000)
     return () => clearInterval(t)
-  }, [refreshRollCall, currentWar?.id, tokenReady])
+  }, [refreshRollCall, notesWar?.id, tokenReady])
 
   const myRollCall = useMemo(
     () => rollCallRows.find(r => String(r.member_id) === String(user?.id)) ?? null,
@@ -2132,37 +2138,37 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // opens the notes panel (it's never client-readable).
   useEffect(() => {
     // The session token authorizes the leads-only read.
-    if (!notesPanelOpen || !canSeeNotes || !currentWar?.id) return
+    if (!notesPanelOpen || !canSeeNotes || !notesWar?.id) return
     let cancelled = false
-    getWarNotesPrivate(currentWar.id)
+    getWarNotesPrivate(notesWar.id)
       .then(r => { if (!cancelled) setPrivateNotes(r?.notes ?? '') })
       .catch(() => { if (!cancelled) setPrivateNotes('') })
     return () => { cancelled = true }
-  }, [notesPanelOpen, canSeeNotes, currentWar?.id])
+  }, [notesPanelOpen, canSeeNotes, notesWar?.id])
 
   // Collaborative live refresh: while the notes panel is open, pull the notes
   // (public via refreshRollCall + the leads-only private note) every few
   // seconds so war leads see each other's edits near-live. WarNotesPanel
   // re-syncs from these without clobbering in-progress local edits.
   useEffect(() => {
-    if (!notesPanelOpen || !canSeeNotes || !currentWar?.id || !tokenReady) return
+    if (!notesPanelOpen || !canSeeNotes || !notesWar?.id || !tokenReady) return
     let cancelled = false
     const tick = async () => {
       await refreshRollCall()
-      const r = await getWarNotesPrivate(currentWar.id).catch(() => null)
+      const r = await getWarNotesPrivate(notesWar.id).catch(() => null)
       if (!cancelled && r) setPrivateNotes(r.notes ?? '')
     }
     const t = setInterval(tick, 3000)
     return () => { cancelled = true; clearInterval(t) }
-  }, [notesPanelOpen, canSeeNotes, currentWar?.id, tokenReady, refreshRollCall])
+  }, [notesPanelOpen, canSeeNotes, notesWar?.id, tokenReady, refreshRollCall])
 
   async function handleSaveWarNotes(fields) {
-    if (!currentWar?.id) return false
+    if (!notesWar?.id) return false
     setSavingNotes(true); setNotesError(null)
     try {
-      await saveWarNotes(currentWar.id, fields)
+      await saveWarNotes(notesWar.id, fields)
       await refreshRollCall()  // refresh public notes + the optimistic-lock token
-      const r = await getWarNotesPrivate(currentWar.id).catch(() => null)
+      const r = await getWarNotesPrivate(notesWar.id).catch(() => null)
       if (r) setPrivateNotes(r.notes ?? '')
       return true
     } catch (e) {
@@ -2639,6 +2645,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     bspFetchedAt: m.bsp_fetched_at,
     spySource:    m.spy_source,
     tsSpyAt:      m.ts_spy_at,
+    measuredAt:   m.measured_at,
+    measuredBound: m.measured_bound,
     flags: {
       // #339: inOc dropped — it never affected whether a member could be hit
       // or revived. reviveAudience distinguishes "anyone can revive" (a hired
@@ -2938,7 +2946,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
         {/* War Notes & Roll Call results — War Leaders + leadership/admin. */}
         {canSeeNotes && notesPanelOpen && (
           <WarNotesPanel
-            currentWar={currentWar}
+            currentWar={notesWar}
             notes={warNotes}
             privateNotes={privateNotes}
             onSave={handleSaveWarNotes}
