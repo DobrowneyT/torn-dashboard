@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet } from '../../utils/apiClient'
 import SortableTh, { useTableSort } from '../SortableTh'
 import { formatTct } from '../../utils/factionEvent'
@@ -24,7 +24,8 @@ export const VERSION_POLL_MS = 5_000
 // Members first: it is the board members open the page for — where they
 // stand on the live chain report (MonChoon, 2026-10-17).
 const VIEWS = [
-  { id: 'members', label: 'Members' },
+  // "Report" (MonChoon, 2026-10-18): it IS the live chain report.
+  { id: 'members', label: 'Report' },
   { id: 'totals', label: 'Totals' },
   // Daily + Highlights, merged (MonChoon, 2026-10-18): one view, any range —
   // a day, the whole event, or a custom span.
@@ -175,8 +176,10 @@ function Totals({ chain, event }) {
   const counters = [
     ['Hits', t.hits], ['Leave', t.leave], ['Mugs', t.mug], ['Hosps', t.hospitalize],
     ['Assists', t.assists], ['Retaliations', t.retaliations], ['Overseas', t.overseas],
-    ['Losses', t.losses], ['Escapes', t.escapes], ['Draws', t.draws], ['Bonuses', t.bonuses],
-    ['Members hitting', t.members],
+    // "Stalemates", as Torn calls them in game (the API says `draws`). No
+    // "Bonuses" card: the bonus hits are listed in full just below.
+    ['Losses', t.losses], ['Escapes', t.escapes], ['Stalemates', t.draws],
+    ['Hitters', t.members],
   ]
   return (
     <div className="space-y-4">
@@ -189,7 +192,7 @@ function Totals({ chain, event }) {
           </Stat>
         </div>
         <div className="sm:order-1"><Stat label="Chain">{fmt(t.chain)}</Stat></div>
-        <div className="sm:order-3"><Stat label="Best respect">{fmt(t.best, 2)}</Stat></div>
+        <div className="sm:order-3"><Stat label="Best hit (no bonus)">{fmt(t.best, 2)}</Stat></div>
       </div>
       <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-4">
         {counters.map(([k, v]) => <Stat key={k} label={k}>{fmt(v)}</Stat>)}
@@ -329,7 +332,7 @@ function Ranked({ title, rows, unit = '', render, who = (r) => <PlayerLink id={r
       {rows.length === 0
         ? <p className="text-sm text-gray-500 dark:text-gray-400">{empty}</p>
         : (
-          <ol className="space-y-1 text-sm">
+          <ol className="space-y-1 text-sm max-h-[19rem] overflow-y-auto pr-1">
             {rows.map((r, i) => (
               <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-3">
                 <span className="truncate min-w-0 max-w-full"><span className="text-gray-400 tabular-nums mr-2">{i + 1}.</span>{who(r)}</span>
@@ -341,6 +344,107 @@ function Ranked({ title, rows, unit = '', render, who = (r) => <PlayerLink id={r
     </div>
   )
 }
+
+/**
+ * A per-member board: EVERY member, sortable, in a window about ten rows tall
+ * that scrolls (MonChoon, 2026-10-18: "show the entire faction ... scrollable
+ * ... possibly making them sortable"). `#` is the place in the CURRENT sort.
+ * `expand(row)`, when given, makes the figure in the first column clickable to
+ * open the row's detail underneath.
+ */
+export function MemberBoard({ title, rows, columns, initialCol, empty = 'Nothing yet.', expand, showCount = true }) {
+  const cols = useMemo(() => [{ key: 'name', label: 'Member', kind: 'string' }, ...columns], [columns])
+  const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, cols, {
+    initialCol: initialCol ?? columns[0]?.key, initialDir: 'desc', tieBreak: 'name',
+  })
+  const [open, setOpen] = useState(null)
+  return (
+    <div className="card p-4 min-w-0">
+      <h4 className="font-semibold text-gray-900 dark:text-white mb-2">
+        {title} {showCount && rows.length > 0 && <span className="text-sm font-normal text-gray-500 dark:text-gray-400">({fmt(rows.length)})</span>}
+      </h4>
+      {rows.length === 0 ? <p className="text-sm text-gray-500 dark:text-gray-400">{empty}</p> : (
+        <div className="max-h-[20rem] overflow-y-auto -mx-1 px-1">
+          <table className="min-w-full text-sm">
+            <thead className="sticky top-0 z-[6] bg-white dark:bg-slate-800">
+              <tr className={TH}>
+                <th className="px-1 py-1 w-8 text-right font-medium" aria-label="Position">#</th>
+                {cols.map((c) => (
+                  <SortableTh key={c.key} col={c} sortCol={sortCol} sortDir={sortDir} onSort={onSort}
+                    className={c.key === 'name' ? '' : 'text-right'}>{c.label}</SortableTh>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r, i) => {
+                const isOpen = expand && open === r.id
+                return (
+                  <Fragment key={r.id}>
+                    <tr className="border-t border-gray-100 dark:border-slate-700">
+                      <td className="px-1 py-1 text-right tabular-nums text-gray-400">{i + 1}</td>
+                      <td className="px-3 py-1 max-w-[12rem] truncate"><PlayerLink id={r.id} name={r.name} /></td>
+                      {columns.map((c, ci) => {
+                        const v = c.render ? c.render(r) : fmt(c.accessor ? c.accessor(r) : r[c.key])
+                        return (
+                          <td key={c.key} className="px-3 py-1 text-right tabular-nums whitespace-nowrap">
+                            {expand && ci === 0 ? (
+                              <button type="button" onClick={() => setOpen(isOpen ? null : r.id)} aria-expanded={!!isOpen}
+                                className="text-blue-600 dark:text-blue-400 hover:underline">
+                                {v} {isOpen ? '▴' : '▾'}
+                              </button>
+                            ) : v}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td />
+                        <td colSpan={cols.length} className="px-3 pb-2">{expand(r)}</td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** One member's loot, drop by drop, with the source linked. */
+function LootDetail({ row }) {
+  return (
+    <ul className="space-y-0.5 text-xs text-gray-600 dark:text-gray-300">
+      {row.detail.map((d, i) => (
+        <li key={i}>
+          {d.qty > 1 ? `${fmt(d.qty)}× ` : ''}{d.item} from <PlayerLink id={d.from_id} name={d.from} />
+          <span className="text-gray-400"> · {formatTct(d.at)}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+const BOARD_COUNT = [{ key: 'count', label: 'Procs', kind: 'number' }]
+const BOARD_LOOT = [
+  { key: 'drops', label: 'Drops', kind: 'number' },
+  { key: 'items', label: 'Items', kind: 'number', accessor: (r) => Object.values(r.items).reduce((a, b) => a + b, 0) },
+]
+const BOARD_BOUNTY = [
+  { key: 'total', label: 'Earned', kind: 'number', render: (r) => `$${fmt(r.total)}` },
+  { key: 'claims', label: 'Claims', kind: 'number' },
+]
+const BOARD_TARGETED = [
+  { key: 'incoming', label: 'Attacked', kind: 'number' },
+  { key: 'beaten', label: 'Beaten', kind: 'number' },
+]
+const BOARD_BUSY = [
+  { key: 'outgoing', label: 'Attacks', kind: 'number' },
+  { key: 'distinct_targets', label: 'Targets', kind: 'number' },
+]
 
 const TARGET_COLS = [
   { key: 'name', label: 'Member', kind: 'string' },
@@ -403,9 +507,9 @@ function Targets({ targets }) {
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-2">
-        <Ranked title="Most targeted members" rows={targets.most_targeted} unit="attacks" render={(r) => fmt(r.incoming)} />
+        <MemberBoard title="Most targeted members" rows={targets.most_targeted} columns={BOARD_TARGETED} />
         <Ranked title="Who hit us most" rows={targets.top_attackers_on_us} unit="attacks" render={(r) => fmt(r.hits)} />
-        <Ranked title="Busiest members" rows={targets.most_active} unit="attacks" render={(r) => fmt(r.outgoing)} />
+        <MemberBoard title="Busiest members" rows={targets.most_active} columns={BOARD_BUSY} />
         <Ranked title="Who we hit most" rows={targets.our_top_targets} unit="hits" render={(r) => fmt(r.hits)} />
       </div>
       <div className="card p-0 sm:p-0 overflow-x-auto">
@@ -551,8 +655,8 @@ function Stats({ event, days, stamp }) {
           <div className="grid gap-3 md:grid-cols-2">
             {(h?.tracked ?? [{ key: 'revitalize', label: 'Revitalize', total: 0, by_member: [] }, { key: 'treats', label: 'Treats', total: 0, by_member: [] }])
               .map((tr) => (
-                <Ranked key={tr.key} title={`${tr.label}${tr.total ? ` (${fmt(tr.total)})` : ''}`} rows={tr.by_member}
-                  render={(r) => fmt(r.count)} empty={TRACKED_EMPTY[tr.key] ?? 'None yet.'} />
+                <MemberBoard key={tr.key} title={`${tr.label}${tr.total ? ` · ${fmt(tr.total)} ${tr.total === 1 ? 'proc' : 'procs'}` : ''}`} rows={tr.by_member}
+                  columns={BOARD_COUNT} empty={TRACKED_EMPTY[tr.key] ?? 'None yet.'} showCount={false} />
               ))}
           </div>
 
@@ -572,8 +676,8 @@ function Stats({ event, days, stamp }) {
                 <Stat label="Loot drops">{fmt(h.loot.drops)}</Stat>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <Ranked title="Loot drops" rows={h.loot.by_member} render={(r) => `${fmt(r.drops)} ${r.drops === 1 ? 'drop' : 'drops'}`}
-                  empty="No loot dropped in this range." />
+                <MemberBoard title="Loot drops" rows={h.loot.by_member} columns={BOARD_LOOT}
+                  empty="No loot dropped in this range." expand={(r) => <LootDetail row={r} />} />
                 <div className="card p-4 space-y-3 text-sm min-w-0">
                   <h4 className="font-semibold text-gray-900 dark:text-white">Loot by item</h4>
                   {h.loot.by_item.length === 0 ? <p className="text-gray-500 dark:text-gray-400">None yet.</p> : (
@@ -587,12 +691,15 @@ function Stats({ event, days, stamp }) {
                   )}
                   {h.loot.by_source.length > 0 && (
                     <p className="text-gray-600 dark:text-gray-300">
-                      From: {h.loot.by_source.map((x) => `${x.from} (${fmt(x.drops)})`).join(', ')}
+                      From:{' '}
+                      {h.loot.by_source.map((x, i) => (
+                        <span key={x.from_id ?? x.from}>{i > 0 && ', '}<PlayerLink id={x.from_id} name={x.from} /> ({fmt(x.drops)})</span>
+                      ))}
                     </p>
                   )}
                 </div>
-                <Ranked title="Most earned from bounties" rows={h.bounties.by_member}
-                  render={(r) => `$${fmt(r.total)} · ${fmt(r.claims)} ${r.claims === 1 ? 'claim' : 'claims'}`} empty="No bounties claimed." />
+                <MemberBoard title="Most earned from bounties" rows={h.bounties.by_member} columns={BOARD_BOUNTY}
+                  empty="No bounties claimed." />
                 <Ranked title="Highest bounties claimed" rows={h.bounties.top}
                   render={(r) => <>${fmt(r.amount)} on <PlayerLink id={r.target_id} name={r.target} /></>} empty="No bounties claimed." />
                 <Ranked title="Highest mugs" rows={h.highest_mugs}

@@ -17,6 +17,12 @@ import { WIN_RESULTS, LOSS_RESULTS, ASSIST_RESULT } from '../warOverview/summary
 const DAY_S = 86_400
 /** How many rows the most-targeted lists show. */
 export const TOP_TARGETS = 10
+/**
+ * One-off lists (highest mugs, biggest hits, who hit us…) go to this many; the
+ * page shows about ten and scrolls (MonChoon, 2026-10-18). Per-member boards
+ * are never cut — every member is listed.
+ */
+export const LIST_LIMIT = 100
 
 // Torn's per-attack counters, in the order the report shows them.
 export const ATTACK_KEYS = [
@@ -73,7 +79,10 @@ export function chainSection(latest: any, names: NameBook) {
       respect: { raw, capped: round2(raw - deduction), deduction },
       members: num(d.members),
       targets: num(d.targets),
-      best: num(d.best),
+      // ⚠️ Torn's `details.best` is the best hit INCLUDING chain bonuses (the
+      // 100k bonus is 40,960 respect). Each attacker's own `best` leaves bonus
+      // hits out, so the best of those is the best ordinary hit.
+      best: members.reduce((b, m) => Math.max(b, m.respect.best), 0),
       leave: num(d.leave), mug: num(d.mug), hospitalize: num(d.hospitalize),
       assists: num(d.assists), retaliations: num(d.retaliations), overseas: num(d.overseas),
       draws: num(d.draws), escapes: num(d.escapes), losses: num(d.losses), war: num(d.war),
@@ -231,7 +240,7 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
             count(DISTINCT attacker_id) AS by_members
        FROM faction_attacks
       WHERE NOT is_incoming AND attacker_faction_id = $3 AND started >= $1 AND started < $2
-      GROUP BY 1 ORDER BY hits DESC, id LIMIT ${TOP_TARGETS}`,
+      GROUP BY 1 ORDER BY hits DESC, id LIMIT ${LIST_LIMIT}`,
     [from, to, us],
   )
   const theirAttackers = await db.query(
@@ -241,7 +250,7 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
       WHERE is_incoming AND defender_faction_id = $3
         AND attacker_faction_id IS DISTINCT FROM $3 AND started >= $1 AND started < $2
         AND attacker_id IS NOT NULL
-      GROUP BY 1 ORDER BY hits DESC, id LIMIT ${TOP_TARGETS}`,
+      GROUP BY 1 ORDER BY hits DESC, id LIMIT ${LIST_LIMIT}`,
     [from, to, us],
   )
   // #987 — the same, by FACTION, EVERY faction (the page scrolls past ten).
@@ -288,9 +297,9 @@ export async function targetsSection(db: pg.Pool, us: number, fromMs: number, to
     })),
     members: members.sort((a, b) => b.incoming - a.incoming || b.outgoing - a.outgoing),
     most_targeted: [...members].filter((m) => m.incoming > 0)
-      .sort((a, b) => b.incoming - a.incoming).slice(0, TOP_TARGETS),
+      .sort((a, b) => b.incoming - a.incoming),
     most_active: [...members].filter((m) => m.outgoing > 0)
-      .sort((a, b) => b.outgoing - a.outgoing).slice(0, TOP_TARGETS),
+      .sort((a, b) => b.outgoing - a.outgoing),
     our_top_targets: ourTargets.rows.map((r) => ({
       id: Number(r.id), name: r.name ?? `#${r.id}`, hits: Number(r.hits), by_members: Number(r.by_members),
     })),
@@ -377,7 +386,7 @@ export async function highlightsSection(
     `SELECT p.member_id AS id, p.mug_amount AS amount, a.defender_id AS target_id, a.defender_name AS target, p.started
        FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
       WHERE ${RANGE} AND p.outgoing AND p.mug_amount IS NOT NULL
-      ORDER BY p.mug_amount DESC, p.attack_id LIMIT ${TOP_TARGETS}`, args)
+      ORDER BY p.mug_amount DESC, p.attack_id LIMIT ${LIST_LIMIT}`, args)
   // Bounties our members claimed (v3). ⚠️ Outgoing only — a bounty claimed ON
   // one of ours is the opponent's prize, not a highlight.
   const bounties = await db.query(
@@ -391,19 +400,25 @@ export async function highlightsSection(
             CASE WHEN p.outgoing THEN a.defender_name ELSE a.attacker_name END AS opponent, p.started
        FROM event_attack_log_parsed p JOIN faction_attacks a ON a.attack_id = p.attack_id
       WHERE ${RANGE} AND p.biggest_hit IS NOT NULL AND p.member_id IS NOT NULL
-      ORDER BY p.biggest_hit DESC, p.attack_id LIMIT ${TOP_TARGETS}`, args)
+      ORDER BY p.biggest_hit DESC, p.attack_id LIMIT ${LIST_LIMIT}`, args)
   // An effect counts for our member only when THEY made it — not the
   // opponent's proc in the same fight.
   const effects = await db.query(
-    `SELECT e.actor_id AS id, e.effect, e.text
-       FROM event_attack_log_effects e JOIN event_attack_log_parsed p ON p.attack_id = e.attack_id
+    `SELECT e.actor_id AS id, e.effect, e.text, e.started,
+            -- Loot comes FROM the other side of the fight: the defender when we
+            -- attacked, so the source (an NPC like Jimmy) can be linked by id.
+            CASE WHEN p.outgoing THEN a.defender_id ELSE a.attacker_id END AS other_id
+       FROM event_attack_log_effects e
+       JOIN event_attack_log_parsed p ON p.attack_id = e.attack_id
+       JOIN faction_attacks a ON a.attack_id = e.attack_id
       WHERE ${RANGE} AND e.actor_id = p.member_id`, args)
 
   const effectTotals: Record<string, number> = {}
   const tracked = Object.fromEntries(TRACKED_EFFECTS.map((t) => [t.key, new Map<number, number>()]))
-  const loot = new Map<number, { id: number; name: string; drops: number; items: Record<string, number> }>()
+  type LootDrop = { item: string; qty: number; from: string; from_id: number | null; at: number }
+  const loot = new Map<number, { id: number; name: string; drops: number; items: Record<string, number>; detail: LootDrop[] }>()
   const lootItems = new Map<string, number>()
-  const lootSources = new Map<string, number>()
+  const lootSources = new Map<string, { from: string; from_id: number | null; drops: number }>()
   for (const r of effects.rows) {
     const id = Number(r.id)
     effectTotals[r.effect] = (effectTotals[r.effect] ?? 0) + 1
@@ -413,12 +428,17 @@ export async function highlightsSection(
     if (r.effect === 'loot') {
       const l = parseLoot(String(r.text))
       if (!l) continue
-      if (!loot.has(id)) loot.set(id, { id, name: names.get(id), drops: 0, items: {} })
+      if (!loot.has(id)) loot.set(id, { id, name: names.get(id), drops: 0, items: {}, detail: [] })
       const m = loot.get(id)!
+      const fromId = r.other_id == null ? null : Number(r.other_id)
       m.drops++
       m.items[l.item] = (m.items[l.item] ?? 0) + l.qty
+      m.detail.push({ item: l.item, qty: l.qty, from: l.from, from_id: fromId, at: Number(r.started) * 1000 })
       lootItems.set(l.item, (lootItems.get(l.item) ?? 0) + l.qty)
-      lootSources.set(l.from, (lootSources.get(l.from) ?? 0) + 1)
+      const key = `${fromId ?? l.from}`
+      const src = lootSources.get(key) ?? { from: l.from, from_id: fromId, drops: 0 }
+      src.drops++
+      lootSources.set(key, src)
     }
   }
   const board = (m: Map<number, number>) => [...m.entries()]
@@ -451,8 +471,8 @@ export async function highlightsSection(
       claimed: bounties.rows.length,
       total: bounties.rows.reduce((t, r) => t + Number(r.amount), 0),
       // Most earned from bounties: per member, by total value.
-      by_member: [...bountyBy.values()].sort((a, b) => b.total - a.total || b.claims - a.claims).slice(0, TOP_TARGETS),
-      top: bounties.rows.slice(0, TOP_TARGETS).map((r) => ({
+      by_member: [...bountyBy.values()].sort((a, b) => b.total - a.total || b.claims - a.claims),
+      top: bounties.rows.slice(0, LIST_LIMIT).map((r) => ({
         id: Number(r.id), name: names.get(r.id), amount: Number(r.amount),
         target_id: idOrNull(r.target_id), target: r.target ?? null, at: Number(r.started) * 1000,
       })),
@@ -465,7 +485,7 @@ export async function highlightsSection(
       drops: [...loot.values()].reduce((n, m) => n + m.drops, 0),
       by_member: [...loot.values()].sort((a, b) => b.drops - a.drops || a.name.localeCompare(b.name)),
       by_item: [...lootItems.entries()].map(([item, qty]) => ({ item, qty })).sort((a, b) => b.qty - a.qty),
-      by_source: [...lootSources.entries()].map(([from, drops]) => ({ from, drops })).sort((a, b) => b.drops - a.drops),
+      by_source: [...lootSources.values()].sort((a, b) => b.drops - a.drops),
     },
     // Everything else, for discovery: the first Revitalize or treat line shows
     // up here under its real name.
