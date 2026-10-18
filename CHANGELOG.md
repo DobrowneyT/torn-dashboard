@@ -18,6 +18,12 @@ surface it automatically.
 
 ---
 
+## [3.238.0] - 2026-10-18
+
+### Added
+- **Chain Watch sign-ups from Discord: dashboard side (#1007, PRD #1006).** Two bot-only endpoints, using the tenant's Chain Watch token: `POST /api/internal/chain-watch/signups` and `/signups/drop`, each taking `{member_id, hour_start}`. The bot supplies who clicked; the dashboard checks the member is on this faction's roster, picks the event the board shows, and applies the website's member rules. A sign-up takes the first free place, and a lost race is retried. Every refusal returns a stable `code` (`not_member`, `no_event`, `outside_event`, `not_on_hour`, `hour_finished`, `already_signed_up`, `hour_full`, `not_signed_up`, `hour_started`). Success redraws the board.
+- Sign-ups record where they came from (`via`: `web` or `discord`), and the sheet marks Discord ones with a small icon.
+
 ## [3.237.0] - 2026-10-18
 
 ### Added
