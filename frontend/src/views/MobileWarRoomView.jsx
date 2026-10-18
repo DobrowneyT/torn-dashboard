@@ -70,8 +70,9 @@ import InfoTooltip from '../components/InfoTooltip'
 import { isOverdosed } from '../utils/memberNotes'
 import { parseStatInput } from '../utils/statInput'
 import {
-  fairFight, formatFF, ffGradientPosition, isMaxFF, scoreIsEstimated, targetBattleStats,
+  trueFairFight, formatFF, ffTrueHue, isMaxFF, scoreIsEstimated, targetBattleStats, FF_MAX,
 } from '../utils/fairFight'
+import { useDisplaySettings } from '../hooks/useDisplaySettings'
 
 // ───────────────────────────────────────────────────────────────────
 // Static config — status visuals, activity colours, flag icons
@@ -247,9 +248,11 @@ function FlagsRow({ flags, state, description }) {
  * this one target's stats are missing — a data gap worth seeing.
  */
 function FairFightBadge({ mine, m }) {
+  // #995: the TRUE (uncapped) FF, coloured red → green (3.00) → red again.
+  const { ff_red_high: redHigh } = useDisplaySettings()
   if (!mine) return null
   const target = targetBattleStats(m)
-  const ff = fairFight(mine, target)
+  const ff = trueFairFight(mine, target)
 
   if (ff === null) {
     return (
@@ -272,8 +275,8 @@ function FairFightBadge({ mine, m }) {
   // assumption inflates FF on the target side — so a number resting on a bare
   // BSP total must not look as solid as one from a real spy.
   const estimated = scoreIsEstimated(mine) || scoreIsEstimated(target)
-  // 0 → red (0deg), 1 → green (120deg). Same scale as the desktop column.
-  const hue = Math.round(120 * ffGradientPosition(ff))
+  // Same double-ended scale as the desktop column.
+  const hue = ffTrueHue(ff, redHigh)
 
   return (
     <InfoTooltip
@@ -295,8 +298,14 @@ function FairFightBadge({ mine, m }) {
       decoration="no-underline"
       className="shrink-0"
     >
-      <div>Fair Fight {formatFF(ff)} — your respect multiplier against this target.</div>
-      {isMaxFF(ff) && <div className="mt-1.5">At the 3.00 cap: full respect.</div>}
+      <div>Fair Fight {formatFF(ff)} against this target.</div>
+      {isMaxFF(ff) && (
+        <div className="mt-1.5">
+          {ff > FF_MAX
+            ? `Respect pays at the ${formatFF(FF_MAX)} cap. Above it, the higher the number, the stronger the target is than you.`
+            : 'At the 3.00 cap: full respect.'}
+        </div>
+      )}
       <div className="mt-1.5">
         {estimated
           ? 'Estimated: only a stat total is known for one side, so an even split was assumed. The real FF may be lower.'
@@ -1212,8 +1221,10 @@ export default function MobileWarRoomView({
 
   // FF for one row, from the viewer's perspective (#422). Shared by the sort
   // and the 3x filter so the two cannot disagree with the badge on the card.
+  // ⚠️ #995: TRUE (uncapped) FF — the sort ranks by it; the 3x filter still
+  // means "pays full respect" because isMaxFF is `>= 3`.
   const ffFor = useCallback(
-    (m) => fairFight(myBattleStats, targetBattleStats(m)),
+    (m) => trueFairFight(myBattleStats, targetBattleStats(m)),
     [myBattleStats]
   )
   // Only offerable when we can actually compute it — a 3x filter with no

@@ -49,6 +49,7 @@ import { createJobRunner } from './scraper/registerJobs.js'
 import { createSecretStore } from './secrets.js'
 import { APP_VERSION } from './version.js'
 import { CURRENT_DISCLOSURE_VERSION, consentIsCurrent } from './consent.js'
+import { registerDisplaySettings } from './displaySettings.js'
 import { requireAuth } from './authz.js'
 
 /** Mutable readiness flags (#76). main.ts flips these true after arming the
@@ -567,6 +568,8 @@ export async function buildServer(
     registerChainWatchRoutes(app, opts.db, opts.factionSlug)
     // #969 — the faction event page (Halloween first) that now hosts Chain Watch.
     registerEventRoutes(app, opts.db)
+    // #995 — display tunables (the true-FF gradient's upper anchor).
+    registerDisplaySettings(app, app.flagResolver)
     registerExportRoutes(app, opts.db)
     // In-app feedback → triaged GitHub issue (#253). Disabled (endpoint 501, nav
     // hidden) when no PAT is configured.

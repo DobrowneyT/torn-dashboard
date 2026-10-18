@@ -24,8 +24,9 @@ import { apiDelete, apiPatch, apiPost } from '../../utils/apiClient'
 // touches war-room state. The grudge columns are named `bsp_*` precisely so
 // `targetBattleStats` reads a grudge row with no adapter in between.
 import {
-  fairFight, formatFF, ffGradientPosition, scoreIsEstimated, targetBattleStats,
+  trueFairFight, formatFF, ffTrueHue, scoreIsEstimated, targetBattleStats,
 } from '../../utils/fairFight'
+import { useDisplaySettings } from '../../hooks/useDisplaySettings'
 import {
   secondsUntil, formatCountdown, isAttackable, availabilityKey,
 } from '../../utils/grudgeCountdown'
@@ -47,11 +48,14 @@ import {
  * as one built on a real spy.
  */
 function FairFightCell({ mine, target }) {
+  // #995: the TRUE (uncapped) FF and the War Room's double-ended colour, so the
+  // two target lists read the same.
+  const { ff_red_high: redHigh } = useDisplaySettings()
   const targetStats = targetBattleStats(target)
-  const ff = fairFight(mine, targetStats)
+  const ff = trueFairFight(mine, targetStats)
   if (ff === null) return <span className="text-xs text-gray-400 dark:text-gray-600">—</span>
   const estimated = scoreIsEstimated(mine) || scoreIsEstimated(targetStats)
-  const hue = Math.round(120 * ffGradientPosition(ff))
+  const hue = ffTrueHue(ff, redHigh)
   return (
     <span
       style={{ '--grad-hue': hue }}
@@ -245,7 +249,7 @@ export default function GrudgeList({
     ...COLUMNS,
     {
       key: 'ff',
-      accessor: (r) => fairFight(myBattleStats, targetBattleStats(r)),
+      accessor: (r) => trueFairFight(myBattleStats, targetBattleStats(r)),
       kind: 'number',
     },
     // ⚠️ Unclaimed sorts FIRST, because an unclaimed target is the one you

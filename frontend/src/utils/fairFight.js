@@ -107,6 +107,41 @@ export function fairFight(attackerStats, defenderStats) {
   return Math.min(FF_MAX, 1 + (8 / 3) * (defender / attacker))
 }
 
+/**
+ * The UNCAPPED fair fight — the same formula before Torn's 3.00 ceiling (#995).
+ *
+ * ⚠️ Display and ordering only. Respect is paid on the CAPPED value, so every
+ * payout, score and the "3x FF" filter keep using `fairFight()`. What this adds
+ * is how far past 3.00 a matchup is: "true FF 5.40" is a target you are likely
+ * to lose to, where the capped value would read a reassuring 3.00.
+ */
+export function trueFairFight(attackerStats, defenderStats) {
+  const attacker = battleStatsScore(attackerStats)
+  const defender = battleStatsScore(defenderStats)
+  if (attacker === null || defender === null || attacker <= 0) return null
+  return 1 + (8 / 3) * (defender / attacker)
+}
+
+/**
+ * Default for the upper red anchor of the true-FF gradient (#995). MonChoon
+ * suggested 5 or 6 and will tune it against real stats, so the live value is a
+ * feature flag (`war_room_ff_red_high`, Global Admin) — this is only the
+ * fallback when the flag is unset.
+ */
+export const FF_TRUE_RED_HIGH_DEFAULT = 6
+
+/**
+ * Hue for a true FF, double-ended (#995): red (0°) at 1.00, green (120°) at
+ * 3.00, and red again at `redHigh` and beyond — too far below you pays little,
+ * too far above you is a fight you probably lose. Null when unknown.
+ */
+export function ffTrueHue(ff, redHigh = FF_TRUE_RED_HIGH_DEFAULT) {
+  if (ff === null || ff === undefined || !Number.isFinite(ff)) return null
+  const high = Number.isFinite(redHigh) && redHigh > FF_MAX ? redHigh : FF_TRUE_RED_HIGH_DEFAULT
+  if (ff <= FF_MAX) return Math.round(120 * Math.max(0, (ff - 1) / (FF_MAX - 1)))
+  return Math.round(120 * Math.max(0, 1 - (ff - FF_MAX) / (high - FF_MAX)))
+}
+
 /** Two decimals, matching how Torn reports it; '—' when unknown. */
 export function formatFF(ff) {
   return ff === null || ff === undefined ? '—' : ff.toFixed(2)
@@ -120,7 +155,9 @@ export function formatFF(ff) {
  * middle of the ranking, which is worse than either end.
  */
 export function ffSortValue(attackerStats, defenderStats) {
-  return fairFight(attackerStats, defenderStats)
+  // #995: by TRUE FF, so "far above me" sorts above "even fight" rather than
+  // both tying at 3.00.
+  return trueFairFight(attackerStats, defenderStats)
 }
 
 /**
