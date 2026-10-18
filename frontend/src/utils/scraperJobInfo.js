@@ -134,6 +134,12 @@ export const SCRAPER_JOB_INFO = {
     'omitted. ' +
     'A war that failed can be re-run once a human has sorted out what was ' +
     'missing, and will not double-post anything already sent.',
+  'event-bingo':
+    'Crosses the automatic squares on the event\'s bingo card (#965): ranked ' +
+    'war attacks, big or exact hits, repeating chain numbers, mugs for $1, ' +
+    'bounties, chain watch and travel. A waiting proof request the data ' +
+    'confirms is approved. Costs ZERO Torn API calls; does nothing unless an ' +
+    'event with bingo on is running.',
   'stat-measurements':
     'Learns enemy targets\' battle-stat scores from our own hits (#996). Torn ' +
     'reports the real fair fight on every hit, and a member\'s own key gives ' +

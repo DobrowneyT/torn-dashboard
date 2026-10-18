@@ -18,6 +18,15 @@ surface it automatically.
 
 ---
 
+## [3.239.0] - 2026-10-18
+
+### Added
+- **Event bingo (#965).** A Bingo tab on the event page. Everyone gets the same card and crosses squares off their own copy.
+  - **The card:** leadership uploads the card art (PNG, JPEG, WebP or GIF) and sets rows, columns and where the grid sits on the image (each edge as a percentage), with a live preview. Each square's text and type are stored as data: *proof*, *automatic* or *free*. A "Use the Halloween squares" button fills in the shared Halloween card. With no image, the squares show their own text.
+  - **Automatic squares** are crossed every 5 minutes by a new `event-bingo` job, which makes no Torn calls. Rules: ranked war attack; over 10 respect from one attack (bonus hits excluded); repeating-number chain hit; over 10,000 damage in one hit; 1,310–1,340 damage in one hit; mugged for $1 (not by our own faction); more than 50 bounties; taking part in the event's chain watch; travelling abroad. A waiting proof request that the data confirms is approved.
+  - **Proof squares:** a member sends a log snippet or a screenshot (pasting one works). Leadership and admin approve or deny it with a note, and a denied request can be sent again. Leadership can also cross or un-cross a square for anyone and open any member's card from the standings.
+  - **Standings:** squares and completed lines for every member.
+
 ## [3.238.0] - 2026-10-18
 
 ### Added

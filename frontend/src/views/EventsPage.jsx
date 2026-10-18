@@ -10,6 +10,8 @@ import EventReport from '../components/events/EventReport'
 import { apiGet, apiPatch, apiPost } from '../utils/apiClient'
 import { parseDbTime } from '../utils/time'
 import { formatTct, halloweenDefaults, msToTctInput, tctInputToMs } from '../utils/factionEvent'
+import Bingo from '../components/events/Bingo'
+import BingoSettings from '../components/events/BingoSettings'
 
 const PHASE_LABEL = { upcoming: 'Starts soon', live: 'Live', ended: 'Ended' }
 
@@ -27,6 +29,9 @@ export default function EventsPage({ event, isLeadership, onChanged }) {
   const tabs = [
     { to: '/events/report', label: 'Report' },
     { to: '/events/chain-watch', label: 'Chain Watch' },
+    // #965 — members see it once leadership turns it on; leadership always,
+    // so the card can be set up and checked before it goes live.
+    ...(event && (event.bingo_enabled || isLeadership) ? [{ to: '/events/bingo', label: 'Bingo' }] : []),
     ...(isLeadership ? [{ to: '/events/settings', label: 'Settings' }] : []),
   ]
   const activeStyle = ({ isActive }) =>
@@ -45,10 +50,14 @@ export default function EventsPage({ event, isLeadership, onChanged }) {
         <Route index element={<Navigate to={event ? '/events/report' : (isLeadership ? '/events/settings' : '/events/chain-watch')} replace />} />
         <Route path="report" element={event ? <EventReport event={event} isLeadership={isLeadership} /> : <NoEvent />} />
         <Route path="chain-watch" element={<ChainWatchSection isLeadership={isLeadership} />} />
+        {event && (event.bingo_enabled || isLeadership) && (
+          <Route path="bingo" element={<Bingo event={event} isLeadership={isLeadership} />} />
+        )}
         {isLeadership && (
           <Route path="settings" element={
             <div className="space-y-6">
               <EventSettings event={event} onChanged={onChanged} />
+              {event && <BingoSettings event={event} />}
               {event && <ChainReportStatus event={event} />}
               {event && <AttackLogStatus event={event} />}
             </div>
