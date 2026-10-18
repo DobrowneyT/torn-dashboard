@@ -44,7 +44,7 @@ const actor = (req: FastifyRequest) => req.session?.torn_user_id ?? null
  */
 const SIGNUP_SELECT = `
   s.id, s.event_id, s.hour_start, s.slot_index, s.member_id,
-  s.created_at, s.created_by, s.removed_at, s.removed_by, s.removed_reason,
+  s.created_at, s.created_by, s.removed_at, s.removed_by, s.removed_reason, s.via,
   m.member_name,
   -- ⚠️ Epoch ms alongside the timestamp. Postgres serves timestamptz with a
   -- BARE two-digit offset ("...-05"), which new Date() parses to NaN — the

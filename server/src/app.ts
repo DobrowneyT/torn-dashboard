@@ -32,6 +32,7 @@ import { registerGrudgeRoutes } from './grudgeRoutes.js'
 import { registerChainWatchRoutes } from './chainWatch.js'
 import { registerEventRoutes } from './events/eventRoutes.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
+import { registerChainWatchSignupInternalRoutes } from './chainWatchSignupInternal.js'
 import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
 import { registerMemberThreadRoutes } from './memberThreadsInternal.js'
 import { registerExportRoutes } from './exports.js'
@@ -301,6 +302,9 @@ export async function buildServer(
   // not become a fleet-metrics compromise.
   if (opts.db && opts.chainWatchToken) {
     registerChainWatchInternalRoutes(app, opts.db, opts.chainWatchToken)
+    // #1007: the board's Sign up / Drop my slot buttons. Same token — it is
+    // the same bot, acting on the same board.
+    registerChainWatchSignupInternalRoutes(app, opts.db, opts.chainWatchToken, opts.factionSlug)
   }
 
   // ⚠️ Absent token ⇒ route UNREGISTERED, not open. A tenant nobody asked to

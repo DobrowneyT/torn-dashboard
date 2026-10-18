@@ -1626,7 +1626,9 @@ CREATE TABLE IF NOT EXISTS public.chain_watch_signups (
   -- as payable, because the flag asks a question rather than withholding money.
   pay_decision   text CHECK (pay_decision IS NULL OR pay_decision IN ('paid', 'unpaid')),
   decided_by     text,
-  decided_at     timestamptz
+  decided_at     timestamptz,
+  -- #1007 (0087): 'web', or 'discord' for the board's Sign up button.
+  via            text NOT NULL DEFAULT 'web' CHECK (via IN ('web', 'discord'))
 );
 
 -- ⚠️ PARTIAL, and that is the whole point. A removal leaves the row behind, so

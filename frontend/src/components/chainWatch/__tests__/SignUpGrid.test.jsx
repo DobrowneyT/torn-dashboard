@@ -100,3 +100,19 @@ describe('claimedLabel', () => {
     expect(claimedLabel({ created_ms: 'not a number' }, r)).toBeUndefined()
   })
 })
+
+describe('where a sign-up came from (#1007)', () => {
+  const held = (via) => ({
+    member_id: '7', member_name: 'Goosey', created_ms: Date.parse(HOUR_ISO) - 3_600_000, via,
+  })
+
+  it('marks a sign-up made from the Discord board', () => {
+    draw({ rows: [row({ slots: [held('discord')], openSlots: 0 })] })
+    expect(screen.getByLabelText('Signed up from Discord')).toBeTruthy()
+  })
+
+  it('leaves a website sign-up unmarked', () => {
+    draw({ rows: [row({ slots: [held('web')], openSlots: 0 })] })
+    expect(screen.queryByLabelText('Signed up from Discord')).toBeNull()
+  })
+})
