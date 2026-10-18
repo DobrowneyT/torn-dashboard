@@ -18,6 +18,12 @@ surface it automatically.
 
 ---
 
+## [3.236.1] - 2026-10-18
+
+### Fixed
+- **War notes can be saved after the war ends.** The War Room only offered notes for a war that had not ended, so a war type set once the war was over (the usual time to label it) could not be saved. Notes now follow the latest war against the opponent, ended or not, and say when that war is over.
+- **Changing the war type corrects the member reports already posted.** Their titles carry the type; the posted reports for that war are re-opened and the bot edits each post in place.
+
 ## [3.236.0] - 2026-10-18
 
 ### Added
