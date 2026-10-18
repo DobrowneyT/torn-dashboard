@@ -20,7 +20,7 @@ const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
 const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? null
 
 const SELECT_EVENT = `
-  SELECT e.id, e.name, e.theme_color, e.ends_with_chain, e.chain_event_id,
+  SELECT e.id, e.name, e.theme_color, e.ends_with_chain, e.site_accent, e.chain_event_id,
          (extract(epoch from e.starts_at)   * 1000)::bigint AS starts_ms,
          (extract(epoch from e.daily_from)  * 1000)::bigint AS daily_ms,
          (extract(epoch from e.min_ends_at) * 1000)::bigint AS min_end_ms,
@@ -86,6 +86,7 @@ function shape(r: any, phase: EventPhase) {
     daily_from: Number(r.daily_ms),
     min_ends_at: Number(r.min_end_ms),
     ends_with_chain: !!r.ends_with_chain,
+    site_accent: r.site_accent !== false,
     chain_event_id: r.chain_event_id == null ? null : Number(r.chain_event_id),
     ended_at: r.ended_ms == null ? null : Number(r.ended_ms),
     phase,
@@ -167,6 +168,7 @@ function parse(body: any, partial: boolean): { cols: Record<string, unknown> } |
   }
 
   if (body?.ends_with_chain !== undefined) cols.ends_with_chain = !!body.ends_with_chain
+  if (body?.site_accent !== undefined) cols.site_accent = !!body.site_accent
 
   if (body?.chain_event_id !== undefined) {
     const v = body.chain_event_id
@@ -333,13 +335,13 @@ export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
       const res = await db.query(
         `INSERT INTO faction_events
            (name, theme_color, starts_at, daily_from, min_ends_at, ends_with_chain,
-            chain_event_id, created_by, updated_by)
+            chain_event_id, created_by, updated_by, site_accent)
          VALUES ($1, COALESCE($2, '#f97316'), to_timestamp($3::bigint / 1000.0),
                  to_timestamp($4::bigint / 1000.0), to_timestamp($5::bigint / 1000.0),
-                 COALESCE($6, true), $7, $8, $8)
+                 COALESCE($6, true), $7, $8, $8, COALESCE($9, true))
          RETURNING id`,
         [c.name, c.theme_color ?? null, c.starts_at, c.daily_from, c.min_ends_at,
-         c.ends_with_chain ?? null, c.chain_event_id ?? null, actor(req)],
+         c.ends_with_chain ?? null, c.chain_event_id ?? null, actor(req), c.site_accent ?? null],
       )
       return { id: Number(res.rows[0].id), event: await currentEvent(db) }
     } catch (err) {

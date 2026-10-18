@@ -1381,6 +1381,8 @@ CREATE TABLE IF NOT EXISTS public.faction_events (
   -- end — see eventLifecycle.ts.
   min_ends_at      timestamptz NOT NULL,
   ends_with_chain  boolean NOT NULL DEFAULT true,
+  -- 0083: recolour the whole site in theme_color while the event is live.
+  site_accent      boolean NOT NULL DEFAULT true,
 
   -- Set when the event is over: by a lead, or by the lifecycle once the chain
   -- has ended past min_ends_at. NULL while it has not ended.

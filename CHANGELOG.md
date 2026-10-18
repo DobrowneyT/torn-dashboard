@@ -18,6 +18,14 @@ surface it automatically.
 
 ---
 
+## [3.231.0] - 2026-10-17
+
+### Added
+- **A live event colours the whole site.** While an event is live, the site's accent (buttons, active tabs, links and highlights, normally blue) takes the event's colour: Halloween orange, or any colour set in Settings. It switches back the moment the event ends.
+  - **Accent only:** each viewer's light or dark choice is untouched.
+  - **Per-event switch:** "Colour the whole site in this colour while the event is live" in Settings, on by default (migration 0083).
+  - **How it works:** the site's blue palette is now CSS variables defaulting to the same blues, so with no live event the site looks exactly as before.
+
 ## [3.230.1] - 2026-10-17
 
 ### Fixed
