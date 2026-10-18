@@ -18,6 +18,11 @@ surface it automatically.
 
 ---
 
+## [3.235.1] - 2026-10-18
+
+### Fixed
+- **The Chain Watch board is no longer blank before the event starts.** The bot is now sent the event's opening hours, flagged as a preview, instead of a window around "now" that holds no event hours yet. Members can see the sheet fill up and get used to the board before the chain begins.
+
 ## [3.235.0] - 2026-10-18
 
 ### Added

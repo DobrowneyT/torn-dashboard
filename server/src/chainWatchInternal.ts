@@ -231,8 +231,16 @@ export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now())
     }
   }
 
-  const from = Math.floor(nowMs / HOUR_MS) * HOUR_MS - BOARD_LOOKBACK_HOURS * HOUR_MS
-  const to = Math.floor(nowMs / HOUR_MS) * HOUR_MS + BOARD_HORIZON_HOURS * HOUR_MS
+  // ⚠️ Before the event starts, the window is anchored at its FIRST hour, not
+  // at now. Anchored at now, an event a week away has no hours inside the
+  // window and the board went out blank — while sign-ups were open and members
+  // were meant to be getting used to it (MonChoon, 2026-10-18). `preview` tells
+  // the bot it is looking at the opening hours, not the hours ahead.
+  const startsMs = Number(event.starts_ms)
+  const preview = startsMs > nowMs
+  const anchor = preview ? startsMs : Math.floor(nowMs / HOUR_MS) * HOUR_MS
+  const from = anchor - (preview ? 0 : BOARD_LOOKBACK_HOURS * HOUR_MS)
+  const to = anchor + BOARD_HORIZON_HOURS * HOUR_MS
 
   const { rows: signups } = await db.query(
     `SELECT (extract(epoch from s.hour_start) * 1000)::bigint AS hour_ms,
@@ -266,7 +274,7 @@ export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now())
   // Emitting only hours that HAVE sign-ups would make a completely empty 3am —
   // the single most important thing on the board — indistinguishable from an
   // hour outside the event. The gaps are the payload.
-  const startMs = Number(event.starts_ms)
+  const startMs = startsMs
   const endMs = Number(event.ends_ms)
   const hours: HourView[] = []
   for (let t = Math.max(from, startMs); t < Math.min(to, endMs); t += HOUR_MS) {
@@ -333,6 +341,8 @@ export async function collectChainWatch(db: pg.Pool, nowMs: number = Date.now())
     projection: snakeProjection(projectChain(
       readings.map((r): ChainReading => ({ chain: Number(r.chain), at: Number(r.at) })),
       nowMs)),
+    // ⚠️ True while the event has not started: `hours` are its opening hours.
+    preview,
     gap_horizon_hours: GAP_HORIZON_HOURS,
     hours,
     members: roster.map(memberView),
