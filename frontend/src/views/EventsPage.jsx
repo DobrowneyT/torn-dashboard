@@ -105,6 +105,7 @@ function toForm(e) {
     daily_from: msToTctInput(e.daily_from),
     min_ends_at: msToTctInput(e.min_ends_at),
     ends_with_chain: e.ends_with_chain,
+    site_accent: e.site_accent !== false,
     chain_event_id: e.chain_event_id == null ? '' : String(e.chain_event_id),
   }
 }
@@ -146,6 +147,7 @@ export function EventSettings({ event, onChanged }) {
         daily_from: tctInputToMs(form.daily_from),
         min_ends_at: tctInputToMs(form.min_ends_at),
         ends_with_chain: form.ends_with_chain,
+        site_accent: form.site_accent,
         chain_event_id: form.chain_event_id === '' ? null : Number(form.chain_event_id),
         ...extra,
       }
@@ -202,6 +204,11 @@ export function EventSettings({ event, onChanged }) {
       <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" checked={form.ends_with_chain} onChange={set('ends_with_chain')} />
         Keep going after that until our chain ends (dies or reaches 100k)
+      </label>
+
+      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <input type="checkbox" checked={form.site_accent} onChange={set('site_accent')} />
+        Colour the whole site in this colour while the event is live
       </label>
 
       <label className="block">

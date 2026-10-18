@@ -2,6 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The site accent (see utils/siteAccent.js): Tailwind's default blues as
+   "r g b" triples. A live event that allows it overrides these on <html>. */
+:root {
+  --accent-50: 239 246 255;
+  --accent-100: 219 234 254;
+  --accent-200: 191 219 254;
+  --accent-300: 147 197 253;
+  --accent-400: 96 165 250;
+  --accent-500: 59 130 246;
+  --accent-600: 37 99 235;
+  --accent-700: 29 78 216;
+  --accent-800: 30 64 175;
+  --accent-900: 30 58 138;
+  --accent-950: 23 37 84;
+}
+
 @layer base {
   body {
     @apply bg-gray-50 text-gray-900 transition-colors duration-200;
