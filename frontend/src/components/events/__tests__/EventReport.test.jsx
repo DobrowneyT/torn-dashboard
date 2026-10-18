@@ -7,7 +7,7 @@ import { render, screen, cleanup, fireEvent, within, act, waitFor } from '@testi
 const api = vi.hoisted(() => ({ get: vi.fn() }))
 vi.mock('../../../utils/apiClient', () => ({ apiGet: (...a) => api.get(...a) }))
 
-import EventReport, { Respect, VERSION_POLL_MS, rangeQuery } from '../EventReport'
+import EventReport, { Respect, VERSION_POLL_MS, rangeQuery, tctDateTimeMs } from '../EventReport'
 import { tornLabel } from '../TornLink'
 
 const EVENT = { id: 1, name: 'Halloween', theme_color: '#f97316', phase: 'live',
@@ -128,7 +128,7 @@ describe('views', () => {
     expect(screen.getByText('Stalemates')).toBeTruthy()
     expect(screen.queryByText('Draws')).toBeNull()
     expect(screen.queryByText('Bonuses')).toBeNull()
-    expect(screen.getByText('Best hit (no bonus)')).toBeTruthy()
+    expect(screen.getByText('Highest respect hit')).toBeTruthy()
   })
 
   it('⚠️ numbers members by their place in the CURRENT sort', async () => {
@@ -147,14 +147,35 @@ describe('Stats (Daily + Highlights merged)', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(`/api/events/1/stats?from=${D2}&to=${D2 + 86_400_000}`))
   })
 
-  it('takes a custom range of whole TCT days, inclusive', async () => {
+  it('⚠️ opening Custom asks the server for nothing until a range is chosen', async () => {
+    await open('Stats')
+    await screen.findByText(/Revitalize · 5 procs/)
+    const before = api.get.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(api.get.mock.calls.slice(before).some(([p]) => p.includes('undefined'))).toBe(false)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('takes a custom range to the SECOND, in TCT', async () => {
     await open('Stats')
     await screen.findByText(/Revitalize · 5 procs/)
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
-    fireEvent.change(screen.getByLabelText('From (TCT)'), { target: { value: '2026-10-26' } })
-    fireEvent.change(screen.getByLabelText('To (TCT, inclusive)'), { target: { value: '2026-10-27' } })
+    fireEvent.change(screen.getByLabelText('From (TCT)'), { target: { value: '2026-10-26T14:30:05' } })
+    fireEvent.change(screen.getByLabelText('To (TCT)'), { target: { value: '2026-10-27T02:00:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Show' }))
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith(`/api/events/1/stats?from=${D1}&to=${D2 + 86_400_000}`))
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(
+      `/api/events/1/stats?from=${Date.UTC(2026, 9, 26, 14, 30, 5)}&to=${Date.UTC(2026, 9, 27, 2)}`))
+  })
+
+  it('says plainly when the end is before the start', async () => {
+    await open('Stats')
+    await screen.findByText(/Revitalize · 5 procs/)
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+    fireEvent.change(screen.getByLabelText('From (TCT)'), { target: { value: '2026-10-27T00:00:00' } })
+    fireEvent.change(screen.getByLabelText('To (TCT)'), { target: { value: '2026-10-26T00:00:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }))
+    expect(screen.getByRole('alert').textContent).toBe('The end has to be after the start.')
   })
 
   it('⚠️ leads with the Revitalize and treat leaderboards, explaining an empty one', async () => {
@@ -186,9 +207,17 @@ describe('Stats (Daily + Highlights merged)', () => {
     expect(await screen.findByText(/Highlights appear once attack logs/)).toBeTruthy()
   })
 
-  it('rangeQuery', () => {
+  it('rangeQuery never sends half a range', () => {
     expect(rangeQuery({ kind: 'overall' })).toBe('')
     expect(rangeQuery({ kind: 'day', from: 1, to: 2 })).toBe('?from=1&to=2')
+    expect(rangeQuery({ kind: 'custom' })).toBe('')
+  })
+
+  it('tctDateTimeMs reads TCT to the second, with or without seconds', () => {
+    expect(tctDateTimeMs('2026-10-26T14:30:05')).toBe(Date.UTC(2026, 9, 26, 14, 30, 5))
+    expect(tctDateTimeMs('2026-10-26T14:30')).toBe(Date.UTC(2026, 9, 26, 14, 30))
+    expect(tctDateTimeMs('2026-10-26T14:30:05.000')).toBe(Date.UTC(2026, 9, 26, 14, 30, 5))
+    expect(tctDateTimeMs('')).toBeNull()
   })
 })
 
