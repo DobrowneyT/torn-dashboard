@@ -16,13 +16,14 @@ import {
 import { chainReportEnded } from './eventChainReport.js'
 import {
   chainSection, dailySection, targetsSection, highlightsSection, rangeMembers, nameBook, reportVersion,
+  wantedSection, memberAttackers,
 } from './eventReport.js'
 
 const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
 const actor = (req: FastifyRequest) => (req.session as any)?.torn_user_id ?? null
 
 const SELECT_EVENT = `
-  SELECT e.id, e.name, e.theme_color, e.ends_with_chain, e.site_accent, e.chain_event_id,
+  SELECT e.id, e.name, e.theme_color, e.ends_with_chain, e.site_accent, e.wanted_min_attacks, e.chain_event_id,
          (extract(epoch from e.starts_at)   * 1000)::bigint AS starts_ms,
          (extract(epoch from e.daily_from)  * 1000)::bigint AS daily_ms,
          (extract(epoch from e.min_ends_at) * 1000)::bigint AS min_end_ms,
@@ -89,6 +90,7 @@ function shape(r: any, phase: EventPhase) {
     min_ends_at: Number(r.min_end_ms),
     ends_with_chain: !!r.ends_with_chain,
     site_accent: r.site_accent !== false,
+    wanted_min_attacks: Number(r.wanted_min_attacks ?? 3),
     chain_event_id: r.chain_event_id == null ? null : Number(r.chain_event_id),
     ended_at: r.ended_ms == null ? null : Number(r.ended_ms),
     phase,
@@ -171,6 +173,11 @@ function parse(body: any, partial: boolean): { cols: Record<string, unknown> } |
 
   if (body?.ends_with_chain !== undefined) cols.ends_with_chain = !!body.ends_with_chain
   if (body?.site_accent !== undefined) cols.site_accent = !!body.site_accent
+  if (body?.wanted_min_attacks !== undefined) {
+    const n = Number(body.wanted_min_attacks)
+    if (!Number.isInteger(n) || n < 1 || n > 1000) return { error: 'wanted_min_attacks must be a whole number from 1 to 1000' }
+    cols.wanted_min_attacks = n
+  }
 
   if (body?.chain_event_id !== undefined) {
     const v = body.chain_event_id
@@ -239,6 +246,60 @@ export function registerEventRoutes(app: FastifyInstance, db: pg.Pool) {
       daily: Number.isFinite(us) ? await dailySection(db, us, Number(r.daily_ms), until, names) : [],
       targets: Number.isFinite(us) ? await targetsSection(db, us, t.starts_at, until, names) : null,
     }
+  })
+
+  // The wanted board, and the breakdown behind "Most targeted" (2026-10-18).
+  // Open to every member, like the rest of the report; removing someone from
+  // the board is leadership's call.
+  const eventWindow = async (id: number) => {
+    const ev = await db.query(`${SELECT_EVENT} WHERE e.id = $1`, [id])
+    const r = ev.rows[0]
+    if (!r) return null
+    const now = Date.now()
+    const t = times(r)
+    const us = Number((await db.query('SELECT torn_faction_id FROM faction_config LIMIT 1')).rows[0]?.torn_faction_id)
+    return { r, us, from: t.starts_at, to: Math.min(now, t.ended_at ?? now) }
+  }
+  const idParam = (v: unknown) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null }
+
+  app.get('/api/events/:id/wanted', { preHandler: requireAuth() }, async (req, reply) => {
+    const id = idParam((req.params as any).id)
+    if (!id) return reply.status(400).send({ error: 'Invalid event id' })
+    const w = await eventWindow(id)
+    if (!w) return reply.status(404).send({ error: 'No such event' })
+    const names = nameBook((await db.query('SELECT member_id AS id, member_name AS name FROM members')).rows)
+    return wantedSection(db, id, w.us, w.from, w.to, names, Number(w.r.wanted_min_attacks ?? 3))
+  })
+
+  app.get('/api/events/:id/targeted/:memberId', { preHandler: requireAuth() }, async (req, reply) => {
+    const id = idParam((req.params as any).id)
+    const member = idParam((req.params as any).memberId)
+    if (!id || !member) return reply.status(400).send({ error: 'Invalid id' })
+    const w = await eventWindow(id)
+    if (!w) return reply.status(404).send({ error: 'No such event' })
+    return memberAttackers(db, w.us, member, w.from, w.to)
+  })
+
+  app.post('/api/events/:id/wanted/:attackerId/dismiss', LEAD, async (req, reply) => {
+    const id = idParam((req.params as any).id)
+    const attacker = idParam((req.params as any).attackerId)
+    if (!id || !attacker) return reply.status(400).send({ error: 'Invalid id' })
+    const note = typeof (req.body as any)?.note === 'string' ? String((req.body as any).note).trim().slice(0, 200) || null : null
+    await db.query(
+      `INSERT INTO event_wanted_dismissed (event_id, attacker_id, note, dismissed_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (event_id, attacker_id) DO UPDATE SET note = EXCLUDED.note,
+         dismissed_by = EXCLUDED.dismissed_by, dismissed_at = now()`,
+      [id, attacker, note, actor(req)])
+    return { ok: true }
+  })
+
+  app.delete('/api/events/:id/wanted/:attackerId/dismiss', LEAD, async (req, reply) => {
+    const id = idParam((req.params as any).id)
+    const attacker = idParam((req.params as any).attackerId)
+    if (!id || !attacker) return reply.status(400).send({ error: 'Invalid id' })
+    await db.query('DELETE FROM event_wanted_dismissed WHERE event_id = $1 AND attacker_id = $2', [id, attacker])
+    return { ok: true }
   })
 
   // The Stats view (Daily + Highlights merged): every per-member figure and

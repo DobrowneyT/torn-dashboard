@@ -18,6 +18,21 @@ surface it automatically.
 
 ---
 
+## [3.236.0] - 2026-10-18
+
+### Added
+- **Wanted board** at the top of the event's Targets view. It lists anyone who attacked **one** of our members **3+ times** during the event, win or lose; the threshold is per event, in Settings.
+  - **Each entry shows:** attacks, how many beat us and how many failed, respect taken, first and last seen, and who they went after.
+  - **Links:** names open the attack page.
+  - **Book of Grudges:** one click adds them.
+  - **Removing someone:** leadership can take them off (e.g. a member paying for defends) with a note, and restore them later. Removed entries stay listed, folded away.
+- **Who attacked a member:** a member's row in "Most targeted" expands into everyone who attacked them, linked to the attack page. Stealthed attacks are one row of their own, so the total adds up.
+
+### Changed
+- **Hits and attacks are no longer mixed up on the event page.** A *hit* is one turn inside a fight; an *attack* is the whole fight.
+  - **Counts of attacks now say attacks:** Attacks, Bonus attacks, Attacks won, "Who attacked us most", "Factions we attacked most", "No attacks yet", "Highest respect attack", and "Attackers" for the number of members attacking.
+  - **"Biggest single hits"** keeps the word, because it is one turn's damage.
+
 ## [3.235.1] - 2026-10-18
 
 ### Fixed

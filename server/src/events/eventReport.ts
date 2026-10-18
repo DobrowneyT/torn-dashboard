@@ -492,3 +492,123 @@ export async function highlightsSection(
     effect_totals: effectTotals,
   }
 }
+
+/**
+ * The wanted board (MonChoon, 2026-10-18): outsiders who attacked ONE of our
+ * members `threshold` times or more during the range — win or lose, because
+ * someone who keeps losing to the same member is still coming for them.
+ *
+ * ⚠️ Stealthed attackers cannot be on it (Torn does not say who they are), and
+ * attacks between our own members are not incoming at all. Leadership's
+ * removals (a member paying someone for defends) come back marked, not hidden,
+ * so the page can offer to restore them.
+ */
+export async function wantedSection(
+  db: pg.Pool, eventId: number, us: number, fromMs: number, toMs: number, names: NameBook, threshold: number,
+) {
+  const from = Math.floor(fromMs / 1000)
+  const to = Math.ceil(toMs / 1000)
+  const pairs = await db.query(
+    `SELECT attacker_id, defender_id,
+            max(attacker_name) AS attacker_name,
+            max(attacker_faction_id) AS faction_id, max(attacker_faction_name) AS faction_name,
+            count(*) AS attacks,
+            count(*) FILTER (WHERE result = ANY($4)) AS won,
+            count(*) FILTER (WHERE result = ANY($5)) AS failed,
+            coalesce(sum(respect_loss), 0) AS respect,
+            min(started) AS first_s, max(started) AS last_s
+       FROM faction_attacks
+      WHERE is_incoming AND defender_faction_id = $3
+        AND attacker_faction_id IS DISTINCT FROM $3
+        AND attacker_id IS NOT NULL
+        AND started >= $1 AND started < $2
+      GROUP BY attacker_id, defender_id`,
+    [from, to, us, WINS, LOSSES],
+  )
+  const dismissed = await db.query(
+    `SELECT attacker_id, note, dismissed_by,
+            (extract(epoch from dismissed_at) * 1000)::bigint AS dismissed_ms
+       FROM event_wanted_dismissed WHERE event_id = $1`, [eventId])
+  const off = new Map(dismissed.rows.map((r) => [Number(r.attacker_id), r]))
+
+  type Victim = { id: number; name: string; attacks: number; won: number; failed: number }
+  const by = new Map<number, {
+    id: number; name: string; faction_id: number | null; faction_name: string | null
+    attacks: number; won: number; failed: number; respect_taken: number
+    first_ms: number; last_ms: number; victims: Victim[]; most_on_one: number
+  }>()
+  for (const r of pairs.rows) {
+    const id = Number(r.attacker_id)
+    if (!by.has(id)) {
+      by.set(id, {
+        id, name: r.attacker_name ?? `#${id}`,
+        faction_id: r.faction_id == null ? null : Number(r.faction_id), faction_name: r.faction_name ?? null,
+        attacks: 0, won: 0, failed: 0, respect_taken: 0,
+        first_ms: Number(r.first_s) * 1000, last_ms: Number(r.last_s) * 1000, victims: [], most_on_one: 0,
+      })
+    }
+    const a = by.get(id)!
+    const n = Number(r.attacks)
+    a.attacks += n
+    a.won += Number(r.won)
+    a.failed += Number(r.failed)
+    a.respect_taken = round2(a.respect_taken + Number(r.respect))
+    a.first_ms = Math.min(a.first_ms, Number(r.first_s) * 1000)
+    a.last_ms = Math.max(a.last_ms, Number(r.last_s) * 1000)
+    a.most_on_one = Math.max(a.most_on_one, n)
+    a.victims.push({ id: Number(r.defender_id), name: names.get(r.defender_id), attacks: n,
+      won: Number(r.won), failed: Number(r.failed) })
+  }
+  const wanted = [...by.values()]
+    .filter((a) => a.most_on_one >= threshold)
+    .map((a) => ({ ...a, victims: a.victims.sort((x, y) => y.attacks - x.attacks) }))
+    .sort((x, y) => y.most_on_one - x.most_on_one || y.attacks - x.attacks || x.name.localeCompare(y.name))
+  return {
+    threshold,
+    wanted: wanted.filter((a) => !off.has(a.id)),
+    dismissed: wanted.filter((a) => off.has(a.id)).map((a) => {
+      const d = off.get(a.id)!
+      return { ...a, note: d.note ?? null, dismissed_by: d.dismissed_by == null ? null : Number(d.dismissed_by),
+        dismissed_by_name: d.dismissed_by == null ? null : names.get(d.dismissed_by),
+        dismissed_ms: Number(d.dismissed_ms) }
+    }),
+  }
+}
+
+/**
+ * Everyone who attacked ONE of our members in the range — the breakdown behind
+ * "Most targeted". ⚠️ Stealthed attacks are one row of their own, so the rows
+ * add up to the member's incoming total on Targets.
+ */
+export async function memberAttackers(
+  db: pg.Pool, us: number, memberId: number, fromMs: number, toMs: number,
+) {
+  const from = Math.floor(fromMs / 1000)
+  const to = Math.ceil(toMs / 1000)
+  const r = await db.query(
+    `SELECT attacker_id, max(attacker_name) AS name,
+            max(attacker_faction_id) AS faction_id, max(attacker_faction_name) AS faction_name,
+            count(*) AS attacks,
+            count(*) FILTER (WHERE result = ANY($5)) AS won,
+            count(*) FILTER (WHERE result = ANY($6)) AS failed,
+            coalesce(sum(respect_loss), 0) AS respect,
+            min(started) AS first_s, max(started) AS last_s
+       FROM faction_attacks
+      WHERE is_incoming AND defender_faction_id = $3 AND defender_id = $4
+        AND attacker_faction_id IS DISTINCT FROM $3
+        AND started >= $1 AND started < $2
+      GROUP BY attacker_id
+      ORDER BY attacks DESC, attacker_id`,
+    [from, to, us, memberId, WINS, LOSSES],
+  )
+  const rows = r.rows.map((x) => ({
+    id: x.attacker_id == null ? null : Number(x.attacker_id),
+    // ⚠️ No attacker id means Torn hid who it was.
+    name: x.attacker_id == null ? 'Stealthed' : (x.name ?? `#${x.attacker_id}`),
+    faction_id: x.faction_id == null ? null : Number(x.faction_id), faction_name: x.faction_name ?? null,
+    attacks: Number(x.attacks), won: Number(x.won), failed: Number(x.failed),
+    respect_taken: round2(Number(x.respect)),
+    first_ms: Number(x.first_s) * 1000, last_ms: Number(x.last_s) * 1000,
+  }))
+  return { member_id: memberId, total: rows.reduce((n, x) => n + x.attacks, 0), attackers: rows }
+}
