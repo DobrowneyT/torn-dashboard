@@ -4,8 +4,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, within, act, waitFor } from '@testing-library/react'
 
-const api = vi.hoisted(() => ({ get: vi.fn() }))
-vi.mock('../../../utils/apiClient', () => ({ apiGet: (...a) => api.get(...a) }))
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), del: vi.fn() }))
+vi.mock('../../../utils/apiClient', () => ({
+  apiGet: (...a) => api.get(...a), apiPost: (...a) => api.post(...a), apiDelete: (...a) => api.del(...a),
+}))
 
 import EventReport, { Respect, VERSION_POLL_MS, rangeQuery, tctDateTimeMs } from '../EventReport'
 import { tornLabel } from '../TornLink'
@@ -68,15 +70,26 @@ const STATS = (over = {}) => ({
   highlights: HIGHLIGHTS, ...over,
 })
 
+const WANTED_ROW = { id: 900, name: 'Grudgey', faction_id: 800, faction_name: 'Beta', attacks: 5, won: 3, failed: 2,
+  respect_taken: 4.5, first_ms: D1, last_ms: D2, most_on_one: 4,
+  victims: [{ id: 1, name: 'Alice', attacks: 4, won: 3, failed: 1 }, { id: 2, name: 'Bob', attacks: 1, won: 0, failed: 1 }] }
+const TARGETED = { member_id: 2, total: 21, attackers: [
+  { id: 900, name: 'Grudgey', attacks: 20, won: 18, failed: 2, respect_taken: 9, faction_id: 800, faction_name: 'Beta', first_ms: 0, last_ms: 0 },
+  { id: null, name: 'Stealthed', attacks: 1, won: 1, failed: 0, respect_taken: 0, faction_id: null, faction_name: null, first_ms: 0, last_ms: 0 },
+] }
 let version
 let stats
+let wanted
 beforeEach(() => {
   version = 'v1'
   stats = STATS()
-  api.get.mockReset()
+  wanted = { threshold: 3, wanted: [WANTED_ROW], dismissed: [] }
+  api.get.mockReset(); api.post.mockReset(); api.del.mockReset()
   api.get.mockImplementation(async (path) => {
     if (path.endsWith('/version')) return { version }
     if (path.includes('/stats')) return typeof stats === 'function' ? stats(path) : stats
+    if (path.endsWith('/wanted')) return wanted
+    if (path.includes('/targeted/')) return TARGETED
     return REPORT
   })
 })
@@ -113,7 +126,7 @@ describe('views', () => {
   it('⚠️ opens on Members; Totals, Stats, Targets follow', async () => {
     await open()
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Report', 'Totals', 'Stats', 'Targets'])
-    expect(screen.getByText('Not hit yet (1)')).toBeTruthy()
+    expect(screen.getByText('No attacks yet (1)')).toBeTruthy()
     expect(screen.getByText('Cara [3]')).toBeTruthy()
   })
 
@@ -128,7 +141,7 @@ describe('views', () => {
     expect(screen.getByText('Stalemates')).toBeTruthy()
     expect(screen.queryByText('Draws')).toBeNull()
     expect(screen.queryByText('Bonuses')).toBeNull()
-    expect(screen.getByText('Highest respect hit')).toBeTruthy()
+    expect(screen.getByText('Highest respect attack')).toBeTruthy()
   })
 
   it('⚠️ numbers members by their place in the CURRENT sort', async () => {
@@ -246,11 +259,11 @@ describe('member boards', () => {
 describe('Targets', () => {
   it('⚠️ lists every faction linked, in a scrolling box', async () => {
     await open('Targets')
-    expect(screen.getByText('Factions we hit most')).toBeTruthy()
+    expect(screen.getByText('Factions we attacked most')).toBeTruthy()
     const link = screen.getByText('Fac13 [713]').closest('a')
     expect(link.getAttribute('href')).toBe('https://www.torn.com/factions.php?step=profile&ID=713')
     expect(link.closest('ol').className).toMatch(/overflow-y-auto/)
-    expect(screen.getByText(/20 beat us · 10 defended · 5 of ours hit · −12\.25 respect/)).toBeTruthy()
+    expect(screen.getByText(/20 beat us · 10 defended · 5 of ours attacked · −12\.25 respect/)).toBeTruthy()
   })
 
   it('leaves out a zero respect figure', async () => {
@@ -278,5 +291,67 @@ describe('live updates (#972)', () => {
     version = 'v2'
     await act(async () => { await vi.advanceTimersByTimeAsync(VERSION_POLL_MS) })
     expect(reportFetches()).toBe(2)
+  })
+})
+
+describe('⚠️ hits and attacks are never confused', () => {
+  it('counts attacks as attacks, and keeps "hit" for one turn\'s damage', async () => {
+    await open('Totals')
+    expect(screen.getByText('Attacks')).toBeTruthy()
+    expect(screen.getByText('Bonus attacks')).toBeTruthy()
+    expect(screen.queryByText('Hits')).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: 'Targets' }))
+    expect(screen.getByText('Who attacked us most')).toBeTruthy()
+    expect(screen.getByText('Who we attacked most')).toBeTruthy()
+    expect(screen.queryByText(/ hits$/)).toBeNull()
+  })
+})
+
+describe('wanted board', () => {
+  it('lists who keeps coming at one member, linking straight to the attack page', async () => {
+    await open('Targets')
+    const link = (await screen.findAllByText('Grudgey [900]'))[0].closest('a')
+    expect(link.getAttribute('href')).toBe('https://www.torn.com/page.php?sid=attack&user2ID=900')
+    expect(screen.getByText(/5 attacks · 3 beat us · 2 failed · −4\.50 respect/)).toBeTruthy()
+  })
+
+  it('⚠️ adds to the Book of Grudges in one click', async () => {
+    api.post.mockResolvedValue({ state: 'active' })
+    await open('Targets')
+    await screen.findAllByText('Grudgey [900]')
+    fireEvent.click(screen.getByRole('button', { name: 'Add to grudges' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/grudges', expect.objectContaining({ target: '900' })))
+    expect(await screen.findByText('Added to grudges')).toBeTruthy()
+  })
+
+  it('offers Remove to leadership only', async () => {
+    render(<EventReport event={EVENT} isLeadership />)
+    await screen.findByText('Alice [1]')
+    fireEvent.click(screen.getByRole('tab', { name: 'Targets' }))
+    await screen.findAllByText('Grudgey [900]')
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy()
+    cleanup()
+    await open('Targets')
+    await screen.findAllByText('Grudgey [900]')
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
+  })
+
+  it('folds removed entries away, with a way back', async () => {
+    wanted = { threshold: 3, wanted: [], dismissed: [{ ...WANTED_ROW, note: 'paid defends' }] }
+    render(<EventReport event={EVENT} isLeadership />)
+    await screen.findByText('Alice [1]')
+    fireEvent.click(screen.getByRole('tab', { name: 'Targets' }))
+    expect(await screen.findByText('Removed by leadership (1)')).toBeTruthy()
+    expect(screen.getByText('Removed: paid defends')).toBeTruthy()
+  })
+})
+
+describe('who attacked one member', () => {
+  it('expands a most-targeted member into everyone who attacked them, stealthed included', async () => {
+    await open('Targets')
+    const board = screen.getByText('Most targeted members').closest('.card')
+    fireEvent.click(within(board).getByRole('button', { name: /21/ }))
+    expect(await within(board).findByText('Stealthed')).toBeTruthy()
+    expect(within(board).getAllByText('Grudgey [900]')[0].closest('a').getAttribute('href')).toContain('sid=attack')
   })
 })

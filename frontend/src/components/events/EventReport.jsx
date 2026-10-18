@@ -1,8 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { apiGet } from '../../utils/apiClient'
+import { apiGet, apiPost, apiDelete } from '../../utils/apiClient'
 import SortableTh, { useTableSort } from '../SortableTh'
 import { formatTct } from '../../utils/factionEvent'
-import { PlayerLink, FactionLink } from './TornLink'
+import { PlayerLink, FactionLink, AttackLink } from './TornLink'
 
 /**
  * The event's live chain report (#971).
@@ -60,7 +60,7 @@ const NAME_AFTER_POS_TD = 'sticky left-10 z-[5] bg-white dark:bg-slate-800'
 // INSIDE the padding, and the figures scrolling past showed through the
 // padding strip to the left of the frozen names (seen at phone width).
 
-export default function EventReport({ event }) {
+export default function EventReport({ event, isLeadership = false }) {
   const [view, setView] = useState('members')
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
@@ -130,7 +130,7 @@ export default function EventReport({ event }) {
           {view === 'totals' && <Totals chain={data.chain} event={event} />}
           {view === 'members' && <Members chain={data.chain} />}
           {view === 'stats' && <Stats event={event} days={data.daily} stamp={data.server_now} />}
-          {view === 'targets' && <Targets targets={data.targets} />}
+          {view === 'targets' && <Targets targets={data.targets} event={event} isLeadership={isLeadership} stamp={data.server_now} />}
         </>
       )}
     </div>
@@ -174,12 +174,15 @@ function Totals({ chain, event }) {
   if (!chain) return <NoChain event={event} />
   const t = chain.totals
   const counters = [
-    ['Hits', t.hits], ['Leave', t.leave], ['Mugs', t.mug], ['Hosps', t.hospitalize],
+    // ⚠️ "Attacks", never "hits": a HIT is one turn inside a fight (it has
+    // damage); an ATTACK is the whole fight, up to 25 turns (MonChoon,
+    // 2026-10-18). Every count on this page is of attacks.
+    ['Attacks', t.hits], ['Leave', t.leave], ['Mugs', t.mug], ['Hosps', t.hospitalize],
     ['Assists', t.assists], ['Retaliations', t.retaliations], ['Overseas', t.overseas],
     // "Stalemates", as Torn calls them in game (the API says `draws`). No
     // "Bonuses" card: the bonus hits are listed in full just below.
     ['Losses', t.losses], ['Escapes', t.escapes], ['Stalemates', t.draws],
-    ['Hitters', t.members],
+    ['Attackers', t.members],
   ]
   return (
     <div className="space-y-4">
@@ -192,17 +195,17 @@ function Totals({ chain, event }) {
           </Stat>
         </div>
         <div className="sm:order-1"><Stat label="Chain">{fmt(t.chain)}</Stat></div>
-        {/* ⚠️ The best ORDINARY hit: Torn's own "best" counts chain bonuses. */}
-        <div className="sm:order-3"><Stat label="Highest respect hit">{fmt(t.best, 2)} <span className="text-sm text-gray-500 dark:text-gray-400">respect</span></Stat></div>
+        {/* ⚠️ The best ORDINARY attack: Torn's own "best" counts chain bonuses. */}
+        <div className="sm:order-3"><Stat label="Highest respect attack">{fmt(t.best, 2)} <span className="text-sm text-gray-500 dark:text-gray-400">respect</span></Stat></div>
       </div>
       <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-4">
         {counters.map(([k, v]) => <Stat key={k} label={k}>{fmt(v)}</Stat>)}
       </div>
       {chain.bonuses.length > 0 && (
         <div className="card p-4 overflow-x-auto">
-          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Bonus hits</h4>
+          <h4 className="font-semibold text-gray-900 dark:text-white mb-2">Bonus attacks</h4>
           <table className="min-w-full text-sm">
-            <thead><tr className={TH}><th className="px-3 py-1.5">Hit</th><th className="px-3 py-1.5">Member</th><th className="px-3 py-1.5">Respect</th><th className="px-3 py-1.5">Capped at 10</th></tr></thead>
+            <thead><tr className={TH}><th className="px-3 py-1.5">Chain</th><th className="px-3 py-1.5">Member</th><th className="px-3 py-1.5">Respect</th><th className="px-3 py-1.5">Capped at 10</th></tr></thead>
             <tbody>
               {chain.bonuses.map((b) => (
                 <tr key={b.chain} className="border-t border-gray-100 dark:border-slate-700">
@@ -225,7 +228,7 @@ function Totals({ chain, event }) {
 
 const MEMBER_COLS = [
   { key: 'name', label: 'Member', kind: 'string', accessor: (m) => m.name },
-  { key: 'hits', label: 'Hits', kind: 'number', accessor: (m) => m.attacks.total },
+  { key: 'hits', label: 'Attacks', kind: 'number', accessor: (m) => m.attacks.total },
   { key: 'respect', label: 'Respect', kind: 'number', accessor: (m) => m.respect.total },
   { key: 'capped', label: 'Capped', kind: 'number', accessor: (m) => m.respect.capped },
   { key: 'average', label: 'Avg', kind: 'number', accessor: (m) => m.respect.average },
@@ -238,7 +241,7 @@ const MEMBER_COLS = [
   { key: 'overseas', label: 'Overseas', kind: 'number', accessor: (m) => m.attacks.overseas },
   { key: 'losses', label: 'Losses', kind: 'number', accessor: (m) => m.attacks.losses },
   { key: 'escapes', label: 'Escapes', kind: 'number', accessor: (m) => m.attacks.escapes },
-  { key: 'bonus_hits', label: 'Bonuses', kind: 'number', accessor: (m) => m.bonus_hits },
+  { key: 'bonus_hits', label: 'Bonus attacks', kind: 'number', accessor: (m) => m.bonus_hits },
 ]
 
 function Members({ chain }) {
@@ -287,10 +290,10 @@ function Members({ chain }) {
       </div>
       <div className="card p-4">
         <h4 className="font-semibold text-gray-900 dark:text-white">
-          Not hit yet ({chain.non_attackers.length})
+          No attacks yet ({chain.non_attackers.length})
         </h4>
         {chain.non_attackers.length === 0
-          ? <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">Everyone has hit.</p>
+          ? <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">Everyone has attacked.</p>
           : (
             <ul className="mt-2 flex flex-wrap gap-2">
               {chain.non_attackers.map((m) => (
@@ -305,7 +308,8 @@ function Members({ chain }) {
 
 const DAY_COLS = [
   { key: 'name', label: 'Member', kind: 'string' },
-  { key: 'hits', label: 'Hits', kind: 'number' },
+  // `hits` here is attacks WON (a win result), so it says so.
+  { key: 'hits', label: 'Attacks won', kind: 'number' },
   { key: 'respect', label: 'Respect', kind: 'number' },
   { key: 'mug', label: 'Mugs', kind: 'number' },
   { key: 'hospitalize', label: 'Hosp', kind: 'number' },
@@ -490,28 +494,31 @@ function FactionList({ title, rows, detail }) {
   )
 }
 
-function Targets({ targets }) {
+function Targets({ targets, event, isLeadership, stamp }) {
   const rows = useMemo(() => targets?.members ?? [], [targets])
   const { sorted, sortCol, sortDir, onSort } = useTableSort(rows, TARGET_COLS, { initialCol: 'incoming', initialDir: 'desc', tieBreak: 'name' })
   if (!targets) return null
   return (
     <div className="space-y-4">
+      <WantedBoard event={event} isLeadership={isLeadership} stamp={stamp} />
       {(targets.factions_we_hit || targets.factions_hit_us) && (
         <div className="grid gap-3 md:grid-cols-2">
-          <FactionList title="Factions we hit most" rows={targets.factions_we_hit ?? []}
+          <FactionList title="Factions we attacked most" rows={targets.factions_we_hit ?? []}
             detail={(r) => [`${fmt(r.wins)} won`, `${fmt(r.members)} of ours`,
               r.respect_gained > 0 && `+${fmt(r.respect_gained, 2)} respect`].filter(Boolean).join(' · ')} />
-          <FactionList title="Factions that hit us most" rows={targets.factions_hit_us ?? []}
-            detail={(r) => [`${fmt(r.beaten)} beat us`, `${fmt(r.defended)} defended`, `${fmt(r.members)} of ours hit`,
+          <FactionList title="Factions that attacked us most" rows={targets.factions_hit_us ?? []}
+            detail={(r) => [`${fmt(r.beaten)} beat us`, `${fmt(r.defended)} defended`, `${fmt(r.members)} of ours attacked`,
               // A zero is left out: "−0.00 respect" reads as a loss that was not one.
               r.respect_lost > 0 && `−${fmt(r.respect_lost, 2)} respect`].filter(Boolean).join(' · ')} />
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-2">
-        <MemberBoard title="Most targeted members" rows={targets.most_targeted} columns={BOARD_TARGETED} />
-        <Ranked title="Who hit us most" rows={targets.top_attackers_on_us} unit="attacks" render={(r) => fmt(r.hits)} />
+        <MemberBoard title="Most targeted members" rows={targets.most_targeted} columns={BOARD_TARGETED}
+          expand={(r) => <WhoAttacked eventId={event.id} memberId={r.id} />} />
+        <Ranked title="Who attacked us most" rows={targets.top_attackers_on_us} unit="attacks" render={(r) => fmt(r.hits)}
+          who={(r) => <AttackLink id={r.id} name={r.name} />} />
         <MemberBoard title="Busiest members" rows={targets.most_active} columns={BOARD_BUSY} />
-        <Ranked title="Who we hit most" rows={targets.our_top_targets} unit="hits" render={(r) => fmt(r.hits)} />
+        <Ranked title="Who we attacked most" rows={targets.our_top_targets} unit="attacks" render={(r) => fmt(r.hits)} />
       </div>
       <div className="card p-0 sm:p-0 overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -539,8 +546,8 @@ function Targets({ targets }) {
         </table>
       </div>
       <p className="text-xs text-gray-500 dark:text-gray-400">
-        A stealthed attack still counts against the member it hit, but Torn does not say who made it,
-        so it is missing from &quot;Who hit us most&quot;.
+        A stealthed attack still counts against the member it was on, but Torn does not say who made it,
+        so it is missing from &quot;Who attacked us most&quot;.
       </p>
     </div>
   )
@@ -668,7 +675,7 @@ function Stats({ event, days, stamp }) {
         <>
           <p className="text-xs text-gray-500 dark:text-gray-400">{formatTct(data.from)} → {formatTct(data.to)}</p>
           <div className="grid gap-2 sm:gap-3 grid-cols-3 sm:grid-cols-6">
-            <Stat label="Hits">{fmt(t?.hits ?? 0)}</Stat>
+            <Stat label="Attacks won">{fmt(t?.hits ?? 0)}</Stat>
             <Stat label="Respect">{fmt(t?.respect ?? 0, 2)}</Stat>
             <Stat label="Mugs">{fmt(t?.mug ?? 0)}</Stat>
             <Stat label="Assists">{fmt(t?.assists ?? 0)}</Stat>
@@ -729,7 +736,7 @@ function Stats({ event, days, stamp }) {
                   render={(r) => <>${fmt(r.amount)} on <PlayerLink id={r.target_id} name={r.target} /></>} empty="No bounties claimed." />
                 <Ranked title="Highest mugs" rows={h.highest_mugs}
                   render={(r) => <>${fmt(r.amount)} from <PlayerLink id={r.target_id} name={r.target} /></>} />
-                <Ranked title="Biggest hits" rows={h.biggest_hits}
+                <Ranked title="Biggest single hits" rows={h.biggest_hits}
                   render={(r) => <>{fmt(r.damage)} on <PlayerLink id={r.opponent_id} name={r.opponent} /></>} />
               </div>
             </>
@@ -783,6 +790,152 @@ function Stats({ event, days, stamp }) {
             From our synced attacks and their archived logs, so a stretch interrupted by an outage fills in once Torn is back.
             Respect here is raw, per attack.
           </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+const shortTct = (ms) => formatTct(ms).replace(/ TCT$/, '')
+
+/**
+ * Everyone who attacked one member — the row expansion on "Most targeted".
+ * ⚠️ Stealthed is a row of its own, so the rows add up to the member's total.
+ * Attackers link to the ATTACK page.
+ */
+function WhoAttacked({ eventId, memberId }) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+  useEffect(() => {
+    let alive = true
+    Promise.resolve().then(() => apiGet(`/api/events/${eventId}/targeted/${memberId}`))
+      .then((d) => { if (alive) setData(d) })
+      .catch((e) => { if (alive) setError(e?.message || 'Could not load who attacked them.') })
+    return () => { alive = false }
+  }, [eventId, memberId])
+  if (error) return <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+  if (!data) return <p className="text-xs text-gray-500 dark:text-gray-400">Loading…</p>
+  return (
+    <ul className="space-y-0.5 text-xs text-gray-600 dark:text-gray-300">
+      {data.attackers.map((a) => (
+        <li key={a.id ?? 'stealthed'}>
+          {a.id == null ? <span className="italic">Stealthed</span> : <AttackLink id={a.id} name={a.name} />}
+          {' · '}{fmt(a.attacks)} {a.attacks === 1 ? 'attack' : 'attacks'}
+          {a.won > 0 && ` · ${fmt(a.won)} beat them`}
+          {a.failed > 0 && ` · ${fmt(a.failed)} failed`}
+          {a.respect_taken > 0 && ` · −${fmt(a.respect_taken, 2)} respect`}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * The wanted board (MonChoon, 2026-10-18): outsiders who attacked ONE of our
+ * members the event's threshold times or more, win or lose.
+ *
+ * ⚠️ One click puts someone in the Book of Grudges. ⚠️ Leadership can take
+ * someone off — a member paying for defends or losses gets attacked on
+ * purpose, and that attacker must not become a target. Removed entries stay
+ * listed, folded, with a way back.
+ */
+function WantedBoard({ event, isLeadership, stamp }) {
+  const [data, setData] = useState(null)
+  const [error, setError] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [done, setDone] = useState({})
+  const load = useCallback(() => Promise.resolve().then(() => apiGet(`/api/events/${event.id}/wanted`))
+    .then((d) => { setData(d); setError(null) })
+    .catch((e) => setError(e?.message || 'Could not load the wanted board.')), [event.id])
+  useEffect(() => { load() }, [load, stamp])
+
+  const grudge = async (w) => {
+    setBusy(w.id)
+    try {
+      const victims = w.victims.slice(0, 3).map((v) => `${v.name} ×${v.attacks}`).join(', ')
+      const res = await apiPost('/api/grudges', {
+        target: String(w.id),
+        reason: `Wanted during ${event.name}: ${w.attacks} attacks on us (${victims})`,
+      })
+      setDone((d) => ({ ...d, [w.id]: res?.state === 'pending_approval' ? 'Added, held for approval' : 'Added to grudges' }))
+    } catch (e) {
+      setDone((d) => ({ ...d, [w.id]: e?.message || 'Could not add' }))
+    } finally {
+      setBusy(null)
+    }
+  }
+  const dismiss = async (w) => {
+    const note = window.prompt(`Take ${w.name} off the wanted board? Add a note (e.g. "paid defends"):`, '')
+    if (note === null) return
+    setBusy(w.id)
+    try { await apiPost(`/api/events/${event.id}/wanted/${w.id}/dismiss`, { note }); await load() } finally { setBusy(null) }
+  }
+  const restore = async (w) => {
+    setBusy(w.id)
+    try { await apiDelete(`/api/events/${event.id}/wanted/${w.id}/dismiss`); await load() } finally { setBusy(null) }
+  }
+
+  const row = (w, removed) => (
+    <li key={w.id} className="py-2 border-t border-gray-100 dark:border-slate-700 first:border-t-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span className="min-w-0 truncate font-medium">
+          <AttackLink id={w.id} name={w.name} />
+          {w.faction_id != null && (
+            <span className="text-xs text-gray-500 dark:text-gray-400"> · <FactionLink id={w.faction_id} name={w.faction_name} /></span>
+          )}
+        </span>
+        <span className="ml-auto flex flex-wrap gap-2">
+          {!removed && (
+            <button type="button" disabled={busy === w.id || !!done[w.id]} onClick={() => grudge(w)}
+              className="px-2 py-0.5 rounded text-xs font-medium bg-blue-600 text-white disabled:opacity-50">
+              {done[w.id] ?? 'Add to grudges'}
+            </button>
+          )}
+          {isLeadership && (removed ? (
+            <button type="button" disabled={busy === w.id} onClick={() => restore(w)}
+              className="px-2 py-0.5 rounded text-xs border border-gray-300 dark:border-slate-600 disabled:opacity-50">Restore</button>
+          ) : (
+            <button type="button" disabled={busy === w.id} onClick={() => dismiss(w)}
+              className="px-2 py-0.5 rounded text-xs border border-gray-300 dark:border-slate-600 disabled:opacity-50">Remove</button>
+          ))}
+        </span>
+      </div>
+      <div className="text-xs text-gray-600 dark:text-gray-300 tabular-nums mt-0.5">
+        {fmt(w.attacks)} attacks · {fmt(w.won)} beat us · {fmt(w.failed)} failed
+        {w.respect_taken > 0 && ` · −${fmt(w.respect_taken, 2)} respect`}
+        {' · '}{shortTct(w.first_ms)} → {shortTct(w.last_ms)}
+      </div>
+      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+        On:{' '}
+        {w.victims.map((v, i) => (
+          <span key={v.id}>{i > 0 && ', '}<PlayerLink id={v.id} name={v.name} /> ×{fmt(v.attacks)}</span>
+        ))}
+      </div>
+      {removed && w.note && <div className="text-xs italic text-gray-500 dark:text-gray-400 mt-0.5">Removed: {w.note}</div>}
+    </li>
+  )
+
+  return (
+    <div className="card p-4 min-w-0">
+      <h4 className="font-semibold text-gray-900 dark:text-white">
+        Wanted {data && <span className="text-sm font-normal text-gray-500 dark:text-gray-400">({fmt(data.wanted.length)})</span>}
+      </h4>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+        Anyone who attacked one of our members {data?.threshold ?? event.wanted_min_attacks ?? 3}+ times during {event.name}, win or lose.
+        Names open the attack page.
+      </p>
+      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {!data ? (!error && <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>) : (
+        <>
+          {data.wanted.length === 0
+            ? <p className="text-sm text-gray-500 dark:text-gray-400">Nobody yet.</p>
+            : <ol className="max-h-[30rem] overflow-y-auto pr-1">{data.wanted.map((w) => row(w, false))}</ol>}
+          {data.dismissed.length > 0 && (
+            <details className="mt-3 text-sm">
+              <summary className="cursor-pointer text-gray-600 dark:text-gray-300">Removed by leadership ({fmt(data.dismissed.length)})</summary>
+              <ol className="mt-1">{data.dismissed.map((w) => row(w, true))}</ol>
+            </details>
+          )}
         </>
       )}
     </div>

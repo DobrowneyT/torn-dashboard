@@ -4,6 +4,8 @@
 import { profileUrl } from '../../utils/rollCallChase'
 
 export const factionUrl = (id) => `https://www.torn.com/factions.php?step=profile&ID=${id}`
+/** Straight to the fight (MonChoon: "use the attack link" for anyone coming at us). */
+export const attackUrl = (id) => `https://www.torn.com/page.php?sid=attack&user2ID=${id}`
 
 const LINK = 'text-blue-600 dark:text-blue-400 hover:underline'
 
@@ -28,4 +30,9 @@ export function PlayerLink({ id, name }) {
 
 export function FactionLink({ id, name }) {
   return <TornLink href={factionUrl} id={id} name={name} />
+}
+
+/** `name [id]`, linking to the ATTACK page — for people we may want to hit back. */
+export function AttackLink({ id, name }) {
+  return <TornLink href={attackUrl} id={id} name={name} />
 }
