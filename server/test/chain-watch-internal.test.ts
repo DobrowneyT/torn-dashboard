@@ -405,3 +405,22 @@ describe('collectChainWatch', () => {
     expect(payload.gap_horizon_hours).toBe(GAP_HORIZON_HOURS)
   })
 })
+
+describe('before the event starts (preview)', () => {
+  it('⚠️ serves the OPENING hours, not an empty window, and says it is a preview', async () => {
+    // A week out — the window anchored at now would hold none of it.
+    const eventId = await makeEvent({ starts_at: new Date(top(24 * 7)).toISOString(), ends_at: new Date(top(24 * 9)).toISOString() })
+    await signUp(eventId, top(24 * 7), 0, '2250591')
+    const { body } = await get(TOKEN)
+    expect(body.preview).toBe(true)
+    expect(body.hours.length).toBeGreaterThan(0)
+    expect(body.hours[0].hour_start).toBe(top(24 * 7))
+    expect(body.hours[0].watchers).toHaveLength(1)
+  })
+
+  it('is not a preview once the event has started', async () => {
+    await makeEvent()
+    const { body } = await get(TOKEN)
+    expect(body.preview).toBe(false)
+  })
+})
