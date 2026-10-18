@@ -90,8 +90,17 @@ export async function getOpponentHistory(factionId) {
   return warRoomApi('GET', `/api/war-room/history/${factionId}`)
 }
 
-export async function claimDibsV2(targetId, warId) {
-  return warRoomApi('POST', '/api/war-room/dibs', { target_id: targetId, war_id: warId ?? null })
+/**
+ * Claim a target. `ff` (#997) is what THIS member's page shows for the target —
+ * `{ value, estimated }` or null — stored with the claim, because the FF is
+ * computed per viewer and is recorded nowhere else.
+ */
+export async function claimDibsV2(targetId, warId, ff = null) {
+  return warRoomApi('POST', '/api/war-room/dibs', {
+    target_id: targetId,
+    war_id: warId ?? null,
+    ...(ff && Number.isFinite(ff.value) ? { ff_shown: ff.value, ff_estimated: !!ff.estimated } : {}),
+  })
 }
 
 export async function releaseDibsV2(targetId) {

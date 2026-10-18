@@ -438,3 +438,44 @@ describe('green targets cannot be stolen (#935)', () => {
     expect(m.greenMeansGo + m.noSwing).toBe(m.claims)
   })
 })
+
+describe('#997 — FF shown at claim time against the FF the hit got', () => {
+  const sum = (claims: any[], attacks: any[]) =>
+    summariseWarDibs({ claims, attacks, ourFactionId: US, warEndTs: 9999 }).members.find((m) => m.member_id === HOLDER)!
+
+  it('records the shown FF and the holder\'s FIRST hit, not a later one', () => {
+    const v = classify(claim({ ff_shown: '2.80' }), [
+      attack({ started: 1600, fair_fight: '1.20' }),
+      attack({ started: 1500, fair_fight: '2.10' }),
+    ])
+    expect(v.ffShown).toBe(2.8)
+    expect(v.ffActual).toBe(2.1)
+  })
+
+  it('ignores a teammate\'s hit — it says nothing about what the holder was shown', () => {
+    const v = classify(claim({ ff_shown: 2 }), [attack({ attacker_id: MATE, fair_fight: 3 })])
+    expect(v.ffActual).toBeNull()
+  })
+
+  it('⚠️ compares the shown value CAPPED at 3: a true-FF 4.2 target paying 3.00 did what was promised', () => {
+    const m = sum([claim({ ff_shown: 4.2 })], [attack({ fair_fight: 3 })])
+    expect([m.ffCompared, m.ffShownAvg, m.ffActualAvg, m.ffOverstated]).toEqual([1, 3, 3, 0])
+  })
+
+  it('⚠️ counts a hit that paid noticeably under what the board showed', () => {
+    const m = sum(
+      [claim({ id: 1, ff_shown: 3 }), claim({ id: 2, ff_shown: 2.5, claimed_at: 3000, deleted_at: 4000 })],
+      [attack({ started: 1500, fair_fight: 2.1 }), attack({ started: 3500, fair_fight: 2.3 })],
+    )
+    expect(m.ffCompared).toBe(2)
+    expect(m.ffShownAvg).toBe(2.75)
+    expect(m.ffActualAvg).toBe(2.2)
+    // 3.00 → 2.10 is overstated; 2.50 → 2.30 is within the margin.
+    expect(m.ffOverstated).toBe(1)
+  })
+
+  it('leaves the comparison empty — never zero — when the claim did not say what it showed', () => {
+    const m = sum([claim()], [attack({ fair_fight: 2 })])
+    expect([m.ffCompared, m.ffShownAvg, m.ffActualAvg]).toEqual([0, null, null])
+  })
+})

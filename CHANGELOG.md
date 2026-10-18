@@ -18,6 +18,15 @@ surface it automatically.
 
 ---
 
+## [3.235.0] - 2026-10-18
+
+### Added
+- **Dibs record the fair fight the member SAW, and the post-war dibs report compares it with what the hit paid (#997).**
+  - **At claim time:** the War Room sends the true FF the member is looking at, and whether it rested on an estimate. FF is computed in each viewer's own browser and recorded nowhere else, so if Gekents saw 1.50 and MonChoon would have seen 1.20, Gekents' claim keeps 1.50.
+  - **After the war:** the dibs summary pairs each claim with Torn's actual FF on the holder's first hit. Per member it records the average shown (capped at 3, like Torn's) against the average achieved, and how many hits paid at least half a multiplier under what the board showed. Those are flagged as the estimate's fault, not the member's.
+  - **Where it shows:** a new "FF shown → hit" column on the dibs summary, sortable by the gap. The numbers also travel in the per-member war report payload.
+  - **Older wars:** they show a dash. Nothing was recorded before this (migration 0084, summary version 3).
+
 ## [3.234.0] - 2026-10-18
 
 ### Changed
