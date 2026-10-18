@@ -14,6 +14,7 @@ import AddGrudgeForm from './AddGrudgeForm'
 import GrudgeList from './GrudgeList'
 import GrudgeSettings from './GrudgeSettings'
 import GrudgeHistory from './GrudgeHistory'
+import { applyMeasuredStats } from '../../utils/warRoomBattleStats'
 
 export default function GrudgesSection({ isLeadership = false }) {
   const [data, setData] = useState(null)
@@ -45,7 +46,8 @@ export default function GrudgesSection({ isLeadership = false }) {
         apiGet('/api/grudges'),
         apiGet('/api/grudges/settings'),
       ])
-      setData(list)
+      // #996: a target's measured score, where the server says it beats the spy.
+      setData(list ? { ...list, targets: (list.targets ?? []).map(applyMeasuredStats) } : list)
       setSettings(cfg)
       setRefreshedAt(Date.now())
       if (isLeadership) {

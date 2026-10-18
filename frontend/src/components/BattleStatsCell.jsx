@@ -52,7 +52,10 @@ export default function BattleStatsCell({ member: m }) {
   // text with a bare "+00" offset (db.ts) that JS Date rejects → the age showed
   // a dash even with a real ts_spy_at (#140).
   const sourceLabel = statsSourceLabel(m.spy_source)
-  const ageLabel = fmtAgo(isTs && m.ts_spy_at ? m.ts_spy_at : m.bsp_fetched_at)
+  // #996: a score measured from our own hits. Its age is the hit's.
+  const isMeasured = m.spy_source === 'measured'
+  const atLeast = isMeasured && m.measured_bound === 'at_least'
+  const ageLabel = fmtAgo(isMeasured ? m.measured_at : isTs && m.ts_spy_at ? m.ts_spy_at : m.bsp_fetched_at)
 
   const rows = [
     ['STR', m.bsp_str],
@@ -72,11 +75,13 @@ export default function BattleStatsCell({ member: m }) {
   // default instead of racing it in the cascade.
   return (
     <InfoTooltip
-      label={formatStats(m.bsp_total)}
+      label={`${atLeast ? '≥' : ''}${formatStats(m.bsp_total)}`}
       decoration={`underline underline-offset-2 ${
         isExact
           ? 'decoration-solid decoration-emerald-500/70'
-          : 'decoration-dotted decoration-gray-400 dark:decoration-slate-600'
+          : isMeasured
+            ? 'decoration-solid decoration-sky-500/70'
+            : 'decoration-dotted decoration-gray-400 dark:decoration-slate-600'
       }`}
       className="font-mono text-xs text-gray-800 dark:text-gray-200 font-semibold"
     >
@@ -100,6 +105,15 @@ export default function BattleStatsCell({ member: m }) {
           <div className="font-mono flex justify-between gap-3">
             <span className="text-gray-500 dark:text-gray-400 font-semibold">Total</span>
             <span className="text-gray-900 dark:text-gray-100 font-semibold">{formatStats(m.bsp_total)}</span>
+          </div>
+        )}
+        {isMeasured && (
+          <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 text-[10px] leading-snug max-w-[190px]">
+            {atLeast ? 'At least this strong: ' : ''}Measured from our own hit
+            {m.measured_split === 'even' ? ', split evenly' : ''}.
+            {m.est_total != null && (
+              <> Was {formatStats(m.est_total)} ({statsSourceLabel(m.est_source)}).</>
+            )}
           </div>
         )}
         <div className="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 text-[10px] text-right whitespace-nowrap">

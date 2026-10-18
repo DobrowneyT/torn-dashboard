@@ -71,4 +71,18 @@ describe('BattleStatsCell', () => {
     expect(panel.textContent).toContain('Total')
     expect(panel.textContent).not.toContain('STR')
   })
+
+  // #996: a score measured from our own hits.
+  it('labels a measured score DB, marks a lower bound and says what it replaced', () => {
+    render(<BattleStatsCell member={{
+      ...BASE, spy_source: 'measured', measured_bound: 'at_least', measured_split: 'even',
+      measured_at: new Date().toISOString(), est_total: 2_000_000, est_source: 'bsp',
+    }} />)
+    expect(screen.getByRole('button').textContent).toMatch(/^≥/)
+    open()
+    expect(screen.getByText(/\(DB\)/)).toBeTruthy()
+    expect(screen.getByText(/At least this strong/)).toBeTruthy()
+    expect(screen.getByText(/Was .* \(BSP\)/)).toBeTruthy()
+  })
 })
+

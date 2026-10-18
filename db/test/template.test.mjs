@@ -150,6 +150,8 @@ const NEW_TABLES = [
   'event_attack_log_effects',
   // The event's wanted board: leadership's removals (0085).
   'event_wanted_dismissed',
+  // #996: target battle-stat scores measured from our own hits (0086).
+  'target_stat_measurements',
 ]
 
 let server

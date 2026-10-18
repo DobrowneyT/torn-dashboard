@@ -45,7 +45,7 @@ import {
   SCORE_DECAY_SEC, bestCaseChance,
   indexRevivesByTarget, reviveChanceHue, formatReviveChance, modelError,
 } from '../utils/reviveChance'
-import { indexBattleStats, withBattleStats } from '../utils/warRoomBattleStats'
+import { indexBattleStats, withBattleStats, applyMeasuredStats } from '../utils/warRoomBattleStats'
 
 // Flag glyph tones (#339). The muted revive is the load-bearing one: it must
 // read as a weaker claim than the green one at a glance, not just on hover.
@@ -1716,7 +1716,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   // flowing, so a player leaving fed reappears on the next tick and audit
   // queries keep the original snapshot.
   const members = useMemo(
-    () => rawMembers.filter(m => m.status_state !== 'Federal'),
+    // #996: a target's measured score, where the server says it beats the spy.
+    () => rawMembers.filter(m => m.status_state !== 'Federal').map(applyMeasuredStats),
     [rawMembers]
   )
 
@@ -2644,6 +2645,8 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     bspFetchedAt: m.bsp_fetched_at,
     spySource:    m.spy_source,
     tsSpyAt:      m.ts_spy_at,
+    measuredAt:   m.measured_at,
+    measuredBound: m.measured_bound,
     flags: {
       // #339: inOc dropped — it never affected whether a member could be hit
       // or revived. reviveAudience distinguishes "anyone can revive" (a hired

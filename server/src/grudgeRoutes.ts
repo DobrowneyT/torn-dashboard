@@ -29,6 +29,7 @@ import { planStatusRefresh } from './grudges.js'
 import { createKeyPool } from './scraper/keyPool.js'
 import { createTornClient } from './scraper/tornClient.js'
 import { DISCLOSURE_VERSIONS, consentCovers } from './consent.js'
+import { MEASUREMENT_BEATS_SPY_SQL } from './statMeasurement.js'
 
 const LEADERSHIP = new Set(['admin', 'leadership'])
 
@@ -483,11 +484,18 @@ export function registerGrudgeRoutes(app: FastifyInstance, deps: GrudgeRouteDeps
               c.member_id AS claim_member_id,
               cm.member_name AS claim_member_name,
               extract(epoch from c.claimed_at) * 1000 AS claim_ms,
-              extract(epoch from c.auto_expire_at) * 1000 AS claim_expires_ms
+              extract(epoch from c.auto_expire_at) * 1000 AS claim_expires_ms,
+              -- #996: a score measured from our own hits, where it beats the
+              -- spy — the same rule the War Room roster uses. Raw timestamptz
+              -- for the same reason as the two above.
+              tm.score AS measured_score, tm.bound AS measured_bound, tm.measured_at
          FROM grudge_targets g
          LEFT JOIN grudge_claims c
                 ON c.target_row_id = g.id AND c.released_at IS NULL
          LEFT JOIN members cm ON cm.member_id = c.member_id
+         LEFT JOIN target_stat_measurements tm
+                ON g.target_id ~ '^[0-9]+$' AND tm.target_id = g.target_id::bigint
+               AND ${MEASUREMENT_BEATS_SPY_SQL('tm', 'g.spy_source', 'g.ts_spy_at')}
         WHERE g.removed_at IS NULL
         ORDER BY g.added_at DESC`
     )

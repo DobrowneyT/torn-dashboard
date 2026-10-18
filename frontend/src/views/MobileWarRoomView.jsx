@@ -344,8 +344,10 @@ function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, 
   const [statsOpen, setStatsOpen] = useState(false)
   const hasBsp = m.bsp != null
   const isTs = m.spySource === 'tornstats'
-  const sourceLabel = isTs ? 'TS' : 'BSP'
-  const ageSource = isTs && m.tsSpyAt ? m.tsSpyAt : m.bspFetchedAt
+  // #996: "DB" — measured from our own hits; its age is the hit's.
+  const isMeasured = m.spySource === 'measured'
+  const sourceLabel = isMeasured ? 'DB' : isTs ? 'TS' : 'BSP'
+  const ageSource = isMeasured ? m.measuredAt : isTs && m.tsSpyAt ? m.tsSpyAt : m.bspFetchedAt
   const ageMs = parseDbTime(ageSource)?.getTime() ?? null
   const ageTs = ageMs === null ? null : Math.floor(ageMs / 1000)
   const ageLabel = ageTs ? formatRelative(ageTs) : '—'
@@ -402,7 +404,7 @@ function MemberCard({ m, dib, currentUserId, myBattleStats, onClaim, onRelease, 
             className={`text-right -m-1 p-1 rounded ${hasBsp ? 'cursor-pointer active:bg-gray-100 dark:active:bg-slate-700' : 'cursor-default'}`}
           >
             <div className={`font-mono text-[15px] font-bold leading-none tabular-nums ${m.bsp == null ? 'text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>
-              {formatStats(m.bsp)}
+              {isMeasured && m.measuredBound === 'at_least' ? '≥' : ''}{formatStats(m.bsp)}
             </div>
             <div className="text-[10px] text-gray-400 uppercase tracking-wider mt-0.5">
               {hasBsp ? sourceLabel : 'BSP'}
