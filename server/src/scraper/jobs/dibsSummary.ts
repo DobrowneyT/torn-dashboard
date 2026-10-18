@@ -90,7 +90,7 @@ export async function dibsSummaryJob({ db }: JobDeps): Promise<RunResult> {
               extract(epoch FROM claimed_at) AS claimed_at,
               extract(epoch FROM deleted_at) AS deleted_at,
               release_reason, claim_state, claim_online, surfaced_online,
-              extract(epoch FROM surfaced_at) AS surfaced_at
+              extract(epoch FROM surfaced_at) AS surfaced_at, ff_shown
        FROM war_room_dibs_v2
        WHERE war_id = $1
           OR (war_id IS NULL AND claimed_at >= to_timestamp($2) AND claimed_at <= to_timestamp($3))
@@ -99,7 +99,7 @@ export async function dibsSummaryJob({ db }: JobDeps): Promise<RunResult> {
     )
 
     const attacks = await db.query(
-      `SELECT attacker_id, attacker_faction_id, attacker_name, defender_id, started, result
+      `SELECT attacker_id, attacker_faction_id, attacker_name, defender_id, started, result, fair_fight
        FROM faction_attacks
        WHERE started >= $1 AND started <= $2`,
       [warStartTs, warEndTs]
@@ -131,13 +131,13 @@ export async function dibsSummaryJob({ db }: JobDeps): Promise<RunResult> {
              war_id, member_id, member_name, claims, converted, attempted,
              taken_from, no_swing, outside, released, hopped, overridden,
              board_reset, still_open, unknown, swung, took_from_others,
-             green_means_go)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+             green_means_go, ff_compared, ff_shown_avg, ff_actual_avg, ff_overstated)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
           [
             war.id, m.member_id, m.member_name, m.claims, m.converted, m.attempted,
             m.takenFrom, m.noSwing, m.outside, m.released, m.hopped, m.overridden,
             m.boardReset, m.open, m.unknown, m.swung, m.tookFromOthers,
-            m.greenMeansGo,
+            m.greenMeansGo, m.ffCompared, m.ffShownAvg, m.ffActualAvg, m.ffOverstated,
           ]
         )
         written += 1

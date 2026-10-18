@@ -7,6 +7,7 @@ import { formatCurrency } from '../utils/payoutCalculations'
 import { X } from 'lucide-react'
 import { config } from '../config'
 import InfoTooltip from '../components/InfoTooltip'
+import TruncatedText from '../components/TruncatedText'
 import SortableTh, { useTableSort } from '../components/SortableTh.jsx'
 import { sortRows } from '../utils/tableSort.js'
 
@@ -909,11 +910,7 @@ function CprModal({ member, cprData, loading, onClose }) {
                           : (val >= 75 ? 'bg-green-500' : val >= 50 ? 'bg-yellow-500' : val >= 25 ? 'bg-orange-500' : 'bg-red-500')
                         return (
                           <div key={row.position_label} className="flex items-center gap-3 py-1.5">
-                            <InfoTooltip
-                              label={<span className="block truncate">{row.position_label}</span>}
-                              decoration="no-underline"
-                              className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0"
-                            >{row.position_label}</InfoTooltip>
+                            <TruncatedText text={row.position_label} className="text-xs text-gray-700 dark:text-gray-300 w-32 shrink-0" />
                             <div className="flex-1 bg-gray-100 dark:bg-slate-600 rounded-full h-2">
                               <div
                                 className={`h-2 rounded-full ${barColor}`}

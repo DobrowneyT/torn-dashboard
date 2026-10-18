@@ -109,16 +109,15 @@ describe('parseAttackLog', () => {
   })
 
   it('has a version, so a changed parser re-runs over the archive', () => {
-    expect(PARSER_VERSION).toBe(3)
+    expect(PARSER_VERSION).toBe(4)
   })
 })
 
 describe('v2 — from ~2,000 real forge logs', () => {
-  it('⚠️ drops outcomes, loot, boosters, stances and recoil — none is an effect', () => {
+  it('⚠️ drops outcomes, boosters, stances and recoil — none is an effect', () => {
     const p = parseAttackLog(body([
       line('lost', 'attack-lose', 'Ann lost to Bob', A, D),
       line('stalemate', 'stalemate', 'Ann stalemated with Bob', A, D),
-      line('loot', 'loot', 'Ann looted 2x Concussion Grenade from Bob', A, D),
       line('hit', 'booster-use', 'Ann injected a syringe of Melatonin into her arm', A, D),
       line('onItemUseEff', 'smash-wait', 'Ann lifts  his Sledgehammer off the ground', A, D),
       line('onItemUseEff', 'windup', 'Ann wound up her Naval Cutlass lifting it above her head', A, D),
@@ -143,6 +142,13 @@ describe('v2 — from ~2,000 real forge logs', () => {
       line('hit', 'riot', 'Ann smashed Bob with his Sledgehammer in the Chest for 300', A, D),
     ]), atk)
     expect(p.effects.map((e) => [e.effect, e.actor_id])).toEqual([['parry', D], ['notouching', D], ['riot', A]])
+  })
+})
+
+describe('v4 — loot is data', () => {
+  it('keeps a loot line, crediting the attack\'s attacker when Torn names nobody', () => {
+    const p = parseAttackLog(body([line('loot', 'loot', 'Ann looted a Jawbreaker from Jimmy', null, D)]), atk)
+    expect(p.effects).toEqual([{ seq: 0, actor_id: A, effect: 'loot', text: 'Ann looted a Jawbreaker from Jimmy' }])
   })
 })
 

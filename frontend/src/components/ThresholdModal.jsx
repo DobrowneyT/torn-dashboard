@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { STAT_PATHS_BY_CATEGORY } from '../utils/statPaths'
 import InfoTooltip from './InfoTooltip'
+import TruncatedText from './TruncatedText'
 
 // Modal for editing a named threshold set. A threshold set is a map of
 // statKey → minimum daily value. When a set is active in MemberOverview,
@@ -186,11 +187,7 @@ export default function ThresholdModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {cat.stats.map(s => (
                   <div key={s.key} className="flex items-center gap-2">
-                    <InfoTooltip
-                      label={<span className="block truncate">{s.label}</span>}
-                      decoration="no-underline"
-                      className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-300"
-                    >{s.label}</InfoTooltip>
+                    <TruncatedText text={s.label} className="flex-1 min-w-0 text-sm text-gray-700 dark:text-gray-300" />
                     <input
                       type="number"
                       min="0"

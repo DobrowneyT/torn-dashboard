@@ -179,3 +179,17 @@ describe('the Green column', () => {
     expect(otherCount(row({ green_means_go: 4 }))).toBe(0)
   })
 })
+
+describe('FF shown → hit (#997)', () => {
+  afterEach(cleanup)
+
+  it('sets what the board showed beside what the hit paid, flagging low ones', () => {
+    render(<DibsSummaryPanel members={[row({ claims: 3, ff_compared: 3, ff_shown_avg: 2.9, ff_actual_avg: 2.1, ff_overstated: 2 })]} state={state()} />)
+    expect(cells()[0].at(-1)).toBe('2.90 → 2.10(2 low)')
+  })
+
+  it('⚠️ shows a dash, never a zero, for a war with nothing recorded', () => {
+    render(<DibsSummaryPanel members={[row({ claims: 2 })]} state={state()} />)
+    expect(cells()[0].at(-1)).toBe('—')
+  })
+})

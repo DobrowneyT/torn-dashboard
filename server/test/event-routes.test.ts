@@ -211,3 +211,20 @@ describe('writing', () => {
     expect((await api('PATCH', `/api/events/${created.body.id}`, member, { name: 'x' })).status).toBe(403)
   })
 })
+
+describe('site accent (whole-site colour)', () => {
+  it('is on by default, and can be switched off and back on', async () => {
+    const created = await api('POST', '/api/events', lead, make())
+    expect(created.status).toBe(200)
+    expect((await current()).site_accent).toBe(true)
+    expect((await api('PATCH', `/api/events/${created.body.id}`, lead, { site_accent: false })).status).toBe(200)
+    expect((await current()).site_accent).toBe(false)
+    await api('PATCH', `/api/events/${created.body.id}`, lead, { site_accent: true })
+    expect((await current()).site_accent).toBe(true)
+  })
+
+  it('cannot be changed by a member', async () => {
+    const created = await api('POST', '/api/events', lead, make())
+    expect((await api('PATCH', `/api/events/${created.body.id}`, member, { site_accent: false })).status).toBe(403)
+  })
+})

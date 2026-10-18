@@ -27,6 +27,7 @@ export const JOB_COLUMNS = [
 
 import { scraperJobSummary } from '../utils/scraperJobInfo'
 import InfoTooltip from '../components/InfoTooltip'
+import TruncatedText from '../components/TruncatedText'
 import CronEditor from '../components/CronEditor'
 import { describeCron, minuteLoad } from '../utils/cronSentence'
 import { CheckCircle2, AlertTriangle, Loader2, Play, RefreshCw } from 'lucide-react'
@@ -494,7 +495,7 @@ export default function GlobalAdminView() {
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300">{run.rows_written}</td>
                   <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md">
                     {run.error
-                      ? <InfoTooltip label={<span className="block truncate">{run.error}</span>} decoration="no-underline" className="block min-w-0">{run.error}</InfoTooltip>
+                      ? <TruncatedText text={run.error} className="block min-w-0" />
                       : ''}
                   </td>
                 </tr>
@@ -558,7 +559,7 @@ export default function GlobalAdminView() {
                   <td className="py-2 pr-4 text-gray-600 dark:text-gray-300 whitespace-nowrap">{k.last_claimed_at ? fmtDbTime(k.last_claimed_at) : '—'}</td>
                   <td className="py-2 text-red-500 dark:text-red-400 text-xs max-w-md">
                     {k.last_error
-                      ? <InfoTooltip label={<span className="block truncate">{k.last_error}</span>} decoration="no-underline" className="block min-w-0">{k.last_error}</InfoTooltip>
+                      ? <TruncatedText text={k.last_error} className="block min-w-0" />
                       : ''}
                   </td>
                 </tr>

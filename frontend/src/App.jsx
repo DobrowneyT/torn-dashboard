@@ -23,6 +23,7 @@ import UpdateBanner from './components/UpdateBanner'
 import { useVersionGate } from './hooks/useVersionGate'
 import { useCurrentEvent } from './hooks/useCurrentEvent'
 import { landingPathFor } from './utils/factionEvent'
+import { applySiteAccent } from './utils/siteAccent'
 
 
 function DashboardLayout() {
@@ -41,6 +42,8 @@ function DashboardLayout() {
   const { stale: updateAvailable, version: servingVersion } = useVersionGate({ forceReload: onWarRoom })
   // #969 — one poll for the nav tab, the `/` redirect and the event page.
   const { event: currentEvent, loaded: eventLoaded, refresh: refreshEvent } = useCurrentEvent(isAuthenticated)
+  // The event's colour across the whole site while it is live (and allows it).
+  useEffect(() => { applySiteAccent(currentEvent) }, [currentEvent])
 
   // Role flags come from the session claims (role_assignments, managed per
   // faction in Settings); the config.js lists are a fallback only.

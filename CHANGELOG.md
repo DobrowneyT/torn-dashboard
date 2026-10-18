@@ -18,6 +18,92 @@ surface it automatically.
 
 ---
 
+## [3.236.0] - 2026-10-18
+
+### Added
+- **Wanted board** at the top of the event's Targets view. It lists anyone who attacked **one** of our members **3+ times** during the event, win or lose; the threshold is per event, in Settings.
+  - **Each entry shows:** attacks, how many beat us and how many failed, respect taken, first and last seen, and who they went after.
+  - **Links:** names open the attack page.
+  - **Book of Grudges:** one click adds them.
+  - **Removing someone:** leadership can take them off (e.g. a member paying for defends) with a note, and restore them later. Removed entries stay listed, folded away.
+- **Who attacked a member:** a member's row in "Most targeted" expands into everyone who attacked them, linked to the attack page. Stealthed attacks are one row of their own, so the total adds up.
+
+### Changed
+- **Hits and attacks are no longer mixed up on the event page.** A *hit* is one turn inside a fight; an *attack* is the whole fight.
+  - **Counts of attacks now say attacks:** Attacks, Bonus attacks, Attacks won, "Who attacked us most", "Factions we attacked most", "No attacks yet", "Highest respect attack", and "Attackers" for the number of members attacking.
+  - **"Biggest single hits"** keeps the word, because it is one turn's damage.
+
+## [3.235.1] - 2026-10-18
+
+### Fixed
+- **The Chain Watch board is no longer blank before the event starts.** The bot is now sent the event's opening hours, flagged as a preview, instead of a window around "now" that holds no event hours yet. Members can see the sheet fill up and get used to the board before the chain begins.
+
+## [3.235.0] - 2026-10-18
+
+### Added
+- **Dibs record the fair fight the member SAW, and the post-war dibs report compares it with what the hit paid (#997).**
+  - **At claim time:** the War Room sends the true FF the member is looking at, and whether it rested on an estimate. FF is computed in each viewer's own browser and recorded nowhere else, so if Gekents saw 1.50 and MonChoon would have seen 1.20, Gekents' claim keeps 1.50.
+  - **After the war:** the dibs summary pairs each claim with Torn's actual FF on the holder's first hit. Per member it records the average shown (capped at 3, like Torn's) against the average achieved, and how many hits paid at least half a multiplier under what the board showed. Those are flagged as the estimate's fault, not the member's.
+  - **Where it shows:** a new "FF shown → hit" column on the dibs summary, sortable by the gap. The numbers also travel in the per-member war report payload.
+  - **Older wars:** they show a dash. Nothing was recorded before this (migration 0084, summary version 3).
+
+## [3.234.0] - 2026-10-18
+
+### Changed
+- **The War Room shows the TRUE fair fight (#995)**, the same formula without Torn's 3.00 ceiling, so "4.27" says how far you are punching up where the capped value read a flat 3.00.
+  - **Colour:** the FF cell is double-ended: red at 1.00, green at 3.00, and red again at an upper limit (default 6). Too far below you pays little; too far above is a fight you will probably lose.
+  - **Tunable without a deploy:** set the `war_room_ff_red_high` flag in Global Admin to move the upper limit.
+  - **Respect maths are unchanged.** Respect is still paid on the capped value, and the "3x FF" filter still means "pays full respect".
+  - **Sorting:** the roster sorts by the true value, so "far above me" ranks above "even fight" rather than tying at 3.00.
+  - **Everywhere:** desktop, mobile (whose tooltip explains the cap) and the Book of Grudges.
+
+## [3.233.1] - 2026-10-18
+
+### Fixed
+- **Custom ranges on Stats take a date AND a time**, to the second (TCT), pre-filled with the range on screen. Clicking **Custom** no longer asks the server for an empty range, which is what showed "from and to must be epoch ms". If the end is before the start, the page says so in plain words.
+- **"Highest respect hit"** replaces "Best hit (no bonus)" on Totals, with the unit written after the figure.
+
+## [3.233.0] - 2026-10-18
+
+### Changed
+- **Per-member boards list the whole faction**, sortable, in a window about ten rows tall that scrolls: Revitalize, Treats, Loot drops, Most earned from bounties, Most targeted and Busiest. `#` is the place in the current sort.
+- **One-off lists go to the top 100**, also scrolling with ten in view: highest mugs, biggest hits, highest bounties, who hit us, who we hit.
+- **Loot drops expand:** click a member's drops to see each item, how many, when, and who it came from, linked (e.g. Jimmy [19]).
+- **Totals:**
+  - "Best hit (no bonus)" is the best ordinary hit. Torn's own figure counts chain bonuses (the 100k bonus is 40,960).
+  - "Draws" is now "Stalemates", as Torn says in game.
+  - The "Bonuses" card is gone; the bonus hits are listed below it.
+- **The "Members" view is now "Report".**
+- **Scrollbars match the page**, thin and in the page's own greys in both themes, site-wide.
+
+### Fixed
+- **Tooltips that repeated their own text** (CPR role names, payout names, stat-picker and threshold labels, calendar titles, scraper errors) now only appear when the text is actually cut off on screen.
+
+## [3.232.1] - 2026-10-18
+
+### Fixed
+- **Ranked lists on Stats no longer run off a phone screen.** A long name with a long figure ("$2,000,000 on Fiveseven_ [340409]") pushed the card past the right edge and cut the figure off. The figure now drops under the name when both don't fit.
+
+## [3.232.0] - 2026-10-18
+
+### Added
+- **Stats replaces Daily and Highlights** on the event report. One view, any range: **Overall**, a single TCT day, or a **custom** span of days. Totals, the member table and every highlight follow the range.
+- **Revitalize and treat leaderboards** lead the Stats view. Neither has been seen in a log yet, so each matches any spelling of Torn's icon and says plainly when it has nothing yet.
+- **Loot drops are tracked again** (parser v4): who looted what, how many, and from whom (in the test window, NPC "Jimmy"), in every wording seen ("a Jawbreaker", "3x Concussion Grenade", "some Pixie Sticks").
+- **Every name is a link**, written `name [id]`: members, opponents, bonus hitters, non-attackers, bounty and mug targets, and factions. Each opens the Torn profile or faction page.
+
+### Changed
+- **Factions on Targets list every faction**, in a box that scrolls past about ten. "No faction" and "Stealthed" rows are gone (reviewed as not useful); those attacks still count everywhere else.
+- **Other effects** (Powerful, Stricken and the rest) are folded into an "All effects seen" list. That is where the real Revitalize and treat names will first appear.
+
+## [3.231.0] - 2026-10-17
+
+### Added
+- **A live event colours the whole site.** While an event is live, the site's accent (buttons, active tabs, links and highlights, normally blue) takes the event's colour: Halloween orange, or any colour set in Settings. It switches back the moment the event ends.
+  - **Accent only:** each viewer's light or dark choice is untouched.
+  - **Per-event switch:** "Colour the whole site in this colour while the event is live" in Settings, on by default (migration 0083).
+  - **How it works:** the site's blue palette is now CSS variables defaulting to the same blues, so with no live event the site looks exactly as before.
+
 ## [3.230.1] - 2026-10-17
 
 ### Fixed

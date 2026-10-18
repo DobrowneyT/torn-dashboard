@@ -45,7 +45,8 @@ beforeEach(async () => {
     [START, DAILY])).rows[0].id)
 })
 
-const highlights = () => highlightsSection(stack.db, eventId, DAILY, nameBook([{ id: 1, name: 'Ann' }, { id: 2, name: 'Cal' }]))
+const highlights = (from = START, to = DAILY + 7 * 86_400_000) =>
+  highlightsSection(stack.db, eventId, from, to, nameBook([{ id: 1, name: 'Ann' }, { id: 2, name: 'Cal' }]))
 
 describe('parsePendingLogs', () => {
   it('stores mugs, damage and one row per effect line', async () => {
@@ -80,6 +81,49 @@ describe('parsePendingLogs', () => {
   })
 })
 
+describe('highlightsSection — tracked effects and loot', () => {
+  it('⚠️ gives Revitalize and treats their own leaderboards, matching any spelling of the icon', async () => {
+    await archived({ from: 1, to: 50, log: [
+      line('hit', 'revitalize', 'Ann is revitalized', 1, 50),
+      line('hit', 'revitalized', 'Ann is revitalized', 1, 50),
+      line('hit', 'treat-drop', 'Ann found a treat', 1, 50),
+    ] })
+    await archived({ from: 2, to: 51, log: [line('hit', 'revitalize', 'Cal is revitalized', 2, 51)] })
+    await parsePendingLogs(stack.db, US)
+    const h = (await highlights())!
+    const rev = h.tracked.find((t) => t.key === 'revitalize')!
+    expect(rev.total).toBe(3)
+    expect(rev.by_member).toEqual([{ id: 1, name: 'Ann', count: 2 }, { id: 2, name: 'Cal', count: 1 }])
+    expect(h.tracked.find((t) => t.key === 'treats')!.by_member).toEqual([{ id: 1, name: 'Ann', count: 1 }])
+  })
+
+  it('tallies loot by member, item and source, in every wording seen', async () => {
+    await archived({ from: 1, to: 50, log: [
+      line('loot', 'loot', 'Ann looted a Jawbreaker from Jimmy', 1, 50),
+      line('loot', 'loot', 'Ann looted 3x Concussion Grenade from Jimmy', 1, 50),
+      line('loot', 'loot', 'Ann looted some Pixie Sticks from Jimmy', 1, 50),
+    ] })
+    await parsePendingLogs(stack.db, US)
+    const h = (await highlights())!
+    expect(h.loot.drops).toBe(3)
+    expect(h.loot.by_member[0]).toMatchObject({ id: 1, name: 'Ann', drops: 3, items: { Jawbreaker: 1, 'Concussion Grenade': 3, 'Pixie Sticks': 1 } })
+    // Each drop, with WHO it came from — the source linked by its id.
+    expect(h.loot.by_member[0].detail.map((d) => [d.item, d.qty, d.from, d.from_id]))
+      .toEqual([['Jawbreaker', 1, 'Jimmy', 50], ['Concussion Grenade', 3, 'Jimmy', 50], ['Pixie Sticks', 1, 'Jimmy', 50]])
+    expect(h.loot.by_item[0]).toEqual({ item: 'Concussion Grenade', qty: 3 })
+    expect(h.loot.by_source).toEqual([{ from: 'Jimmy', from_id: 50, drops: 3 }])
+  })
+
+  it('respects the range', async () => {
+    await archived({ from: 1, to: 50, at: DAILY + 1000, log: [line('mug', 'mug', 'Ann mugged X for $5 (+1.00)', 1, 50)] })
+    await archived({ from: 1, to: 50, at: DAILY + 2 * 86_400_000, log: [line('mug', 'mug', 'Ann mugged X for $7 (+1.00)', 1, 50)] })
+    await parsePendingLogs(stack.db, US)
+    expect((await highlights(DAILY, DAILY + 86_400_000))!.total_mugged).toBe(5)
+    expect((await highlights())!.total_mugged).toBe(12)
+    expect(await highlights(DAILY + 5 * 86_400_000, DAILY + 6 * 86_400_000)).toBeNull()
+  })
+})
+
 describe('highlightsSection', () => {
   it('is null before anything is parsed', async () => {
     expect(await highlights()).toBeNull()
@@ -105,8 +149,10 @@ describe('highlightsSection', () => {
     expect(h.biggest_hits[0]).toMatchObject({ name: 'Ann', damage: 3000 })
     // ⚠️ The opponent's 9,999 riot hit is theirs, not Cal's.
     expect(h.biggest_hits.find((b) => b.name === 'Cal')!.damage).toBe(500)
-    expect(h.most_effects).toEqual([{ id: 1, name: 'Ann', total: 1, effects: { powerful: 1 } }])
-    expect(h.effects_by_day).toEqual([{ day: '2026-10-26', starts_at: DAILY, effects: { powerful: 1 } }])
+    // Every effect is still counted, for discovery — the opponent's riot is not ours.
+    expect(h.effect_totals).toEqual({ powerful: 1 })
+    expect(h.highest_mugs[0]).toMatchObject({ target_id: 51, target: 'p51' })
+    expect(h.biggest_hits[0]).toMatchObject({ opponent_id: 50 })
     expect(h.total_mugged).toBe(29000)
     expect(h.bounties).toEqual({ claimed: 0, total: 0, by_member: [], top: [] })
   })

@@ -43,7 +43,7 @@ export default function EventsPage({ event, isLeadership, onChanged }) {
       <Routes>
         {/* With no event the report has nothing to say; Chain Watch still does. */}
         <Route index element={<Navigate to={event ? '/events/report' : (isLeadership ? '/events/settings' : '/events/chain-watch')} replace />} />
-        <Route path="report" element={event ? <EventReport event={event} /> : <NoEvent />} />
+        <Route path="report" element={event ? <EventReport event={event} isLeadership={isLeadership} /> : <NoEvent />} />
         <Route path="chain-watch" element={<ChainWatchSection isLeadership={isLeadership} />} />
         {isLeadership && (
           <Route path="settings" element={
@@ -105,6 +105,8 @@ function toForm(e) {
     daily_from: msToTctInput(e.daily_from),
     min_ends_at: msToTctInput(e.min_ends_at),
     ends_with_chain: e.ends_with_chain,
+    site_accent: e.site_accent !== false,
+    wanted_min_attacks: e.wanted_min_attacks ?? 3,
     chain_event_id: e.chain_event_id == null ? '' : String(e.chain_event_id),
   }
 }
@@ -146,6 +148,8 @@ export function EventSettings({ event, onChanged }) {
         daily_from: tctInputToMs(form.daily_from),
         min_ends_at: tctInputToMs(form.min_ends_at),
         ends_with_chain: form.ends_with_chain,
+        site_accent: form.site_accent,
+        wanted_min_attacks: Number(form.wanted_min_attacks) || 3,
         chain_event_id: form.chain_event_id === '' ? null : Number(form.chain_event_id),
         ...extra,
       }
@@ -202,6 +206,17 @@ export function EventSettings({ event, onChanged }) {
       <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" checked={form.ends_with_chain} onChange={set('ends_with_chain')} />
         Keep going after that until our chain ends (dies or reaches 100k)
+      </label>
+
+      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <input type="checkbox" checked={form.site_accent} onChange={set('site_accent')} />
+        Colour the whole site in this colour while the event is live
+      </label>
+
+      <label className="block">
+        <span className={LABEL}>Wanted after this many attacks on one member</span>
+        <input type="number" min="1" max="1000" className={`${FIELD} max-w-[8rem]`} value={form.wanted_min_attacks}
+          onChange={set('wanted_min_attacks')} />
       </label>
 
       <label className="block">

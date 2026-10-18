@@ -68,5 +68,7 @@ export function halloweenDefaults(now = Date.now()) {
     daily_from: Date.UTC(year, 9, 26, 0),
     min_ends_at: Date.UTC(year, 10, 1, 16),
     ends_with_chain: true,
+    site_accent: true,
+    wanted_min_attacks: 3,
   }
 }

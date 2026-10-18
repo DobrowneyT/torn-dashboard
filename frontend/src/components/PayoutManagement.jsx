@@ -39,6 +39,7 @@ import { coverageVerdict, formatDelta } from '../utils/occupancyReport'
 import { fmtDbTime } from '../utils/time'
 import { X } from 'lucide-react'
 import InfoTooltip, { InfoDot } from './InfoTooltip'
+import TruncatedText from './TruncatedText'
 import { sortRows, nextDirection } from '../utils/tableSort.js'
 
 /**
@@ -1267,11 +1268,7 @@ export default function PayoutManagement() {
                       const isEditing = editingRewardPrice?.itemId === itemId
                       return (
                         <div key={itemId} className="grid grid-cols-4 gap-2 text-sm items-center">
-                          <InfoTooltip
-                            label={<span className="block truncate">{data.name}</span>}
-                            decoration="no-underline"
-                            className="block min-w-0 text-blue-800 dark:text-blue-200"
-                          >{data.name}</InfoTooltip>
+                          <TruncatedText text={data.name} className="block min-w-0 text-blue-800 dark:text-blue-200" />
                           <div className="text-right">
                             {isEditing ? (
                               <div className="flex items-center justify-end gap-1">
@@ -1367,11 +1364,7 @@ export default function PayoutManagement() {
                       const unitValue = data.quantity > 0 ? Math.floor(data.totalValue / data.quantity) : 0
                       return (
                         <div key={itemId} className="grid grid-cols-4 gap-2 text-sm">
-                          <InfoTooltip
-                            label={<span className="block truncate">{data.name}</span>}
-                            decoration="no-underline"
-                            className="block min-w-0 text-red-800 dark:text-red-200"
-                          >{data.name}</InfoTooltip>
+                          <TruncatedText text={data.name} className="block min-w-0 text-red-800 dark:text-red-200" />
                           <div className="text-right text-red-700 dark:text-red-300">
                             {formatCurrency(unitValue)}
                           </div>

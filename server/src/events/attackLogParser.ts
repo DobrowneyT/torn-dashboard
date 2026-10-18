@@ -29,7 +29,11 @@
 // "X hospitalized Y and claimed a $100,000 bounty (+3.13)" — the one wording in
 // ~2,100 real logs, with or without the respect suffix.
 
-export const PARSER_VERSION = 3
+//
+// v4 (2026-10-18): loot is kept as an effect again — MonChoon wants loot drops
+// (the Halloween beings) tracked. "X looted 3x Concussion Grenade from Jimmy".
+
+export const PARSER_VERSION = 4
 
 /** Icons on ordinary lines. Anything else on a line is a proc or an effect. */
 export const PLAIN_ICONS = new Set([
@@ -42,14 +46,13 @@ export const PLAIN_ICONS = new Set([
 /**
  * Icons that are not effects at all — an outcome, a loot, a booster, a stance,
  * or a weapon hurting its own user. Evidence, from real lines:
- * `attack-lose` "X lost to Y", `stalemate` "X stalemated with Y", `loot`
- * "X looted 2x Grenade from Y", `booster-use` "X injected a syringe of…",
+ * `attack-lose` "X lost to Y", `stalemate` "X stalemated with Y", `booster-use` "X injected a syringe of…",
  * `smash-wait` "X lifts his Sledgehammer off the ground", `windup` "X wound up
  * his Kodachi", `hazadous` "The Nock Gun's recoil damages X", `ziro-damage`
  * zero-damage hits and ineffective sprays.
  */
 export const NOT_EFFECTS = new Set([
-  'attack-lose', 'stalemate', 'loot', 'booster-use', 'smash-wait', 'windup', 'hazadous', 'ziro-damage',
+  'attack-lose', 'stalemate', 'booster-use', 'smash-wait', 'windup', 'hazadous', 'ziro-damage',
 ])
 
 /**

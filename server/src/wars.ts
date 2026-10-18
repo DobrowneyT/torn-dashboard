@@ -354,7 +354,9 @@ export function registerWarRoutes(app: FastifyInstance, db: pg.Pool) {
       db.query(
         `SELECT member_id, member_name, claims, converted, attempted, taken_from,
                 no_swing, outside, released, hopped, overridden, board_reset,
-                still_open, unknown, swung, took_from_others, green_means_go
+                still_open, unknown, swung, took_from_others, green_means_go,
+                ff_compared, ff_shown_avg::float8 AS ff_shown_avg,
+                ff_actual_avg::float8 AS ff_actual_avg, ff_overstated
          FROM war_dibs_summary WHERE war_id = $1
          ORDER BY claims DESC, took_from_others DESC, member_id`,
         [id]

@@ -82,8 +82,9 @@ import { isTourSeen, markTourSeen, resetTourSeen } from '../utils/warRoomTour'
 import { parseStatInput, formatStats } from '../utils/statInput'
 import BattleStatsCell from '../components/BattleStatsCell'
 import {
-  fairFight, formatFF, ffGradientPosition, scoreIsEstimated, targetBattleStats,
+  trueFairFight, formatFF, ffTrueHue, scoreIsEstimated, targetBattleStats,
 } from '../utils/fairFight'
+import { useDisplaySettings } from '../hooks/useDisplaySettings'
 import { clampCadence } from '../utils/warRoomCadence.js'
 import { assistBadgeState } from '../utils/assistBadge.js'
 
@@ -939,20 +940,19 @@ function MemberReviveChanceCell({ revives, loaded }) {
 }
 
 /**
- * Fair Fight for the viewer against one enemy (#422).
+ * Fair Fight for the viewer against one enemy (#422, #995).
  *
  * Personal by construction: `mine` is the viewer's own battle stats, so this
  * cell reads differently for every person looking at the same board. That is
  * the point — FF is what YOU would earn, not a property of the target.
  *
- * The gradient runs red at 1.00 to green at 3.00, which is the full range FF
- * can occupy. Note it saturates once the target reaches 75% of your BS score,
- * so a large share of a healthy roster sits at a flat 3.00; the dotted
- * underline below carries the information the colour cannot.
+ * ⚠️ #995: the number is the TRUE (uncapped) FF, and the colour is
+ * double-ended — red at 1.00, green at 3.00, red again at `redHigh` (a Global
+ * Admin flag). Respect is still paid on the capped value; the tooltip says so.
  */
-function FairFightCell({ mine, target }) {
+function FairFightCell({ mine, target, redHigh }) {
   const targetStats = targetBattleStats(target)
-  const ff = fairFight(mine, targetStats)
+  const ff = trueFairFight(mine, targetStats)
 
   if (ff === null) return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>
 
@@ -961,14 +961,11 @@ function FairFightCell({ mine, target }) {
   // FF — so a number built on a bare total should not look as solid as one
   // built on a real spy.
   const estimated = scoreIsEstimated(mine) || scoreIsEstimated(targetStats)
-
-  // 0 → red (0deg), 1 → green (120deg).
-  const hue = Math.round(120 * ffGradientPosition(ff))
-  // The dotted underline still means "estimate" — that mark is the one thing
-  // the header cannot say about an individual row.
+  const hue = ffTrueHue(ff, redHigh)
   return (
     <span
       style={{ '--grad-hue': hue }}
+      title={ff > 3 ? `True FF ${formatFF(ff)} — respect pays at the 3.00 cap` : undefined}
       className={`hue-grad text-xs font-mono ${estimated ? 'underline decoration-dotted decoration-from-font' : ''}`}
     >
       {formatFF(ff)}
@@ -2241,7 +2238,14 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
     dibsAbortRef.current = controller
 
     try {
-      await claimDibsV2(memberId, null)
+      // #997 — record the FF this member is LOOKING AT, so the post-war dibs
+      // report can set it beside what the hit actually paid.
+      const row = members.find((m) => Number(m.member_id ?? m.id) === Number(memberId))
+      const targetStats = row ? targetBattleStats(row) : null
+      const shown = targetStats ? trueFairFight(myBattleStats, targetStats) : null
+      const ff = shown == null ? null
+        : { value: shown, estimated: scoreIsEstimated(myBattleStats) || scoreIsEstimated(targetStats) }
+      await claimDibsV2(memberId, null, ff)
       await pollNow()
     } catch (e) {
       if (e.name === 'AbortError') return
@@ -2387,10 +2391,13 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
   const columns = rosterColumns(effectiveSide)
   // FF for one roster row, from the viewer's perspective. Shared by the sort,
   // the 3x filter and the cell so the three cannot disagree about a number.
+  // ⚠️ #995: TRUE (uncapped) FF. The 3x filter still means "pays full respect"
+  // because isMaxFF is `>= 3`, which holds for the uncapped value too.
   const ffFor = useCallback(
-    (m) => fairFight(myBattleStats, targetBattleStats(m)),
+    (m) => trueFairFight(myBattleStats, targetBattleStats(m)),
     [myBattleStats]
   )
+  const { ff_red_high: ffRedHigh } = useDisplaySettings()
   // Only offerable when we can actually compute it — otherwise the button
   // would silently empty the board.
   const ffFilterUsable = columns.ff && myBattleStats != null
@@ -3523,7 +3530,7 @@ export default function WarRoomViewV2({ isLeadership, isAdmin }) {
 
                         {columns.ff && (
                           <td className="py-2.5 px-3 whitespace-nowrap text-right">
-                            <FairFightCell mine={myBattleStats} target={m} />
+                            <FairFightCell redHigh={ffRedHigh} mine={myBattleStats} target={m} />
                           </td>
                         )}
 

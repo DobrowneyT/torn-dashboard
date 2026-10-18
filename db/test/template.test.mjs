@@ -148,6 +148,8 @@ const NEW_TABLES = [
   // effect (proc) line.
   'event_attack_log_parsed',
   'event_attack_log_effects',
+  // The event's wanted board: leadership's removals (0085).
+  'event_wanted_dismissed',
 ]
 
 let server

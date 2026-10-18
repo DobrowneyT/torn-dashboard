@@ -768,7 +768,12 @@ CREATE TABLE public.war_room_dibs_v2 (
   claim_state     text,
   claim_online    text,
   surfaced_online boolean,
-  surfaced_at     timestamptz
+  surfaced_at     timestamptz,
+  -- #997 (0084): the FF the holder's page SHOWED at claim time (true, uncapped),
+  -- and whether it rested on an estimated stat total. Null when the claim came
+  -- from somewhere that cannot compute FF.
+  ff_shown           numeric(7,2),
+  ff_shown_estimated boolean
 );
 
 CREATE TABLE IF NOT EXISTS public.war_dibs_summary (
@@ -804,6 +809,13 @@ CREATE TABLE IF NOT EXISTS public.war_dibs_summary (
   -- #935: claims on a target who was GREEN (Okay + Online) while they were
   -- live, so no steal was possible. ⚠️ Counted, never blamed.
   green_means_go integer NOT NULL DEFAULT 0,
+
+  -- #997 (0084): FF shown at claim time against FF Torn actually gave the
+  -- holder's hit, over the claims where both are known.
+  ff_compared   integer NOT NULL DEFAULT 0,
+  ff_shown_avg  numeric(6,2),
+  ff_actual_avg numeric(6,2),
+  ff_overstated integer NOT NULL DEFAULT 0,
 
   PRIMARY KEY (war_id, member_id)
 );
@@ -1381,6 +1393,10 @@ CREATE TABLE IF NOT EXISTS public.faction_events (
   -- end — see eventLifecycle.ts.
   min_ends_at      timestamptz NOT NULL,
   ends_with_chain  boolean NOT NULL DEFAULT true,
+  -- 0083: recolour the whole site in theme_color while the event is live.
+  site_accent      boolean NOT NULL DEFAULT true,
+  -- 0085: attacks on ONE member that put an outsider on the wanted board.
+  wanted_min_attacks integer NOT NULL DEFAULT 3,
 
   -- Set when the event is over: by a lead, or by the lifecycle once the chain
   -- has ended past min_ends_at. NULL while it has not ended.
@@ -1562,6 +1578,18 @@ CREATE TABLE IF NOT EXISTS public.event_attack_log_effects (
 );
 CREATE INDEX IF NOT EXISTS event_attack_log_effects_event
   ON public.event_attack_log_effects (event_id, actor_id);
+
+-- Leadership's "not actually wanted" list. ⚠️ A member who PAYS someone for
+-- defends or losses gets attacked over and over on purpose; that attacker must
+-- not end up as a target. Removal is per event and reversible.
+CREATE TABLE IF NOT EXISTS public.event_wanted_dismissed (
+  event_id     bigint NOT NULL REFERENCES public.faction_events(id) ON DELETE CASCADE,
+  attacker_id  bigint NOT NULL,
+  note         text,
+  dismissed_by bigint,
+  dismissed_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (event_id, attacker_id)
+);
 
 
 

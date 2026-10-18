@@ -69,8 +69,17 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
   // open-to-all-members behaviour is deliberate on its own merits — dibs is how
   // the whole faction coordinates targets.
   app.post('/api/war-room/dibs', { preHandler: requireAuth() }, async (req, reply) => {
-    const body = req.body as { target_id?: unknown; war_id?: unknown } | null
+    const body = req.body as {
+      target_id?: unknown; war_id?: unknown; ff_shown?: unknown; ff_estimated?: unknown
+    } | null
     const targetId = Number(body?.target_id)
+    // #997 — what the holder's own page SHOWED. Optional: a claim from
+    // somewhere that cannot compute FF stores null, never a guess. Bounded so
+    // a bad client cannot store nonsense against a member's name.
+    const ffRaw = Number(body?.ff_shown)
+    const ffShown = body?.ff_shown != null && Number.isFinite(ffRaw) && ffRaw >= 1 && ffRaw < 1000
+      ? Math.round(ffRaw * 100) / 100 : null
+    const ffEstimated = ffShown == null ? null : body?.ff_estimated === true
     if (!Number.isFinite(targetId) || targetId <= 0) {
       return reply.status(400).send({ error: 'target_id required' })
     }
@@ -125,13 +134,14 @@ export function registerWarRoomWriteRoutes(app: FastifyInstance, { db, hub }: Wa
         // as a verdict. `claimKind()` interprets them, so the rule can change
         // without a migration and without rewriting history.
         `INSERT INTO war_room_dibs_v2
-           (target_id, claimed_by, claimed_name, war_id, auto_expire_at, claim_state, claim_online)
+           (target_id, claimed_by, claimed_name, war_id, auto_expire_at, claim_state, claim_online,
+            ff_shown, ff_shown_estimated)
          VALUES ($1, $2, $3, $4,
                  CASE WHEN $5 THEN now() + make_interval(secs => $6) ELSE NULL END,
-                 $7, $8)
+                 $7, $8, $9, $10)
          RETURNING *`,
         [targetId, userId, name, body?.war_id ?? null, targetAlive, expirySecs,
-         ctx.rows[0]?.status ?? null, ctx.rows[0]?.online ?? null]
+         ctx.rows[0]?.status ?? null, ctx.rows[0]?.online ?? null, ffShown, ffEstimated]
       )
       await dbc.query('COMMIT')
       hub.broadcast('dibs', [...tombstoned.rows, ...inserted.rows], await serverNow())

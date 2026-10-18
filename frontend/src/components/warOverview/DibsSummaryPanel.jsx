@@ -39,6 +39,9 @@ const COLUMNS = [
   { key: 'other', kind: 'number', accessor: (r) => otherCount(r) },
   { key: 'green', kind: 'number', accessor: (r) => greenCount(r) },
   { key: 'took_from_others', kind: 'number', accessor: (r) => r.took_from_others },
+  // #997 — by the GAP between shown and actual, so the worst-overstated sort
+  // first; a member with nothing to compare has no value and sinks.
+  { key: 'ff', kind: 'number', accessor: (r) => (r.ff_compared ? r.ff_shown_avg - r.ff_actual_avg : null) },
 ]
 
 /**
@@ -94,6 +97,10 @@ const HELP = {
     + 'Nobody can steal a green target, so these claims count against no one '
     + 'on either side — and this is the column to point at when somebody says '
     + 'their dibs was taken.',
+  ff: 'The fair fight the member\'s War Room SHOWED when they called dibs, against what Torn '
+    + 'actually paid on their first hit — averaged over the claims where both are known. '
+    + 'Shown values are capped at 3, as Torn caps the real one. A red count is hits that paid '
+    + 'at least half a multiplier under the board: the estimate was off, not the member.',
   took_from_others: 'Finishing hits this member landed on somebody ELSE\'s '
     + 'called target. ⚠️ A different question from "Taken from", not its '
     + 'mirror: this is the one that answers who takes other people\'s targets.',
@@ -175,6 +182,7 @@ export default function DibsSummaryPanel({ members = [], state = null, loading =
                 {th('other', 'Other', HELP.other)}
                 {th('green', 'Green', HELP.green)}
                 {th('took_from_others', 'Took from others', HELP.took_from_others)}
+                {th('ff', 'FF shown → hit', HELP.ff)}
               </tr>
             </thead>
             <tbody>
@@ -201,6 +209,7 @@ export default function DibsSummaryPanel({ members = [], state = null, loading =
                       is nobody's fault and often nobody's mistake either. */}
                   <Num v={greenCount(r)} tone="text-sky-600 dark:text-sky-400" />
                   <Num v={r.took_from_others} tone="text-orange-600 dark:text-orange-400" />
+                  <FfCompare r={r} />
                 </tr>
               ))}
             </tbody>
@@ -219,5 +228,23 @@ export default function DibsSummaryPanel({ members = [], state = null, loading =
         </p>
       )}
     </div>
+  )
+}
+
+/**
+ * #997 — FF shown at claim time → FF the hit got. ⚠️ Absent, never zero, when
+ * no claim recorded an FF (every war before this shipped).
+ */
+function FfCompare({ r }) {
+  if (!r.ff_compared) return <td className="px-3 py-1.5 text-right text-gray-400">—</td>
+  return (
+    <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap text-gray-700 dark:text-gray-200">
+      {Number(r.ff_shown_avg).toFixed(2)} → {Number(r.ff_actual_avg).toFixed(2)}
+      {r.ff_overstated > 0 && (
+        <span className="ml-1 text-red-600 dark:text-red-400" title="Hits that paid noticeably less than shown">
+          ({r.ff_overstated} low)
+        </span>
+      )}
+    </td>
   )
 }
