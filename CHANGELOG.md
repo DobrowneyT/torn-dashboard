@@ -18,6 +18,11 @@ surface it automatically.
 
 ---
 
+## [3.230.1] - 2026-10-17
+
+### Fixed
+- **Chain Watch stays in the Members tabs**, now linking to its new home on the Events page. Members only see the Events tab once an event exists, but Chain Watch sign-ups open before that: tnl and forge both had Halloween sign-ups open with no event created yet.
+
 ## [3.230.0] - 2026-10-17
 
 ### Added

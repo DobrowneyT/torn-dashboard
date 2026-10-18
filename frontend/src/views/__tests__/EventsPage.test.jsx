@@ -75,9 +75,9 @@ describe('Chain Watch moved to the event page', () => {
     expect(screen.getByTestId('where').textContent).toBe('/events/chain-watch')
   })
 
-  it('is no longer a Members tab', () => {
+  it('⚠️ stays reachable from Members, pointing at its new home — sign-ups open before any event exists', () => {
     render(<MemoryRouter initialEntries={['/members/overview']}><Routes><Route path="/members/*" element={<MembersPage isLeadership={false} />} /></Routes></MemoryRouter>)
-    expect(screen.queryByText('Chain Watch')).toBeNull()
+    expect(screen.getByText('Chain Watch').closest('a').getAttribute('href')).toBe('/events/chain-watch')
   })
 })
 

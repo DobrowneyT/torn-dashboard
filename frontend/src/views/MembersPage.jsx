@@ -20,6 +20,11 @@ export default function MembersPage({ isLeadership }) {
     { to: '/members/overview', label: 'Overview' },
     { to: '/members/competitions', label: 'Competitions' },
     { to: '/members/calendar', label: 'Calendar' },
+    // ⚠️ #969 moved Chain Watch to the event page, whose nav tab members only
+    // see once an event exists. Sign-ups open BEFORE that (tnl and forge had
+    // Halloween sign-ups open with no event created), so the tab stays here,
+    // pointing at its new home.
+    { to: '/events/chain-watch', label: 'Chain Watch' },
     // #458 — faction standing state, not per-member, but this tab group is
     // where faction-wide surfaces live (Competitions and Calendar are not about
     // individual members either). Read-only and open to everyone.
