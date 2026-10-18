@@ -18,6 +18,15 @@ surface it automatically.
 
 ---
 
+## [3.237.0] - 2026-10-18
+
+### Added
+- **Measured target stats ("DB") from our own hits (#996).** Every hit carries Torn's real fair fight, and the hitter's own key gives their exact stats, so the FF formula runs backwards to the target's battle-stat score. A new `stat-measurements` job (no Torn calls; five minutes after each attacks-sync) does this for every hit by a member whose stats come from their own key.
+  - **Deadband:** a hit within ±0.10 FF of what the current stats predicted for that hitter leaves the stats alone and only confirms them, so the numbers don't change with every hit.
+  - **Capped hits** (3.00) only prove "at least 0.75 × the hitter", shown as `≥` and used only to correct an estimate that was too low.
+  - **Where it wins:** over BSP always, and over TornStats when newer than the spy. It expires 30 days after the last hit that confirmed it. Both tunables live in `faction_settings` (`stat_measure_deadband`, `stat_measure_max_age_days`).
+  - Shown as **DB** in the War Room (desktop and mobile) and the Book of Grudges. A spy's per-stat breakdown is scaled to the measured score; without one the split is even. The tooltip says what the estimate was before.
+
 ## [3.236.1] - 2026-10-18
 
 ### Fixed

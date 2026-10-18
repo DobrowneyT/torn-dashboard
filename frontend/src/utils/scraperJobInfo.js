@@ -134,6 +134,14 @@ export const SCRAPER_JOB_INFO = {
     'omitted. ' +
     'A war that failed can be re-run once a human has sorted out what was ' +
     'missing, and will not double-post anything already sent.',
+  'stat-measurements':
+    'Learns enemy targets\' battle-stat scores from our own hits (#996). Torn ' +
+    'reports the real fair fight on every hit, and a member\'s own key gives ' +
+    'their exact stats, so the FF formula runs backwards to the target\'s ' +
+    'score. Shown as "DB" in the War Room and the Book of Grudges. A hit within ' +
+    '\u00b10.10 FF of what we already believed only confirms it. \u26a0\ufe0f Only ' +
+    'members whose stats come from their own key are used. Costs ZERO Torn API ' +
+    'calls; it reads what attacks-sync already stored.',
   'dibs-summary':
     'Freezes each finished war\'s dibs activity into a per-member summary — ' +
     'claims taken, converted, lost to a teammate, and taken from others. ' +
