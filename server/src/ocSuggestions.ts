@@ -187,15 +187,20 @@ export async function suggestionStats(db: Queryable) {
   return out
 }
 
-/** The bot drew `version` of suggestion `id` (into `message_id`). */
-export async function markRendered(db: Queryable, id: number, version: number, messageId?: string | null, channelId?: string | null) {
+/**
+ * The bot drew `version` of suggestion `id` (into `message_id`) — or, with
+ * `deleted`, removed its message because it closed.
+ */
+export async function markRendered(db: Queryable, id: number, version: number, messageId?: string | null,
+  channelId?: string | null, deleted = false) {
   const { rows } = await db.query(
     `UPDATE oc_suggestions
         SET rendered_version = greatest(rendered_version, $2),
-            message_id = coalesce($3, message_id), channel_id = coalesce($4, channel_id),
+            message_id = CASE WHEN $5 THEN NULL ELSE coalesce($3, message_id) END,
+            channel_id = coalesce($4, channel_id),
             posted_at = CASE WHEN $3::text IS NOT NULL THEN coalesce(posted_at, now()) ELSE posted_at END
       WHERE id = $1
-      RETURNING id`, [id, version, messageId ?? null, channelId ?? null])
+      RETURNING id`, [id, version, messageId ?? null, channelId ?? null, deleted])
   return rows.length > 0
 }
 

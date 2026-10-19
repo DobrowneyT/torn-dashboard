@@ -148,11 +148,12 @@ export function registerOcWatchInternalRoutes(app: FastifyInstance, db: pg.Pool,
   app.post('/api/internal/oc-watch/suggestions/:id/rendered', async (req, reply) => {
     if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
     const id = Number((req.params as { id: string }).id)
-    const b = (req.body ?? {}) as { version?: unknown; message_id?: unknown; channel_id?: unknown }
+    const b = (req.body ?? {}) as { version?: unknown; message_id?: unknown; channel_id?: unknown; deleted?: unknown }
     const version = Number(b.version)
     if (!Number.isInteger(id) || !Number.isInteger(version)) return reply.status(400).send({ error: 'id and version are required' })
     const ok = await markRendered(db, id, version,
-      b.message_id == null ? null : String(b.message_id), b.channel_id == null ? null : String(b.channel_id))
+      b.message_id == null ? null : String(b.message_id), b.channel_id == null ? null : String(b.channel_id),
+      b.deleted === true)
     return ok ? { ok: true } : reply.status(404).send({ error: 'No such suggestion' })
   })
 
