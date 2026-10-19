@@ -25,6 +25,7 @@ import { attacksSyncJob } from './jobs/attacksSync.js'
 import { dibsSummaryJob } from './jobs/dibsSummary.js'
 import { statMeasurementsJob } from './jobs/statMeasurements.js'
 import { eventBingoJob } from './jobs/eventBingo.js'
+import { ocSuggestionsJob } from './jobs/ocSuggestionsJob.js'
 import { memberThreadSweepJob } from './jobs/memberThreadSweep.js'
 import { revivesContinuousJob } from './jobs/revivesSync.js'
 import { factionsSyncJob } from './jobs/factionsSync.js'
@@ -88,6 +89,9 @@ const JOB_TABLE: Array<[name: string, schedule: string, job: (deps: JobDeps) => 
   // stacking a per-minute job on the same second would have it queue behind
   // the half-hourly sweeps once every 30 runs.
   ['crime-occupancy', '30 * * * * *', crimeOccupancyJob],
+  // #1022/#1023 — the OC action feed's producers, 15 s behind the occupancy
+  // poll whose snapshot they read. ⚠️ No Torn calls.
+  ['oc-suggestions', '45 * * * * *', ocSuggestionsJob],
   // #774 — Chain Watch sampling. Both append-only, both OFF by default in the
   // sense that they cost nothing useful outside an event; leadership edits the
   // cadence in Global Admin (#756) when a chain starts.

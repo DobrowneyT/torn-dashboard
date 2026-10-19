@@ -2884,3 +2884,9 @@ CREATE TABLE IF NOT EXISTS public.oc_suggestions (
 CREATE INDEX IF NOT EXISTS oc_suggestions_attention
   ON public.oc_suggestions (updated_at)
   WHERE rendered_version < version;
+
+-- #1022 / #1023 — the OC action feed's producers. ⚠️ Enabled from the start:
+-- they spend no Torn calls, reading only what other jobs already stored.
+INSERT INTO public.scraper_jobs (job_name, cron_schedule, enabled)
+VALUES ('oc-suggestions', NULL, true)
+ON CONFLICT (job_name) DO NOTHING;

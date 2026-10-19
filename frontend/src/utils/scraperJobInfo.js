@@ -134,6 +134,13 @@ export const SCRAPER_JOB_INFO = {
     'omitted. ' +
     'A war that failed can be re-run once a human has sorted out what was ' +
     'missing, and will not double-post anything already sent.',
+  'oc-suggestions':
+    'Suggestions for the OC action feed in Discord (#1022, #1023): members ' +
+    'who joined a crime below level 7 while a higher one has an open seat, ' +
+    'and members in no OC past a grace period, each with their best open ' +
+    'seat. Costs ZERO Torn API calls; it reads the crimes snapshot, CPR ' +
+    'readings and published minimums the dashboard already holds, and does ' +
+    'nothing when the crimes snapshot is stale.',
   'event-bingo':
     'Crosses the automatic squares on the event\'s bingo card (#965): ranked ' +
     'war attacks, big or exact hits, repeating chain numbers, mugs for $1, ' +
