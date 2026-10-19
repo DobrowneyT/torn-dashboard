@@ -18,6 +18,11 @@ surface it automatically.
 
 ---
 
+## [3.245.2] - 2026-10-19
+
+### Changed
+- **Closed OC suggestions are deleted from the thread, not struck through.** The bot now reports `deleted: true` when it removes a closed suggestion's message, and the dashboard forgets that message. Migration 0093 hands every already-closed suggestion that still has a message back to the bot once, so the backlog is cleared too.
+
 ## [3.245.1] - 2026-10-19
 
 ### Fixed

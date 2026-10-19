@@ -127,4 +127,16 @@ describe('the bot\'s routes', () => {
       expect(res.status).toBe(401)
     }
   })
+
+  it('a closed suggestion whose message the bot deleted forgets the message', async () => {
+    await reportSuggestions(stack.db, 'swap', [swap()])
+    const id = (await row()).id
+    await call('POST', `/api/internal/oc-watch/suggestions/${id}/rendered`, { version: 1, message_id: '777' })
+    await reportSuggestions(stack.db, 'swap', [])
+    const v = (await row()).version
+    await call('POST', `/api/internal/oc-watch/suggestions/${id}/rendered`, { version: v, deleted: true })
+    expect(await row()).toMatchObject({ status: 'expired', message_id: null })
+    expect((await feed()).findings).toEqual([])
+  })
 })
+
