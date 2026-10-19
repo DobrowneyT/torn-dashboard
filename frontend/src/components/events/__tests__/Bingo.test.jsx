@@ -131,3 +131,48 @@ describe('uploading the card image', () => {
     expect(await screen.findByText(/Image uploaded/)).toBeTruthy()
   })
 })
+
+describe('the second card (2026-10-19)', () => {
+  const WITH_IMAGE = {
+    ...CARD, image_url: '/api/events/4/bingo/image?v=1',
+    grid: { left: 2.5, top: 26, right: 97.5, bottom: 91, gap: 4 },
+    tiles: [
+      { idx: 0, label: 'Earn 15 respect', kind: 'auto', rule: 'respect_at_least', params: { min: 15 },
+        hint: 'One attack worth 15 or more respect.' },
+      { idx: 1, label: 'Loot from M\'aol', kind: 'auto', rule: 'loot_from', params: { ids: [23, 100] }, hint: null },
+      { idx: 2, label: 'Send a gift', kind: 'proof', rule: null, params: {}, hint: 'Send the gift log line.' },
+      { idx: 3, label: 'Make a retal', kind: 'auto', rule: 'retal', params: {}, hint: null },
+    ],
+    auto_rules: [
+      { key: 'respect_at_least', label: 'At least {min} respect', source: 'attacks', params: [{ key: 'min', label: 'Respect', kind: 'number' }] },
+      { key: 'loot_from', label: 'Loot from any of: {ids}', source: 'attack logs', params: [{ key: 'ids', label: 'NPC ids', kind: 'ids' }] },
+      { key: 'retal', label: 'Win a retaliation', source: 'attacks', params: [] },
+    ],
+  }
+
+  it('the corners move the grid, and the numbers and notes save', async () => {
+    api.get.mockResolvedValue(WITH_IMAGE)
+    api.put.mockResolvedValue(WITH_IMAGE)
+    render(<BingoSettings event={EVENT} />)
+    const tl = await screen.findByTestId('bingo-corner-tl')
+    fireEvent.keyDown(tl, { key: 'ArrowRight', shiftKey: true })
+    fireEvent.keyDown(screen.getByTestId('bingo-corner-br'), { key: 'ArrowUp' })
+    fireEvent.change(screen.getByLabelText('Square 1 Respect'), { target: { value: '20' } })
+    fireEvent.change(screen.getByLabelText('Square 2 NPC ids'), { target: { value: '23, 100, 101' } })
+    fireEvent.change(screen.getByLabelText('Square 3 note'), { target: { value: 'Gift log line please' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save bingo card' }))
+    await waitFor(() => expect(api.put).toHaveBeenCalled())
+    const body = api.put.mock.calls[0][1]
+    expect(body.grid).toMatchObject({ left: 3.5, top: 26, right: 97.5, bottom: 90.9, gap: 4 })
+    expect(body.tiles[0]).toMatchObject({ rule: 'respect_at_least', params: { min: '20' } })
+    expect(body.tiles[1].params).toEqual({ ids: '23, 100, 101' })
+    expect(body.tiles[2]).toMatchObject({ kind: 'proof', hint: 'Gift log line please', params: {} })
+  })
+
+  it('a member tapping a square reads its note', async () => {
+    api.get.mockResolvedValue({ ...WITH_IMAGE, marks: [] })
+    render(<Bingo event={EVENT} />)
+    fireEvent.click(await screen.findByLabelText('Send a gift'))
+    expect(screen.getByText('Send the gift log line.')).toBeTruthy()
+  })
+})

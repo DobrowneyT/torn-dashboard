@@ -11,20 +11,28 @@
 import type pg from 'pg'
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
-import { BONUS_CHAIN_HITS, REPEATING_CHAIN_HITS } from '../../events/bingo.js'
+import { BONUS_CHAIN_HITS, REPEATING_CHAIN_HITS, WIN_RESULTS } from '../../events/bingo.js'
 
 /**
  * Each rule: members who have done it in the window, with evidence.
  *
  * Parameters: $1 window start (epoch s), $2 window end (epoch s), $3 our
- * faction id, $4 event id, $5 the event's Chain Watch event id (or null).
+ * faction id, $4 event id, $5 the event's Chain Watch event id (or null),
+ * $6 bonus chain counts, $7 repeating chain counts, $8 the square's params
+ * (jsonb), $9 the results that count as wins.
  */
 /**
- * ⚠️ Every rule is sent all seven parameters, and Postgres refuses a parameter
- * a statement never uses ("could not determine data type"). This prefix
- * types and uses them all, so each rule names only what it needs.
+ * ⚠️ Every rule is sent all nine parameters, and Postgres refuses a parameter
+ * a statement never uses ("could not determine data type"). This prefix types
+ * and uses them all, so each rule names only what it needs.
  */
-const PARAMS_CTE = `WITH params AS (SELECT $1::bigint, $2::bigint, $3::bigint, $4::bigint, $5::bigint, $6::int[], $7::int[]) `
+const PARAMS_CTE = `WITH params AS (SELECT $1::bigint, $2::bigint, $3::bigint, $4::bigint, $5::bigint,
+  $6::int[], $7::int[], $8::jsonb, $9::text[]) `
+
+/** Our member's outgoing WINS inside the window. */
+const WINS = `
+  FROM faction_attacks
+ WHERE attacker_faction_id = $3 AND started BETWEEN $1 AND $2 AND result = ANY($9)`
 
 export const RULE_SQL: Record<string, string> = {
   ranked_war_attack: `
@@ -32,10 +40,11 @@ export const RULE_SQL: Record<string, string> = {
       FROM faction_attacks
      WHERE is_ranked_war AND attacker_faction_id = $3 AND started BETWEEN $1 AND $2
      GROUP BY 1`,
-  respect_over_10: `
+  respect_at_least: `
     SELECT attacker_id::text AS member_id, jsonb_build_object('attack_id', min(attack_id), 'respect', max(respect_gain)) AS evidence
       FROM faction_attacks
-     WHERE attacker_faction_id = $3 AND started BETWEEN $1 AND $2 AND respect_gain > 10
+     WHERE attacker_faction_id = $3 AND started BETWEEN $1 AND $2
+       AND respect_gain >= ($8->>'min')::numeric
        AND (chain IS NULL OR chain <> ALL($6::int[]))
      GROUP BY 1`,
   repeating_chain: `
@@ -44,21 +53,57 @@ export const RULE_SQL: Record<string, string> = {
      WHERE attacker_faction_id = $3 AND started BETWEEN $1 AND $2 AND respect_gain > 0
        AND chain = ANY($7::int[])
      GROUP BY 1`,
-  hit_over_10000: `
+  // MonChoon (2026-10-19): hit counts are WINS only.
+  wins_over: `
+    SELECT attacker_id::text AS member_id, jsonb_build_object('wins', count(*)) AS evidence
+    ${WINS}
+     GROUP BY 1
+    HAVING count(*) > ($8->>'count')::int`,
+  // The nth win minus the (n-COUNT+1)th: the span of COUNT consecutive wins.
+  wins_in_window: `
+    SELECT member_id, jsonb_build_object('seconds', min(span), 'attack_id', min(attack_id)) AS evidence
+      FROM (SELECT attacker_id::text AS member_id, attack_id,
+                   started - lag(started, greatest(($8->>'count')::int - 1, 0))
+                     OVER (PARTITION BY attacker_id ORDER BY started, attack_id) AS span
+            ${WINS}) x
+     WHERE span IS NOT NULL AND span <= ($8->>'seconds')::int
+     GROUP BY 1`,
+  retal: `
+    SELECT attacker_id::text AS member_id, jsonb_build_object('attack_id', min(attack_id)) AS evidence
+    ${WINS} AND retaliation_modifier > 1
+     GROUP BY 1`,
+  // ⚠️ Early Discharge is NOT in any attack data Torn returns. This rule is
+  // "abroad + hospitalized" only; the card's ED condition stays a proof square.
+  overseas_hosp: `
+    SELECT attacker_id::text AS member_id, jsonb_build_object('attack_id', min(attack_id)) AS evidence
+      FROM faction_attacks
+     WHERE attacker_faction_id = $3 AND started BETWEEN $1 AND $2
+       AND overseas_modifier > 1 AND result = 'Hospitalized'
+     GROUP BY 1`,
+  hit_over: `
     SELECT member_id::text AS member_id, jsonb_build_object('attack_id', min(attack_id), 'hit', max(biggest_hit)) AS evidence
       FROM event_attack_log_parsed p
      WHERE event_id = $4 AND outgoing AND member_id IS NOT NULL
-       AND EXISTS (SELECT 1 FROM unnest(p.hit_damages) d WHERE d > 10000)
+       AND EXISTS (SELECT 1 FROM unnest(p.hit_damages) d WHERE d > ($8->>'min')::int)
      GROUP BY 1`,
-  hit_1310_1340: `
+  hit_between: `
     SELECT p.member_id::text AS member_id, jsonb_build_object('attack_id', min(p.attack_id)) AS evidence
       FROM event_attack_log_parsed p
      WHERE p.event_id = $4 AND p.outgoing AND p.member_id IS NOT NULL
-       AND EXISTS (SELECT 1 FROM unnest(p.hit_damages) d WHERE d BETWEEN 1310 AND 1340)
+       AND EXISTS (SELECT 1 FROM unnest(p.hit_damages) d WHERE d BETWEEN ($8->>'min')::int AND ($8->>'max')::int)
      GROUP BY 1`,
-  // ⚠️ "Faction family" is wider than our faction, and the dashboard does not
-  // know the family. Our own faction is excluded here; a family mug still
-  // crosses, and leadership can un-cross it.
+  hit_exact: `
+    SELECT p.member_id::text AS member_id, jsonb_build_object('attack_id', min(p.attack_id)) AS evidence
+      FROM event_attack_log_parsed p
+     WHERE p.event_id = $4 AND p.outgoing AND p.member_id IS NOT NULL
+       AND ($8->>'value')::int = ANY(p.hit_damages)
+     GROUP BY 1`,
+  mug_over: `
+    SELECT member_id::text AS member_id, jsonb_build_object('attack_id', min(attack_id), 'mug', max(mug_amount)) AS evidence
+      FROM event_attack_log_parsed
+     WHERE event_id = $4 AND outgoing AND member_id IS NOT NULL AND mug_amount > ($8->>'min')::numeric
+     GROUP BY 1`,
+  // MonChoon (2026-10-19): only our own faction is excluded, not the wider family.
   mugged_for_1: `
     SELECT p.member_id::text AS member_id, jsonb_build_object('attack_id', min(p.attack_id)) AS evidence
       FROM event_attack_log_parsed p
@@ -66,12 +111,52 @@ export const RULE_SQL: Record<string, string> = {
      WHERE p.event_id = $4 AND NOT p.outgoing AND p.member_id IS NOT NULL AND p.mug_amount = 1
        AND a.attacker_faction_id IS DISTINCT FROM $3
      GROUP BY 1`,
-  bounties_over_50: `
+  bounties_at_least: `
     SELECT member_id::text AS member_id, jsonb_build_object('bounties', count(*)) AS evidence
       FROM event_attack_log_parsed
      WHERE event_id = $4 AND outgoing AND member_id IS NOT NULL AND bounty_amount IS NOT NULL
      GROUP BY 1
-    HAVING count(*) > 50`,
+    HAVING count(*) >= ($8->>'count')::int`,
+  // Someone hospitalizes a member and claims a bounty — seen in OUR member's
+  // log of that attack — and a member later beats them. MonChoon: both inside
+  // the event window.
+  avenge_bounty: `
+    SELECT o.attacker_id::text AS member_id,
+           jsonb_build_object('attack_id', min(o.attack_id), 'claimer', min(c.attacker_id)) AS evidence
+      FROM event_attack_log_parsed p
+      JOIN faction_attacks c ON c.attack_id = p.attack_id
+      JOIN faction_attacks o ON o.defender_id = c.attacker_id AND o.started > c.started
+     WHERE p.event_id = $4 AND NOT p.outgoing AND p.bounty_amount IS NOT NULL
+       AND c.attacker_faction_id IS DISTINCT FROM $3
+       AND o.attacker_faction_id = $3 AND o.started <= $2 AND o.result = ANY($9)
+     GROUP BY 1`,
+  // ⚠️ Revitalize procs at most once, at the end of a win (MonChoon,
+  // 2026-10-19), so the square is a STREAK: COUNT of the member's attacks in a
+  // row, each with a proc. Gaps-and-islands over the archived logs.
+  revitalize_streak: `
+    SELECT member_id::text AS member_id, jsonb_build_object('streak', max(n)) AS evidence
+      FROM (SELECT member_id, grp, count(*) AS n
+              FROM (SELECT member_id, proc,
+                           row_number() OVER (PARTITION BY member_id ORDER BY started, attack_id)
+                         - row_number() OVER (PARTITION BY member_id, proc ORDER BY started, attack_id) AS grp
+                      FROM (SELECT p.member_id, p.started, p.attack_id,
+                                   EXISTS (SELECT 1 FROM event_attack_log_effects e
+                                            WHERE e.attack_id = p.attack_id AND e.actor_id = p.member_id
+                                              AND e.effect ILIKE '%revital%') AS proc
+                              FROM event_attack_log_parsed p
+                             WHERE p.event_id = $4 AND p.outgoing AND p.member_id IS NOT NULL) s) t
+             WHERE proc
+             GROUP BY member_id, grp) runs
+     GROUP BY member_id
+    HAVING max(n) >= ($8->>'count')::int`,
+  loot_from: `
+    SELECT p.member_id::text AS member_id, jsonb_build_object('attack_id', min(p.attack_id), 'from', min(a.defender_id)) AS evidence
+      FROM event_attack_log_effects e
+      JOIN event_attack_log_parsed p ON p.attack_id = e.attack_id AND e.actor_id = p.member_id
+      JOIN faction_attacks a ON a.attack_id = e.attack_id
+     WHERE p.event_id = $4 AND p.outgoing AND e.effect = 'loot'
+       AND a.defender_id = ANY (SELECT jsonb_array_elements_text($8->'ids')::int)
+     GROUP BY 1`,
   // Taking part means an hour you signed up for has begun, and leadership has
   // not marked it unpaid.
   chain_watch: `
@@ -107,14 +192,14 @@ export async function eventBingoJob({ db }: JobDeps): Promise<RunResult> {
 
   for (const ev of events) {
     const { rows: tiles } = await db.query(
-      `SELECT idx, rule FROM event_bingo_tiles WHERE event_id = $1 AND kind = 'auto' AND rule IS NOT NULL`, [ev.id])
+      `SELECT idx, rule, params FROM event_bingo_tiles WHERE event_id = $1 AND kind = 'auto' AND rule IS NOT NULL`, [ev.id])
     for (const t of tiles) {
       const sql = RULE_SQL[t.rule]
       if (!sql) continue
       const { rows: done } = await db.query(PARAMS_CTE + sql, [
         Number(ev.from_s), Number(ev.to_s), ourFid, Number(ev.id),
         ev.chain_event_id == null ? null : Number(ev.chain_event_id),
-        BONUS_CHAIN_HITS, REPEATING_CHAIN_HITS,
+        BONUS_CHAIN_HITS, REPEATING_CHAIN_HITS, t.params ?? {}, WIN_RESULTS,
       ])
       for (const d of done) {
         const memberId = String(d.member_id)
