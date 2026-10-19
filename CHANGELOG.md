@@ -18,6 +18,14 @@ surface it automatically.
 
 ---
 
+## [3.243.0] - 2026-10-19
+
+### Added
+- **The first OC action-feed suggestions (#1022, #1023).** A new `oc-suggestions` job runs every minute, 15 s behind the occupancy poll. It makes no Torn calls, and does nothing when the crimes snapshot is stale, so a stalled poll can't expire every suggestion.
+  - **Joined too low (#1022):** someone took a seat in a crime below level 7 within the last 4 hours (`oc_too_low_window_hours`) while a higher crime has an open seat. Levels 7 and 8 count as one tier. The suggestion names the best open seat and the member's CPR there against its minimum (or says there's no reading), and resolves itself if they move up.
+  - **Not in an OC (#1023):** a current member in no crime for longer than 30 minutes (`oc_idle_grace_minutes`), with their best open seat. Federal is skipped. It resolves itself when they join.
+  - **Best seat:** a level 7/8 seat they clear, then any seat they clear, then the highest level, then their CPR. A CPR is never invented.
+
 ## [3.242.0] - 2026-10-19
 
 ### Added
