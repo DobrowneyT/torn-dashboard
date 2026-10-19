@@ -2827,3 +2827,16 @@ UPDATE public.event_bingo_tiles SET rule = 'respect_at_least', params = '{"min":
 UPDATE public.event_bingo_tiles SET rule = 'hit_over', params = '{"min": 10000}' WHERE rule = 'hit_over_10000';
 UPDATE public.event_bingo_tiles SET rule = 'hit_between', params = '{"min": 1310, "max": 1340}' WHERE rule = 'hit_1310_1340';
 UPDATE public.event_bingo_tiles SET rule = 'bounties_at_least', params = '{"count": 51}' WHERE rule = 'bounties_over_50';
+
+-- #1019 — the latest full Torn response from the jobs that already poll it.
+--
+-- `crime-occupancy` fetches every joinable crime once a minute and
+-- `activity-sample` the whole roster every few minutes, then keep only the
+-- slice they need. The OC watch board needs the rest — names, items, CPR,
+-- status `until` — and fetching it again would double the calls for data the
+-- dashboard already holds. One row per kind, overwritten each poll.
+CREATE TABLE IF NOT EXISTS public.torn_live_snapshots (
+  kind       text PRIMARY KEY,
+  payload    jsonb NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now()
+);

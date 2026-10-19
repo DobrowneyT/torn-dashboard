@@ -14,6 +14,7 @@
 // honestly a lower bound rather than a derived fact.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
+import { storeSnapshot, SNAPSHOT_CRIMES } from '../../tornSnapshots.js'
 
 /**
  * One page of the JOINABLE crimes is enough.
@@ -181,6 +182,9 @@ export async function crimeOccupancyJob({ db, pool, client }: JobDeps): Promise<
   try {
     await dbc.query('BEGIN')
     stats = await applyPoll(dbc, crimes, nowSec)
+    // #1019: keep the whole response for the OC watch board — names, CPR,
+    // items, ready times — so it costs no second call.
+    await storeSnapshot(dbc, SNAPSHOT_CRIMES, crimes)
     await dbc.query('COMMIT')
   } catch (err) {
     await dbc.query('ROLLBACK')

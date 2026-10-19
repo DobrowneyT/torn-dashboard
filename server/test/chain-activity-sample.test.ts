@@ -50,6 +50,13 @@ beforeAll(async () => {
 afterAll(async () => { await stack?.close() })
 
 describe('activity-sample', () => {
+  it('keeps the whole roster for the OC board (#1019)', async () => {
+    roster('Hospital', 'In hospital')
+    await activitySampleJob(deps())
+    const snap = await stack.db.query(`SELECT payload FROM torn_live_snapshots WHERE kind = 'faction_members'`)
+    expect(snap.rows[0].payload[0]).toMatchObject({ id: 5001, status: { state: 'Hospital' } })
+  })
+
   it('keeps sampling after it has latched a departure', async () => {
     // Run 1 — at home. Nothing to carry.
     roster('Okay', 'Okay')
