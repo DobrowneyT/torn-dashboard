@@ -21,6 +21,9 @@ import type { FastifyInstance } from 'fastify'
 import type pg from 'pg'
 import { bearerFrom, tokenMatches } from './fleetMetricsAuth.js'
 import { readSnapshot, SNAPSHOT_CRIMES, SNAPSHOT_MEMBERS } from './tornSnapshots.js'
+import {
+  suggestionsNeedingBot, pingList, suggestionStats, markRendered, act, reportSuggestions,
+} from './ocSuggestions.js'
 
 /** Only these can still be joined, left, or held up by a missing member. */
 const ACTIVE = new Set(['Recruiting', 'Planning'])
@@ -116,8 +119,10 @@ export async function collectOcWatch(db: pg.Pool, nowMs: number = Date.now()) {
     members_fetched_at: membersSnap?.fetchedAt ?? null,
     crimes: enriched,
     members: roster,
-    // #1020+: the dashboard's own suggestions (swaps, joined too low, idle).
-    findings: [] as unknown[],
+    // #1020: the action feed — every suggestion the bot has to post or redraw.
+    findings: await suggestionsNeedingBot(db),
+    // Who the feed mentions. MonChoon only, to start (PRD #1018).
+    ping_member_ids: await pingList(db),
   }
 }
 
@@ -129,5 +134,63 @@ export function registerOcWatchInternalRoutes(app: FastifyInstance, db: pg.Pool,
       return reply.status(401).send({ error: 'Authentication required' })
     }
     return collectOcWatch(db)
+  })
+
+  // ── The action feed (#1020) ───────────────────────────────────────────────
+  const authed = (h: string | undefined) => {
+    const presented = bearerFrom(h)
+    return presented !== null && tokenMatches(presented, expectedToken)
+  }
+
+  /** The bot drew `version` of a suggestion, into `message_id`. */
+  app.post('/api/internal/oc-watch/suggestions/:id/rendered', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    const id = Number((req.params as { id: string }).id)
+    const b = (req.body ?? {}) as { version?: unknown; message_id?: unknown; channel_id?: unknown }
+    const version = Number(b.version)
+    if (!Number.isInteger(id) || !Number.isInteger(version)) return reply.status(400).send({ error: 'id and version are required' })
+    const ok = await markRendered(db, id, version,
+      b.message_id == null ? null : String(b.message_id), b.channel_id == null ? null : String(b.channel_id))
+    return ok ? { ok: true } : reply.status(404).send({ error: 'No such suggestion' })
+  })
+
+  /**
+   * Done / Not now. ⚠️ The bot has already checked the presser may manage this
+   * faction; `by` is who, for the record.
+   */
+  app.post('/api/internal/oc-watch/suggestions/:id/act', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    const id = Number((req.params as { id: string }).id)
+    const b = (req.body ?? {}) as { action?: unknown; by?: unknown; minutes?: unknown }
+    if (b.action !== 'done' && b.action !== 'snooze') return reply.status(400).send({ error: 'action must be done or snooze' })
+    const minutes = b.minutes == null ? undefined : Math.min(24 * 60, Math.max(5, Number(b.minutes) || 60))
+    const r = await act(db, id, b.action, String(b.by ?? 'unknown').slice(0, 100), minutes)
+    return r.ok ? r : reply.status(409).send(r)
+  })
+
+  /** `/oc stats`: counts per kind and status. */
+  app.get('/api/internal/oc-watch/suggestions/stats', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    return { stats: await suggestionStats(db) }
+  })
+
+  /**
+   * `/oc test`: one harmless suggestion, so the feed can be seen and pressed
+   * before any real producer exists. Expires in two hours.
+   */
+  app.post('/api/internal/oc-watch/suggestions/test', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    const by = String(((req.body ?? {}) as { by?: unknown }).by ?? 'someone').slice(0, 100)
+    const now = Date.now()
+    // ⚠️ Reported on its own kind with the full live set — only this one — so
+    // earlier tests expire rather than pile up.
+    await reportSuggestions(db, 'test', [{
+      key: `test:${now}`, kind: 'test', title: 'Test suggestion',
+      body: `Sent by ${by} to try the action feed. Press **Done** or **Not now** — nothing in Torn changes.`,
+      steps: ['Look at this message', 'Press a button'],
+      value: { success_pp: 0 },
+      expiresAt: now + 2 * 3600_000,
+    }])
+    return { ok: true }
   })
 }
