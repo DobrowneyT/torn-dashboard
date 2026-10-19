@@ -152,6 +152,10 @@ const NEW_TABLES = [
   'event_wanted_dismissed',
   // #996: target battle-stat scores measured from our own hits (0086).
   'target_stat_measurements',
+  // #965: event bingo — the card, its squares, and every cross (0088).
+  'event_bingo_cards',
+  'event_bingo_tiles',
+  'event_bingo_marks',
 ]
 
 let server

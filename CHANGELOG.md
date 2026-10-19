@@ -18,6 +18,41 @@ surface it automatically.
 
 ---
 
+## [3.240.0] - 2026-10-19
+
+### Added
+- **Bingo, second card (#965).** The TNL Forge Halloweek card: 5 × 5, no free space. 15 squares are automatic and 10 need proof, and every square has a note on what counts and what proof to send, shown when a member taps it.
+- **Square thresholds are settings.** "15 respect", "13,000 damage", "420 wins" and the rest are numbers on each square, editable in Settings, instead of separate rules. New rules:
+  - at least N respect from one attack (bonus hits excluded)
+  - more than N wins in the event
+  - N wins within S seconds
+  - a retal (a win with the retaliation bonus)
+  - abroad + hospitalized
+  - a single hit over N, or of exactly N, damage
+  - a mug over $N
+  - at least N bounties claimed
+  - beating someone who claimed a bounty on a faction mate (both during the event)
+  - Revitalize on N attacks in a row
+  - loot from listed NPCs (M'aol and his minions: 23, 100–104)
+- **Hit counts are wins only** (Attacked, Hospitalized, Mugged, Arrested, Looted, Special). Repeating chain numbers now run past 999 to 1111 … 99999.
+- **Lining the grid up:** drag the top-left and bottom-right corner handles onto the art (works by touch and with the arrow keys). The squares split evenly between them. A new *gap between squares* setting keeps each cross and tap target inside its square.
+
+## [3.239.1] - 2026-10-19
+
+### Fixed
+- **Image uploads over 1 MB were rejected by the in-container nginx (413)** before reaching the app. Its body limit was nginx's 1 MB default, below the app's own limits (bingo card 5 MB, screenshots 3 MB). It's now 10 MB at the http level, covering every tenant's vhost and staging. This also affected feedback screenshots.
+- **Uploads show their status beside the button:** a spinner with the size while preparing and uploading, then ✓ or the reason in words (a 413 now reads "too large for the server", not "API error 413"). Before, the error was printed at the foot of the Bingo settings, off-screen on a phone, so a failed upload looked like nothing happening.
+- **Large phone images are resized before upload** (longest edge 2,400 px, re-encoded as WebP or JPEG) when over 1.5 MB. Smaller images are sent untouched.
+
+## [3.239.0] - 2026-10-18
+
+### Added
+- **Event bingo (#965).** A Bingo tab on the event page. Everyone gets the same card and crosses squares off their own copy.
+  - **The card:** leadership uploads the card art (PNG, JPEG, WebP or GIF) and sets rows, columns and where the grid sits on the image (each edge as a percentage), with a live preview. Each square's text and type are stored as data: *proof*, *automatic* or *free*. A "Use the Halloween squares" button fills in the shared Halloween card. With no image, the squares show their own text.
+  - **Automatic squares** are crossed every 5 minutes by a new `event-bingo` job, which makes no Torn calls. Rules: ranked war attack; over 10 respect from one attack (bonus hits excluded); repeating-number chain hit; over 10,000 damage in one hit; 1,310–1,340 damage in one hit; mugged for $1 (not by our own faction); more than 50 bounties; taking part in the event's chain watch; travelling abroad. A waiting proof request that the data confirms is approved.
+  - **Proof squares:** a member sends a log snippet or a screenshot (pasting one works). Leadership and admin approve or deny it with a note, and a denied request can be sent again. Leadership can also cross or un-cross a square for anyone and open any member's card from the standings.
+  - **Standings:** squares and completed lines for every member.
+
 ## [3.238.0] - 2026-10-18
 
 ### Added
