@@ -4,6 +4,7 @@ import { startTestStack, TEST_FACTION, TEST_KEY_ENCRYPTION_KEY, type TestStack }
 import { createKeyPool } from '../src/scraper/keyPool.js'
 import { createTornClient } from '../src/scraper/tornClient.js'
 import { eventBingoJob } from '../src/scraper/jobs/eventBingo.js'
+import { HALLOWEEN_TEMPLATE, AUTO_RULES } from '../src/events/bingo.js'
 
 let stack: TestStack
 let member: string
@@ -50,7 +51,7 @@ const card = (over: Record<string, unknown> = {}) => ({
   grid: { left: 5, top: 10, right: 95, bottom: 90 },
   tiles: [
     { idx: 0, label: 'Send a gift', kind: 'proof' },
-    { idx: 1, label: 'Over 10 respect', kind: 'auto', rule: 'respect_over_10' },
+    { idx: 1, label: 'Over 10 respect', kind: 'auto', rule: 'respect_at_least', params: { min: 10.01 }, hint: 'One big hit' },
     { idx: 2, label: 'Free', kind: 'free' },
     { idx: 3, label: 'Chain watch', kind: 'auto', rule: 'chain_watch' },
   ],
@@ -107,6 +108,7 @@ describe('setting the card up', () => {
   it('offers the Halloween template', async () => {
     const t = await api('GET', `/api/events/${eventId}/bingo/template`, lead)
     expect(t.body.tiles).toHaveLength(t.body.rows * t.body.cols)
+    expect(t.body.grid.gap).toBeGreaterThan(0)
   })
 })
 
@@ -179,11 +181,74 @@ describe('automatic squares', () => {
   })
 
   it('every rule runs against the real schema', async () => {
-    const all = ['ranked_war_attack', 'respect_over_10', 'repeating_chain', 'hit_over_10000', 'hit_1310_1340',
-      'mugged_for_1', 'bounties_over_50', 'chain_watch', 'travel']
-    await api('PUT', `/api/events/${eventId}/bingo`, lead, card({
-      rows: 3, cols: 3, tiles: all.map((rule, idx) => ({ idx, label: rule, kind: 'auto', rule })) }))
+    const tiles = HALLOWEEN_TEMPLATE.tiles.map((t, idx) => ({ ...t, idx }))
+    const all = new Set(tiles.filter((t) => t.kind === 'auto').map((t) => t.rule))
+    // Plus the rules this card does not use.
+    let idx = tiles.length
+    for (const r of AUTO_RULES) {
+      if (!all.has(r.key)) tiles.push({ idx: idx++, label: r.key, kind: 'auto', rule: r.key,
+        params: Object.fromEntries(r.params.map((p) => [p.key, p.kind === 'ids' ? [1] : 1])) } as any)
+    }
+    const saved = await api('PUT', `/api/events/${eventId}/bingo`, lead, card({ rows: 6, cols: 6, tiles }))
+    expect(saved.status).toBe(200)
+    expect(saved.body.tiles.find((t: any) => t.rule === 'loot_from').params).toEqual({ ids: [23, 100, 101, 102, 103, 104] })
     const res = await eventBingoJob(deps())
     expect(res.details).toMatchObject({ events: 1 })
+  })
+
+  it('the second card\'s rules cross from real-shaped data', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const tiles = [
+      { idx: 0, label: 'wins', kind: 'auto', rule: 'wins_over', params: { count: 2 } },
+      { idx: 1, label: 'fast', kind: 'auto', rule: 'wins_in_window', params: { count: 3, seconds: 60 } },
+      { idx: 2, label: 'revit', kind: 'auto', rule: 'revitalize_streak', params: { count: 2 } },
+      { idx: 3, label: 'avenge', kind: 'auto', rule: 'avenge_bounty' },
+      { idx: 4, label: 'maol', kind: 'auto', rule: 'loot_from', params: { ids: [23, 100] } },
+      { idx: 5, label: '1337', kind: 'auto', rule: 'hit_exact', params: { value: 1337 } },
+    ]
+    await api('PUT', `/api/events/${eventId}/bingo`, lead, card({ rows: 2, cols: 3, tiles }))
+    const attack = (id: number, o: Record<string, unknown>) => stack.db.query(
+      `INSERT INTO faction_attacks (attack_id, started, attacker_id, attacker_faction_id, defender_id, defender_faction_id, result, respect_gain)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 1)`,
+      [id, o.at ?? now - 600, o.by ?? 7200, o.byFaction ?? US, o.target ?? 9, o.targetFaction ?? 1, o.result ?? 'Hospitalized'])
+    const log = async (id: number, o: { member: number; outgoing?: boolean; hits?: number[]; bounty?: number; at?: number }) => {
+      await stack.db.query(`INSERT INTO event_attack_logs (attack_id, event_id, code, status) VALUES ($1, $2, 'c', 'archived')`, [id, eventId])
+      await stack.db.query(
+        `INSERT INTO event_attack_log_parsed (attack_id, event_id, parser_version, member_id, outgoing, hit_damages, bounty_amount, started)
+         VALUES ($1, $2, 4, $3, $4, $5, $6, $7)`,
+        [id, eventId, o.member, o.outgoing ?? true, o.hits ?? [], o.bounty ?? null, o.at ?? now - 600])
+    }
+    const effect = (id: number, actor: number, eff: string) => stack.db.query(
+      `INSERT INTO event_attack_log_effects (attack_id, seq, event_id, actor_id, effect, text, started)
+       VALUES ($1, (SELECT coalesce(max(seq), 0) + 1 FROM event_attack_log_effects WHERE attack_id = $1), $2, $3, $4, $4, $5)`,
+      [id, eventId, actor, eff, now - 600])
+
+    // 7200: three wins 20 s apart (wins_over 2, wins_in_window 3/60) and a loss that does not count.
+    await attack(101, { at: now - 900 }); await attack(102, { at: now - 880 }); await attack(103, { at: now - 860 })
+    await attack(104, { at: now - 850, result: 'Lost' })
+    // 7202: two wins only, but 300 s apart; one loss.
+    await attack(201, { by: 7202, at: now - 900 }); await attack(202, { by: 7202, at: now - 600 })
+    await attack(203, { by: 7202, at: now - 500, result: 'Lost' })
+
+    // Revitalize: 7200 procs on two archived attacks in a row; 7202 procs, then a miss, then a proc.
+    for (const [id, at] of [[101, now - 900], [102, now - 880], [103, now - 860]] as const) await log(id, { member: 7200, at })
+    await effect(101, 7200, 'revitalize'); await effect(102, 7200, 'revitalize')
+    for (const [id, at] of [[201, now - 900], [202, now - 600], [203, now - 500]] as const) await log(id, { member: 7202, at })
+    await effect(201, 7202, 'revitalize'); await effect(203, 7202, 'revitalize')
+
+    // A bounty claimed on 7202 by 5555, then 7200 beats 5555.
+    await attack(301, { by: 5555, byFaction: 42, target: 7202, targetFaction: US, at: now - 700 })
+    await log(301, { member: 7202, outgoing: false, bounty: 1000000, at: now - 700 })
+    await attack(302, { target: 5555, at: now - 300 })
+
+    // Loot from M'aol (23); a 1337 hit.
+    await attack(401, { target: 23, result: 'Looted', at: now - 200 })
+    await log(401, { member: 7200, hits: [800, 1337], at: now - 200 }); await effect(401, 7200, 'loot')
+
+    await eventBingoJob(deps())
+    const crossed = (await stack.db.query(
+      `SELECT member_id, idx FROM event_bingo_marks WHERE event_id = $1 AND status = 'approved' ORDER BY member_id, idx`, [eventId])).rows
+      .map((r: any) => `${r.member_id}:${r.idx}`)
+    expect(crossed).toEqual(['7200:0', '7200:1', '7200:2', '7200:3', '7200:4', '7200:5'])
   })
 })

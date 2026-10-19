@@ -39,9 +39,14 @@ function Status({ status }) {
   )
 }
 
+/** "At least {min} respect…" → "At least … respect…" for the rule picker. */
+function ruleText(r) {
+  return r.label.replace(/\{(\w+)\}/g, '…')
+}
+
 function resize(tiles, rows, cols) {
   const byIdx = new Map(tiles.map((t) => [t.idx, t]))
-  return Array.from({ length: rows * cols }, (_, idx) => byIdx.get(idx) ?? { idx, label: '', kind: 'proof', rule: null })
+  return Array.from({ length: rows * cols }, (_, idx) => byIdx.get(idx) ?? { idx, label: '', kind: 'proof', rule: null, params: {}, hint: '' })
 }
 
 export default function BingoSettings({ event }) {
@@ -60,7 +65,7 @@ export default function BingoSettings({ event }) {
         const rows = Number(d?.rows) || 5
         const cols = Number(d?.cols) || 5
         setCard({ enabled: !!d?.enabled, rows, cols,
-          grid: d?.grid ?? { left: 0, top: 0, right: 100, bottom: 100 }, image_url: d?.image_url ?? null,
+          grid: { left: 0, top: 0, right: 100, bottom: 100, gap: 0, ...(d?.grid ?? {}) }, image_url: d?.image_url ?? null,
           tiles: resize(d?.tiles ?? [], rows, cols) })
       })
       .catch((err) => setError(err.message || 'Could not load the bingo card.'))
@@ -91,7 +96,10 @@ export default function BingoSettings({ event }) {
   const save = () => act(setSaveStatus, 'Saving…', async () => {
     const saved = await apiPut(`/api/events/${event.id}/bingo`, {
       enabled: card.enabled, rows: card.rows, cols: card.cols, grid: card.grid,
-      tiles: card.tiles.map((t) => ({ idx: t.idx, label: t.label, kind: t.kind, rule: t.kind === 'auto' ? t.rule : null })),
+      tiles: card.tiles.map((t) => ({
+        idx: t.idx, label: t.label, kind: t.kind, rule: t.kind === 'auto' ? t.rule : null,
+        params: t.kind === 'auto' ? (t.params ?? {}) : {}, hint: t.hint ?? '',
+      })),
     })
     setCard((c) => ({ ...c, image_url: saved.image_url }))
     return 'Bingo card saved.'
@@ -159,7 +167,7 @@ export default function BingoSettings({ event }) {
               className="px-3 py-1.5 rounded-lg border border-red-400 text-red-600 dark:text-red-400 text-sm">Remove image</button>
           )}
           <button type="button" disabled={busy} onClick={template}
-            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm">Use the Halloween squares</button>
+            className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm">Use the Halloweek card squares</button>
         </div>
         <Status status={imageStatus} />
       </div>
@@ -176,34 +184,65 @@ export default function BingoSettings({ event }) {
             <input type="number" min="0" max="100" step="0.1" className={FIELD} value={card.grid[k]} onChange={setGrid(k)} /></label>
         ))}
       </div>
+      <label className="block max-w-xs">
+        <span className={LABEL}>Gap between squares (% of a square)</span>
+        <input type="number" min="0" max="30" step="0.5" className={FIELD} value={card.grid.gap ?? 0} onChange={setGrid('gap')} />
+      </label>
 
       <div>
-        <span className={LABEL}>Preview — the dashed boxes are the squares members tap</span>
-        <BingoCard card={card} color={event.theme_color} showGrid />
+        <span className={LABEL}>Preview</span>
+        <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+          {card.image_url
+            ? 'Drag the two round handles onto the outer corners of the squares — top-left and bottom-right. The squares split evenly between them; raise the gap until each dashed box sits inside its square.'
+            : 'Upload the card art to line the squares up over it.'}
+        </p>
+        <BingoCard card={card} color={event.theme_color} showGrid onGridChange={(grid) => update({ grid })} />
       </div>
 
       <div className="space-y-2">
         <span className={LABEL}>Squares (left to right, top to bottom)</span>
         <ol className="space-y-2">
-          {card.tiles.map((t) => (
-            <li key={t.idx} className="grid gap-2 sm:grid-cols-[2.5rem_1fr_8rem_14rem] items-center">
-              <span className="text-xs font-mono text-gray-500">{t.idx + 1}</span>
-              <input className={FIELD} value={t.label} maxLength={200} placeholder="What to do"
-                aria-label={`Square ${t.idx + 1} text`} onChange={(e) => setTile(t.idx, { label: e.target.value })} />
-              <select className={FIELD} value={t.kind} aria-label={`Square ${t.idx + 1} type`}
-                onChange={(e) => setTile(t.idx, { kind: e.target.value, rule: e.target.value === 'auto' ? (t.rule ?? rules[0]?.key ?? null) : null })}>
-                <option value="proof">Proof</option>
-                <option value="auto">Automatic</option>
-                <option value="free">Free</option>
-              </select>
-              {t.kind === 'auto' ? (
-                <select className={FIELD} value={t.rule ?? ''} aria-label={`Square ${t.idx + 1} rule`}
-                  onChange={(e) => setTile(t.idx, { rule: e.target.value })}>
-                  {rules.map((r) => <option key={r.key} value={r.key}>{r.label} ({r.source})</option>)}
-                </select>
-              ) : <span className="hidden sm:block" />}
-            </li>
-          ))}
+          {card.tiles.map((t) => {
+            const rule = rules.find((r) => r.key === t.rule)
+            return (
+              <li key={t.idx} className="rounded-lg border border-gray-200 dark:border-slate-700 p-2 space-y-2">
+                <div className="grid gap-2 sm:grid-cols-[2.5rem_1fr_8rem] items-center">
+                  <span className="text-xs font-mono text-gray-500">{t.idx + 1}</span>
+                  <input className={FIELD} value={t.label} maxLength={200} placeholder="What to do"
+                    aria-label={`Square ${t.idx + 1} text`} onChange={(e) => setTile(t.idx, { label: e.target.value })} />
+                  <select className={FIELD} value={t.kind} aria-label={`Square ${t.idx + 1} type`}
+                    onChange={(e) => setTile(t.idx, { kind: e.target.value, rule: e.target.value === 'auto' ? (t.rule ?? rules[0]?.key ?? null) : null })}>
+                    <option value="proof">Proof</option>
+                    <option value="auto">Automatic</option>
+                    <option value="free">Free</option>
+                  </select>
+                </div>
+                {t.kind === 'auto' && (
+                  <div className="flex flex-wrap items-end gap-2 sm:pl-12">
+                    <select className={`${FIELD} sm:max-w-md`} value={t.rule ?? ''} aria-label={`Square ${t.idx + 1} rule`}
+                      onChange={(e) => setTile(t.idx, { rule: e.target.value, params: {} })}>
+                      {rules.map((r) => <option key={r.key} value={r.key}>{ruleText(r)} ({r.source})</option>)}
+                    </select>
+                    {(rule?.params ?? []).map((p) => (
+                      <label key={p.key} className={p.kind === 'ids' ? 'min-w-[12rem] flex-1' : 'w-32'}>
+                        <span className="block text-xs text-gray-500 dark:text-gray-400">{p.label}</span>
+                        <input className={FIELD} aria-label={`Square ${t.idx + 1} ${p.label}`}
+                          inputMode={p.kind === 'ids' ? 'text' : 'decimal'}
+                          value={Array.isArray(t.params?.[p.key]) ? t.params[p.key].join(', ') : (t.params?.[p.key] ?? '')}
+                          onChange={(e) => setTile(t.idx, { params: { ...(t.params ?? {}), [p.key]: e.target.value } })} />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {t.kind !== 'free' && (
+                  <textarea className={`${FIELD} sm:ml-12 sm:w-[calc(100%-3rem)]`} rows={2} maxLength={500}
+                    aria-label={`Square ${t.idx + 1} note`}
+                    placeholder={t.kind === 'auto' ? 'What counts (shown when a member taps the square)' : 'What counts, and what proof to send'}
+                    value={t.hint ?? ''} onChange={(e) => setTile(t.idx, { hint: e.target.value })} />
+                )}
+              </li>
+            )
+          })}
         </ol>
       </div>
 

@@ -179,7 +179,8 @@ function SquarePanel({ event, tile, mark, history, memberId, isMe, isLeadership,
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Square {tile.idx + 1}</p>
           <h4 className="font-semibold text-gray-900 dark:text-white">{tile.label || `Square ${tile.idx + 1}`}</h4>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{KIND_TEXT[tile.kind]}</p>
+          {tile.hint && <p className="text-sm text-gray-700 dark:text-gray-200">{tile.hint}</p>}
+          <p className="text-xs text-gray-500 dark:text-gray-400">{KIND_TEXT[tile.kind]}</p>
         </div>
         <button type="button" onClick={onClose} className="text-sm text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">Close</button>
       </div>

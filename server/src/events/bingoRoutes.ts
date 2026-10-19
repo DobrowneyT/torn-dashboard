@@ -10,7 +10,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type pg from 'pg'
 import { requireAuth, requireRole } from '../authz.js'
 import {
-  AUTO_RULES, HALLOWEEN_TEMPLATE, HALLOWEEN_GRID, checkCard, completedLines, type Tile,
+  AUTO_RULES, HALLOWEEN_TEMPLATE, HALLOWEEN_GRID, checkCard, cleanParams, completedLines, type Tile,
 } from './bingo.js'
 
 const LEAD = { preHandler: [requireRole('leadership', 'admin')] }
@@ -37,27 +37,29 @@ function decodeBase64(input: string): Buffer {
 async function card(db: pg.Pool, eventId: number) {
   const { rows } = await db.query(
     `SELECT enabled, rows, cols, grid_left::float8 AS l, grid_top::float8 AS t,
-            grid_right::float8 AS r, grid_bottom::float8 AS b,
+            grid_right::float8 AS r, grid_bottom::float8 AS b, grid_gap::float8 AS g,
             image IS NOT NULL AS has_image,
             (extract(epoch FROM image_updated_at) * 1000)::bigint AS image_ms
        FROM event_bingo_cards WHERE event_id = $1`, [eventId])
   const c = rows[0]
   const tiles = (await db.query(
-    'SELECT idx, label, kind, rule FROM event_bingo_tiles WHERE event_id = $1 ORDER BY idx', [eventId],
-  )).rows.map((t): Tile => ({ idx: Number(t.idx), label: t.label, kind: t.kind, rule: t.rule }))
+    'SELECT idx, label, kind, rule, params, hint FROM event_bingo_tiles WHERE event_id = $1 ORDER BY idx', [eventId],
+  )).rows.map((t): Tile => ({
+    idx: Number(t.idx), label: t.label, kind: t.kind, rule: t.rule, params: t.params ?? {}, hint: t.hint ?? null,
+  }))
   return c
     ? {
         configured: true,
         enabled: !!c.enabled,
         rows: Number(c.rows),
         cols: Number(c.cols),
-        grid: { left: c.l, top: c.t, right: c.r, bottom: c.b },
+        grid: { left: c.l, top: c.t, right: c.r, bottom: c.b, gap: c.g ?? 0 },
         image_url: c.has_image ? `/api/events/${eventId}/bingo/image?v=${c.image_ms ?? 0}` : null,
         tiles,
       }
     : {
         configured: false, enabled: false, rows: 5, cols: 5,
-        grid: { left: 0, top: 0, right: 100, bottom: 100 }, image_url: null, tiles,
+        grid: { left: 0, top: 0, right: 100, bottom: 100, gap: 0 }, image_url: null, tiles,
       }
 }
 
@@ -178,12 +180,15 @@ export function registerBingoRoutes(app: FastifyInstance, db: pg.Pool) {
     const grid = {
       left: Number(b.grid?.left), top: Number(b.grid?.top),
       right: Number(b.grid?.right), bottom: Number(b.grid?.bottom),
+      gap: b.grid?.gap == null ? 0 : Number(b.grid.gap),
     }
     const tiles: Tile[] = (Array.isArray(b.tiles) ? b.tiles : []).map((t: any) => ({
       idx: Number(t?.idx),
       label: String(t?.label ?? '').trim(),
       kind: t?.kind,
       rule: t?.kind === 'auto' ? String(t?.rule ?? '') : null,
+      params: t?.params ?? {},
+      hint: t?.hint == null ? null : String(t.hint).trim() || null,
     }))
     const bad = checkCard({ rows, cols, grid, tiles })
     if (bad) return reply.status(400).send({ error: bad })
@@ -192,17 +197,17 @@ export function registerBingoRoutes(app: FastifyInstance, db: pg.Pool) {
     try {
       await client.query('BEGIN')
       await client.query(
-        `INSERT INTO event_bingo_cards (event_id, enabled, rows, cols, grid_left, grid_top, grid_right, grid_bottom, updated_by, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+        `INSERT INTO event_bingo_cards (event_id, enabled, rows, cols, grid_left, grid_top, grid_right, grid_bottom, grid_gap, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
          ON CONFLICT (event_id) DO UPDATE SET enabled = EXCLUDED.enabled, rows = EXCLUDED.rows, cols = EXCLUDED.cols,
            grid_left = EXCLUDED.grid_left, grid_top = EXCLUDED.grid_top, grid_right = EXCLUDED.grid_right,
-           grid_bottom = EXCLUDED.grid_bottom, updated_by = EXCLUDED.updated_by, updated_at = now()`,
-        [id, b.enabled === true, rows, cols, grid.left, grid.top, grid.right, grid.bottom, Number(me(req)) || null])
+           grid_bottom = EXCLUDED.grid_bottom, grid_gap = EXCLUDED.grid_gap, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+        [id, b.enabled === true, rows, cols, grid.left, grid.top, grid.right, grid.bottom, grid.gap, Number(me(req)) || null])
       await client.query('DELETE FROM event_bingo_tiles WHERE event_id = $1', [id])
       for (const t of tiles) {
         await client.query(
-          'INSERT INTO event_bingo_tiles (event_id, idx, label, kind, rule) VALUES ($1, $2, $3, $4, $5)',
-          [id, t.idx, t.label, t.kind, t.rule])
+          'INSERT INTO event_bingo_tiles (event_id, idx, label, kind, rule, params, hint) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [id, t.idx, t.label, t.kind, t.rule, t.kind === 'auto' ? cleanParams(t.rule, t.params) : {}, t.hint ?? null])
       }
       await client.query('COMMIT')
     } catch (err) {

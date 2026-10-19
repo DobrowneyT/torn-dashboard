@@ -18,6 +18,25 @@ surface it automatically.
 
 ---
 
+## [3.240.0] - 2026-10-19
+
+### Added
+- **Bingo, second card (#965).** The TNL Forge Halloweek card: 5 × 5, no free space. 15 squares are automatic and 10 need proof, and every square has a note on what counts and what proof to send, shown when a member taps it.
+- **Square thresholds are settings.** "15 respect", "13,000 damage", "420 wins" and the rest are numbers on each square, editable in Settings, instead of separate rules. New rules:
+  - at least N respect from one attack (bonus hits excluded)
+  - more than N wins in the event
+  - N wins within S seconds
+  - a retal (a win with the retaliation bonus)
+  - abroad + hospitalized
+  - a single hit over N, or of exactly N, damage
+  - a mug over $N
+  - at least N bounties claimed
+  - beating someone who claimed a bounty on a faction mate (both during the event)
+  - Revitalize on N attacks in a row
+  - loot from listed NPCs (M'aol and his minions: 23, 100–104)
+- **Hit counts are wins only** (Attacked, Hospitalized, Mugged, Arrested, Looted, Special). Repeating chain numbers now run past 999 to 1111 … 99999.
+- **Lining the grid up:** drag the top-left and bottom-right corner handles onto the art (works by touch and with the arrow keys). The squares split evenly between them. A new *gap between squares* setting keeps each cross and tap target inside its square.
+
 ## [3.239.1] - 2026-10-19
 
 ### Fixed
