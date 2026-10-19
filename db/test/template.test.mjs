@@ -158,6 +158,8 @@ const NEW_TABLES = [
   'event_bingo_marks',
   // #1019: the latest full Torn response from the minute/5-minute pollers (0090).
   'torn_live_snapshots',
+  // #1020: the OC action feed (0091).
+  'oc_suggestions',
 ]
 
 let server
