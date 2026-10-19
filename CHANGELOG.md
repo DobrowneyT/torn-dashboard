@@ -18,6 +18,21 @@ surface it automatically.
 
 ---
 
+## [3.242.0] - 2026-10-19
+
+### Added
+- **The OC action feed (#1020, PRD #1018).** `oc_suggestions` (migration 0091) holds every suggestion the dashboard makes to OC managers, and its lifecycle:
+  - **open:** posted
+  - **updated:** content changed, so the bot edits the message
+  - **resolved:** the producer saw the move happen
+  - **expired:** no longer possible, or out of time
+  - **done:** a manager pressed Done (never re-raised)
+  - **snoozed:** a manager pressed Not now (comes back after the snooze)
+
+  Producers call `reportSuggestions(kind, live, resolvedKeys)` with everything of their kind they can see now. The first producers are #1021–1023.
+- **The OC watch feed carries suggestions.** `findings` now holds every suggestion the bot still has to draw or redraw (tracked by version, so a crash costs a redraw, never a duplicate). `ping_member_ids` is the faction's ping list: `oc_watch_ping_member_ids` in faction settings, defaulting to MonChoon only.
+- **Bot-only routes:** `…/suggestions/:id/rendered`, `…/suggestions/:id/act` (done / snooze), `…/suggestions/stats`, and `…/suggestions/test`, which posts a harmless test suggestion so the feed can be tried before any real producer exists.
+
 ## [3.241.1] - 2026-10-19
 
 ### Fixed
