@@ -34,6 +34,7 @@ import { registerEventRoutes } from './events/eventRoutes.js'
 import { registerBingoRoutes } from './events/bingoRoutes.js'
 import { registerChainWatchInternalRoutes } from './chainWatchInternal.js'
 import { registerChainWatchSignupInternalRoutes } from './chainWatchSignupInternal.js'
+import { registerOcWatchInternalRoutes } from './ocWatchInternal.js'
 import { registerWarOverviewInternalRoutes } from './warOverviewInternal.js'
 import { registerMemberThreadRoutes } from './memberThreadsInternal.js'
 import { registerExportRoutes } from './exports.js'
@@ -306,6 +307,8 @@ export async function buildServer(
     // #1007: the board's Sign up / Drop my slot buttons. Same token — it is
     // the same bot, acting on the same board.
     registerChainWatchSignupInternalRoutes(app, opts.db, opts.chainWatchToken, opts.factionSlug)
+    // #1019: the OC board. Same token — same bot, same faction.
+    registerOcWatchInternalRoutes(app, opts.db, opts.chainWatchToken)
   }
 
   // ⚠️ Absent token ⇒ route UNREGISTERED, not open. A tenant nobody asked to
