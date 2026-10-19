@@ -18,6 +18,11 @@ surface it automatically.
 
 ---
 
+## [3.245.1] - 2026-10-19
+
+### Fixed
+- **The OC action feed no longer redraws the same suggestions every minute.** "Out of a crime for 2h 13m" and "joined 166 min ago" changed every minute, which counted as new content, bumped each suggestion's version, and had the bot edit every open "not in an OC" and "joined too low" message once a minute. Both now use Discord timestamps (`<t:…:R>`), which tick on the reader's screen while the text stays the same.
+
 ## [3.245.0] - 2026-10-19
 
 ### Added
