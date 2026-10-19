@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiGet, apiPost, apiPatch, apiDelete, apiFetch } from '../../utils/apiClient'
 import BingoCard from './BingoCard'
 import SortableTh, { useTableSort } from '../SortableTh'
+import { prepareImage, formatBytes, uploadErrorMessage } from '../../utils/imageUpload'
+import { Spinner } from './BingoSettings'
 import { PlayerLink } from './TornLink'
 
 /**
@@ -132,30 +134,32 @@ function SquarePanel({ event, tile, mark, history, memberId, isMe, isLeadership,
   const [image, setImage] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [working, setWorking] = useState(null)
 
   async function attach(file) {
     setError(null)
     if (!file) return
-    if (!file.type.startsWith('image/')) return setError('Attach an image (PNG, JPEG, WebP or GIF).')
-    if (file.size > PROOF_IMAGE_MAX) return setError('Screenshots must be 3 MB or smaller.')
-    const data = await new Promise((res, rej) => {
-      const r = new FileReader()
-      r.onload = () => res(String(r.result))
-      r.onerror = rej
-      r.readAsDataURL(file)
-    })
-    setImage({ type: file.type, data, name: file.name || 'pasted screenshot' })
+    setWorking('Preparing screenshot…')
+    try {
+      const img = await prepareImage(file)
+      if (img.bytes > PROOF_IMAGE_MAX) throw new Error(`That screenshot is ${formatBytes(img.bytes)}; the limit is 3 MB.`)
+      setImage({ type: img.type, data: img.data, name: `${file.name || 'pasted screenshot'} · ${formatBytes(img.bytes)}` })
+    } catch (err) {
+      setError(uploadErrorMessage(err))
+    } finally {
+      setWorking(null)
+    }
   }
 
-  async function act(fn) {
-    setBusy(true); setError(null)
-    try { await fn(); await onChanged() } catch (err) { setError(err.message || 'That did not work.') } finally { setBusy(false) }
+  async function act(fn, label = 'Working…') {
+    setBusy(true); setError(null); setWorking(label)
+    try { await fn(); await onChanged() } catch (err) { setError(uploadErrorMessage(err)) } finally { setBusy(false); setWorking(null) }
   }
 
   const submit = () => act(() => apiPost(`/api/events/${event.id}/bingo/marks`, {
     idx: tile.idx, proof_text: text,
     ...(image ? { proof_image_base64: image.data, proof_image_type: image.type } : {}),
-  }).then(() => { setText(''); setImage(null) }))
+  }).then(() => { setText(''); setImage(null) }), 'Sending for review…')
 
   const crossFor = () => act(() => apiPost(`/api/events/${event.id}/bingo/marks`, {
     idx: tile.idx, member_id: memberId, council: true,
@@ -216,11 +220,14 @@ function SquarePanel({ event, tile, mark, history, memberId, isMe, isLeadership,
                 {image.name} · <button type="button" className="underline" onClick={() => setImage(null)}>remove</button>
               </span>
             )}
-            <button type="button" disabled={busy || (!text.trim() && !image)} onClick={submit}
+            <button type="button" disabled={busy || !!working || (!text.trim() && !image)} onClick={submit}
               className="ml-auto px-4 py-1.5 rounded-lg text-sm font-medium text-white disabled:opacity-50" style={{ backgroundColor: color }}>
               Send for review
             </button>
           </div>
+          {/* ⚠️ Beside the button, not at the panel's foot — off-screen on a phone. */}
+          {working && <p role="status" className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"><Spinner /> {working}</p>}
+          {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">⚠️ {error}</p>}
           {image && <img src={image.data} alt="Screenshot to send" className="max-h-48 rounded border border-gray-200 dark:border-slate-700" />}
         </div>
       )}
@@ -242,7 +249,8 @@ function SquarePanel({ event, tile, mark, history, memberId, isMe, isLeadership,
           </button>
         )}
       </div>
-      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {!(canAsk && isMe) && working && <p role="status" className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"><Spinner /> {working}</p>}
+      {!(canAsk && isMe) && error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">⚠️ {error}</p>}
     </section>
   )
 }
