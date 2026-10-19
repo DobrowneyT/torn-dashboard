@@ -16,6 +16,7 @@
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
 import { latchDeparture } from '../../chain/travelLatch.js'
+import { storeSnapshot, SNAPSHOT_MEMBERS } from '../../tornSnapshots.js'
 
 interface RosterMember {
   id: number | string
@@ -34,6 +35,8 @@ export async function activitySampleJob({ db, pool, client }: JobDeps): Promise<
     // it would record everybody as un-sampled for this minute.
     throw new Error('Torn returned an empty roster — refusing to record an empty sample')
   }
+  // #1019: the full roster, statuses and all, for the OC watch board.
+  await storeSnapshot(db, SNAPSHOT_MEMBERS, roster)
 
   // The previous reading per member, for the take-off edge. One query, not one
   // per member: DISTINCT ON is the cheap way to the latest row of each series.

@@ -18,6 +18,12 @@ surface it automatically.
 
 ---
 
+## [3.241.0] - 2026-10-19
+
+### Added
+- **OC watch feed for Choonbot (#1019, PRD #1018).** `GET /api/internal/oc-watch`, with the tenant's Chain Watch token, serves the faction's joinable crimes and roster in Torn's own shape. It adds member and item names, how many of a required item the armoury holds, and each seat's **published minimum CPR** from the faction's `cpr_requirements` setting (numbered label first, then the bare role; none means the seat isn't judged). It also reports how old each source is, and an empty `findings` list for the coming suggestions.
+- **Zero extra Torn calls.** `crime-occupancy` (every minute) and `activity-sample` (every few minutes) now keep their full response in `torn_live_snapshots` (migration 0090). The feed reads those.
+
 ## [3.240.0] - 2026-10-19
 
 ### Added
