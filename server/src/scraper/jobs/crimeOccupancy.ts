@@ -14,7 +14,7 @@
 // honestly a lower bound rather than a derived fact.
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
-import { storeSnapshot, SNAPSHOT_CRIMES } from '../../tornSnapshots.js'
+import { storeSnapshot, readSnapshot, SNAPSHOT_CRIMES, SNAPSHOT_MEMBERS } from '../../tornSnapshots.js'
 
 /**
  * One page of the JOINABLE crimes is enough.
@@ -40,6 +40,9 @@ import { storeSnapshot, SNAPSHOT_CRIMES } from '../../tornSnapshots.js'
  * needs the opposite: the current picture, cheaply, often.
  */
 const CRIMES_PATH = '/v2/faction/crimes?cat=available'
+
+/** How old the stored roster may get before this job refreshes it (#1019). */
+export const ROSTER_MAX_AGE_MS = 5 * 60_000
 
 interface Slot {
   position_id?: number | string | null
@@ -193,9 +196,30 @@ export async function crimeOccupancyJob({ db, pool, client }: JobDeps): Promise<
     dbc.release()
   }
 
+  // #1019: the OC board needs member status (hospital, travel) no older than
+  // ROSTER_MAX_AGE_MS. `activity-sample` normally keeps it, but its cadence is
+  // a quiet-season tunable and it can be off. ⚠️ Fetched here ONLY when that
+  // snapshot is stale, so a running sampler costs nothing extra; without one,
+  // one call per ROSTER_MAX_AGE_MS — what the bot used to spend on its own key.
+  let rosterRefreshed = false
+  const roster = await readSnapshot(db, SNAPSHOT_MEMBERS)
+  if (!roster || Date.now() - roster.fetchedAt > ROSTER_MAX_AGE_MS) {
+    try {
+      const m = await client.fetch('/v2/faction/members', claimed.key)
+      if (Array.isArray(m?.members) && m.members.length > 0) {
+        await storeSnapshot(db, SNAPSHOT_MEMBERS, m.members)
+        rosterRefreshed = true
+      }
+    } catch {
+      // Occupancy is this job's purpose; a roster failure must not fail it.
+      // The board says how old the roster is.
+    }
+  }
+
   return {
     rows: stats.slotsSeen,
     details: {
+      roster_refreshed: rosterRefreshed,
       crimes_seen: stats.crimesSeen,
       slots_seen: stats.slotsSeen,
       stints_opened: stats.opened,

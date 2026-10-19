@@ -18,6 +18,11 @@ surface it automatically.
 
 ---
 
+## [3.241.1] - 2026-10-19
+
+### Fixed
+- **The OC watch feed's roster no longer depends on `activity-sample`.** On production the feed had fresh crimes but no member status, because that job (a Chain Watch sampler whose cadence is turned down between events) hadn't stored a roster. Without status, the OC board would lose its hospital and travel alerts. `crime-occupancy` now refreshes the roster itself, but only when the stored one is more than 5 minutes old. A running sampler costs nothing extra; with none running it's one call every 5 minutes, the same rate the bot used to spend on its own key. A failed roster fetch never fails the occupancy poll.
+
 ## [3.241.0] - 2026-10-19
 
 ### Added
