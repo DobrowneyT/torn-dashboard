@@ -10,7 +10,7 @@
 import type { JobDeps } from './itemsSync.js'
 import type { RunResult } from '../runLog.js'
 import { collectOcWatch } from '../../ocWatchInternal.js'
-import { reportSuggestions } from '../../ocSuggestions.js'
+import { reportSuggestions, feedKinds } from '../../ocSuggestions.js'
 import {
   joinedTooLow, notInAnyOc, seatSwap, swapResolved, TOO_LOW_WINDOW_HOURS_DEFAULT, IDLE_GRACE_MINUTES_DEFAULT,
   SWAP_MIN_GAIN_PP_DEFAULT, SWAP_MIN_WEIGHTED_GAIN_DEFAULT, type Crime, type Readings, type SwapCrime,
@@ -122,10 +122,16 @@ export async function ocSuggestionsJob({ db }: JobDeps): Promise<RunResult> {
     if (s) swaps.push(s)
   }
   const swapResolvedKeys = new Set((await previous('swap')).filter((k) => swapResolved(k, crimes as SwapCrime[])))
-  const c = await reportSuggestions(db, 'swap', swaps, swapResolvedKeys)
-
-  const a = await reportSuggestions(db, 'too_low', tooLow.live, tooLow.resolved)
-  const b = await reportSuggestions(db, 'idle', idle.live, idle.resolved)
+  // ⚠️ `/oc feed` (#1024): a kind switched off produces nothing, and what it
+  // had open closes as "Turned off" — not left hanging in the thread.
+  const on = await feedKinds(db)
+  const off = 'Turned off'
+  const c = on.swap ? await reportSuggestions(db, 'swap', swaps, swapResolvedKeys)
+    : await reportSuggestions(db, 'swap', [], new Set(), off)
+  const a = on.too_low ? await reportSuggestions(db, 'too_low', tooLow.live, tooLow.resolved)
+    : await reportSuggestions(db, 'too_low', [], new Set(), off)
+  const b = on.idle ? await reportSuggestions(db, 'idle', idle.live, idle.resolved)
+    : await reportSuggestions(db, 'idle', [], new Set(), off)
   return {
     rows: a.opened + b.opened + c.opened,
     details: {

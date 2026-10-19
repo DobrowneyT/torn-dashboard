@@ -18,6 +18,14 @@ surface it automatically.
 
 ---
 
+## [3.245.0] - 2026-10-19
+
+### Added
+- **OC digest and efficiency report, on request only (#1024).** Nothing is posted on a schedule.
+  - **`GET /api/internal/oc-watch/digest`:** supply right now. Members seated against out of an OC, and per crime level the crimes, open seats, seated members, and members out of an OC who clear the bar for an open seat there. A top-tier level with more of them waiting than open seats is flagged "start another". Scope isn't tracked by the dashboard, so the digest says so rather than guessing.
+  - **`GET /api/internal/oc-watch/report?days=N`:** crimes finished in the window. Each crew's role-weighted CPR is compared with the best arrangement of the same people (the same search as the seat-swap suggestions), giving average seating efficiency and the biggest gaps with their moves. For failures, it names the weakest heavy seat. The seat a member held uses the CPR recorded when the crime ran; other seats use today's readings, and the report says so.
+- **Action feed toggle per suggestion kind:** `oc_feed_kinds` (swap, too_low, idle), set from Discord with `/oc feed`. A kind switched off isn't produced, and its open suggestions close as "Turned off".
+
 ## [3.244.0] - 2026-10-19
 
 ### Added

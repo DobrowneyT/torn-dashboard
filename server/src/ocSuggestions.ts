@@ -37,6 +37,30 @@ export const SNOOZE_MINUTES_DEFAULT = 60
 export const PING_DEFAULT = ['2250591']
 export const PING_SETTING = 'oc_watch_ping_member_ids'
 
+/**
+ * Which suggestion kinds the feed produces, per faction — `/oc feed` (#1024).
+ * Unset means on.
+ */
+export const FEED_KINDS = ['swap', 'too_low', 'idle'] as const
+export type FeedKind = (typeof FEED_KINDS)[number]
+export const FEED_KINDS_SETTING = 'oc_feed_kinds'
+
+export async function feedKinds(db: Queryable): Promise<Record<FeedKind, boolean>> {
+  const { rows } = await db.query(`SELECT value FROM faction_settings WHERE key = $1`, [FEED_KINDS_SETTING])
+  const v = (rows[0]?.value ?? {}) as Record<string, unknown>
+  return Object.fromEntries(FEED_KINDS.map((k) => [k, v[k] !== false])) as Record<FeedKind, boolean>
+}
+
+export async function setFeedKind(db: Queryable, kind: FeedKind | 'all', enabled: boolean) {
+  const cur = await feedKinds(db)
+  for (const k of FEED_KINDS) if (kind === 'all' || kind === k) cur[k] = enabled
+  await db.query(
+    `INSERT INTO faction_settings (key, value) VALUES ($1, $2)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [FEED_KINDS_SETTING, JSON.stringify(cur)])
+  return cur
+}
+
 type Queryable = Pick<pg.Pool, 'query'>
 
 /**
@@ -49,6 +73,7 @@ type Queryable = Pick<pg.Pool, 'query'>
  */
 export async function reportSuggestions(
   db: Queryable, kind: string, live: SuggestionInput[], resolvedKeys: Set<string> = new Set(),
+  closeReason = 'No longer possible',
 ): Promise<{ opened: number; updated: number; closed: number }> {
   let opened = 0
   let updated = 0
@@ -86,10 +111,10 @@ export async function reportSuggestions(
   const closed = await db.query(
     `UPDATE oc_suggestions
         SET status = CASE WHEN key = ANY($3) THEN 'resolved' ELSE 'expired' END,
-            close_reason = CASE WHEN key = ANY($3) THEN 'Seen happening' ELSE 'No longer possible' END,
+            close_reason = CASE WHEN key = ANY($3) THEN 'Seen happening' ELSE $4 END,
             closed_at = now(), version = version + 1, updated_at = now()
       WHERE kind = $1 AND status IN ('open', 'snoozed') AND NOT (key = ANY($2))`,
-    [kind, keys, [...resolvedKeys]])
+    [kind, keys, [...resolvedKeys], closeReason])
   return { opened, updated, closed: closed.rowCount ?? 0 }
 }
 

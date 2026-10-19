@@ -23,7 +23,9 @@ import { bearerFrom, tokenMatches } from './fleetMetricsAuth.js'
 import { readSnapshot, SNAPSHOT_CRIMES, SNAPSHOT_MEMBERS } from './tornSnapshots.js'
 import {
   suggestionsNeedingBot, pingList, suggestionStats, markRendered, act, reportSuggestions,
+  feedKinds, setFeedKind, FEED_KINDS,
 } from './ocSuggestions.js'
+import { collectDigest, collectReport } from './ocDigest.js'
 
 /** Only these can still be joined, left, or held up by a missing member. */
 const ACTIVE = new Set(['Recruiting', 'Planning'])
@@ -166,6 +168,34 @@ export function registerOcWatchInternalRoutes(app: FastifyInstance, db: pg.Pool,
     const minutes = b.minutes == null ? undefined : Math.min(24 * 60, Math.max(5, Number(b.minutes) || 60))
     const r = await act(db, id, b.action, String(b.by ?? 'unknown').slice(0, 100), minutes)
     return r.ok ? r : reply.status(409).send(r)
+  })
+
+  // ── On request (#1024): nothing here is ever posted on a schedule ─────────
+  app.get('/api/internal/oc-watch/digest', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    return collectDigest(db)
+  })
+
+  app.get('/api/internal/oc-watch/report', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    const days = Math.min(90, Math.max(1, Number((req.query as { days?: string }).days) || 7))
+    return collectReport(db, days)
+  })
+
+  app.get('/api/internal/oc-watch/feed-kinds', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    return { kinds: await feedKinds(db) }
+  })
+
+  app.post('/api/internal/oc-watch/feed-kinds', async (req, reply) => {
+    if (!authed(req.headers.authorization)) return reply.status(401).send({ error: 'Authentication required' })
+    const b = (req.body ?? {}) as { kind?: unknown; enabled?: unknown }
+    const kind = String(b.kind ?? '')
+    if (kind !== 'all' && !(FEED_KINDS as readonly string[]).includes(kind)) {
+      return reply.status(400).send({ error: `kind must be all or one of ${FEED_KINDS.join(', ')}` })
+    }
+    if (typeof b.enabled !== 'boolean') return reply.status(400).send({ error: 'enabled must be true or false' })
+    return { kinds: await setFeedKind(db, kind as any, b.enabled) }
   })
 
   /** `/oc stats`: counts per kind and status. */

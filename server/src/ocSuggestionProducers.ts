@@ -265,44 +265,11 @@ export function seatSwap(args: {
     return readingsOf(m)?.get(`${crime.name}||${seats[i].label}`) ?? null
   }
   const totalWeight = seats.reduce((n, s) => n + s.weight, 0)
-  const score = (assign: number[]) => {
-    let sc = 0
-    for (let k = 0; k < members.length; k++) {
-      const c = cprOf(members[k], assign[k])
-      if (c == null) return null
-      sc += seats[assign[k]].weight * c
-    }
-    return sc
-  }
 
   const now = members.map((m) => current.get(m)!)
-  const nowScore = score(now)
-  if (nowScore == null) return null
-  let best = now
-  let bestScore = nowScore
-  // Every arrangement of the members over the seats they ALREADY hold (≤ 720).
-  //
-  // ⚠️ Only those seats. An empty seat scores nothing, so letting members
-  // spread into empty seats would "gain" by pushing anyone into a heavy empty
-  // role and leaving a light one for a newcomer nobody has measured — the
-  // opposite of the carry-role strategy. A free seat is a place to pass
-  // through, never a destination.
-  const held = [...now]
-  const used = new Array(held.length).fill(false)
-  const pick: number[] = []
-  const walk = (k: number) => {
-    if (k === members.length) {
-      const sc = score(pick)
-      // Ties keep the current arrangement — no churn for nothing.
-      if (sc != null && sc > bestScore + 1e-9) { bestScore = sc; best = [...pick] }
-      return
-    }
-    for (let j = 0; j < held.length; j++) {
-      if (used[j]) continue
-      used[j] = true; pick.push(held[j]); walk(k + 1); pick.pop(); used[j] = false
-    }
-  }
-  walk(0)
+  const found = bestArrangement(members, now, (m, i) => cprOf(m, i), seats.map((x) => x.weight))
+  if (!found) return null
+  const { best, nowScore, bestScore } = found
 
   const movers = members.filter((m, k) => best[k] !== now[k])
   if (movers.length === 0) return null
@@ -414,4 +381,49 @@ export function swapResolved(key: string, crimes: SwapCrime[]): boolean {
     const [m, pid] = p.split('@')
     return (crime.slots ?? []).some((s) => String(s.position_info?.id) === pid && String(s.user?.id) === m)
   })
+}
+
+
+/**
+ * The best placement of `members` over the seats they currently hold
+ * (`now[k]` is member k's seat), by Σ weight × CPR. Shared by the swap
+ * suggestions (#1021) and the efficiency report (#1024) so both judge a crew
+ * the same way.
+ *
+ * ⚠️ Only the seats already held — an empty seat scores nothing, so spreading
+ * into one would "gain" by pushing anyone into a heavy role. Returns null when
+ * the current arrangement itself cannot be scored (a seat with no CPR).
+ * Ties keep the current arrangement.
+ */
+export function bestArrangement(
+  members: string[], now: number[], cprOf: (member: string, seat: number) => number | null, weights: number[],
+): { best: number[]; nowScore: number; bestScore: number } | null {
+  const score = (assign: number[]) => {
+    let sc = 0
+    for (let k = 0; k < members.length; k++) {
+      const c = cprOf(members[k], assign[k])
+      if (c == null) return null
+      sc += weights[assign[k]] * c
+    }
+    return sc
+  }
+  const nowScore = score(now)
+  if (nowScore == null) return null
+  let best = now
+  let bestScore = nowScore
+  const used = new Array(now.length).fill(false)
+  const pick: number[] = []
+  const walk = (k: number) => {
+    if (k === members.length) {
+      const sc = score(pick)
+      if (sc != null && sc > bestScore + 1e-9) { bestScore = sc; best = [...pick] }
+      return
+    }
+    for (let j = 0; j < now.length; j++) {
+      if (used[j]) continue
+      used[j] = true; pick.push(now[j]); walk(k + 1); pick.pop(); used[j] = false
+    }
+  }
+  walk(0)
+  return { best, nowScore, bestScore }
 }
