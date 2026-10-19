@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { apiGet, apiPut, apiDelete } from '../../utils/apiClient'
 import BingoCard from './BingoCard'
+import { prepareImage, formatBytes, uploadErrorMessage } from '../../utils/imageUpload'
 
 /**
  * Setting up the event's bingo card (#965). Leadership/admin.
@@ -14,6 +15,30 @@ const FIELD = 'w-full rounded-lg border border-gray-300 dark:border-slate-600 bg
 const LABEL = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'
 const IMAGE_MAX = 5 * 1024 * 1024
 
+/** A small spinner, for anything the member is waiting on. */
+export function Spinner() {
+  return <span aria-hidden="true" className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent align-[-2px]" />
+}
+
+/**
+ * What an action is doing, shown BESIDE its button. ⚠️ Not at the bottom of the
+ * section: on a phone that is off-screen, and a failed upload looked like
+ * nothing happening at all (2026-10-19).
+ */
+function Status({ status }) {
+  if (!status) return null
+  const tone = status.kind === 'error' ? 'text-red-600 dark:text-red-400'
+    : status.kind === 'done' ? 'text-green-700 dark:text-green-400' : 'text-gray-600 dark:text-gray-300'
+  return (
+    <p role={status.kind === 'error' ? 'alert' : 'status'} aria-live="polite" className={`flex items-center gap-2 text-sm ${tone}`}>
+      {status.kind === 'working' && <Spinner />}
+      {status.kind === 'done' && <span aria-hidden="true">✓</span>}
+      {status.kind === 'error' && <span aria-hidden="true">⚠️</span>}
+      <span>{status.text}</span>
+    </p>
+  )
+}
+
 function resize(tiles, rows, cols) {
   const byIdx = new Map(tiles.map((t) => [t.idx, t]))
   return Array.from({ length: rows * cols }, (_, idx) => byIdx.get(idx) ?? { idx, label: '', kind: 'proof', rule: null })
@@ -24,7 +49,9 @@ export default function BingoSettings({ event }) {
   const [rules, setRules] = useState([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const [notice, setNotice] = useState(null)
+  // One status per area, each shown next to the button that caused it.
+  const [imageStatus, setImageStatus] = useState(null)
+  const [saveStatus, setSaveStatus] = useState(null)
 
   useEffect(() => {
     apiGet(`/api/events/${event.id}/bingo`)
@@ -48,42 +75,57 @@ export default function BingoSettings({ event }) {
   const setGrid = (k) => (e) => update({ grid: { ...card.grid, [k]: Number(e.target.value) } })
   const setTile = (idx, patch) => setCard((c) => ({ ...c, tiles: c.tiles.map((t) => (t.idx === idx ? { ...t, ...patch } : t)) }))
 
-  async function run(fn, done) {
-    setBusy(true); setError(null); setNotice(null)
-    try { await fn(); if (done) setNotice(done) } catch (err) { setError(err.message || 'That did not work.') } finally { setBusy(false) }
+  async function act(setStatus, working, fn) {
+    setBusy(true)
+    setStatus({ kind: 'working', text: working })
+    try {
+      const done = await fn()
+      setStatus(done ? { kind: 'done', text: done } : null)
+    } catch (err) {
+      setStatus({ kind: 'error', text: uploadErrorMessage(err) })
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const save = () => run(async () => {
+  const save = () => act(setSaveStatus, 'Saving…', async () => {
     const saved = await apiPut(`/api/events/${event.id}/bingo`, {
       enabled: card.enabled, rows: card.rows, cols: card.cols, grid: card.grid,
       tiles: card.tiles.map((t) => ({ idx: t.idx, label: t.label, kind: t.kind, rule: t.kind === 'auto' ? t.rule : null })),
     })
     setCard((c) => ({ ...c, image_url: saved.image_url }))
-  }, 'Bingo card saved.')
+    return 'Bingo card saved.'
+  })
 
-  const upload = (file) => run(async () => {
+  const upload = (file) => {
     if (!file) return
-    if (file.size > IMAGE_MAX) throw new Error('The card image must be 5 MB or smaller.')
-    const data = await new Promise((res, rej) => {
-      const r = new FileReader()
-      r.onload = () => res(String(r.result))
-      r.onerror = rej
-      r.readAsDataURL(file)
+    return act(setImageStatus, `Preparing ${file.name || 'image'} (${formatBytes(file.size)})…`, async () => {
+      const img = await prepareImage(file)
+      if (img.bytes > IMAGE_MAX) throw new Error(`That image is ${formatBytes(img.bytes)}; the limit is 5 MB.`)
+      setImageStatus({ kind: 'working', text: `Uploading ${formatBytes(img.bytes)}${img.shrunk ? ' (resized from ' + formatBytes(file.size) + ')' : ''}…` })
+      const saved = await apiPut(`/api/events/${event.id}/bingo/image`, { content_type: img.type, data_base64: img.data })
+      setCard((c) => ({ ...c, image_url: saved.image_url }))
+      return 'Image uploaded. Line the grid up below, then Save.'
     })
-    const saved = await apiPut(`/api/events/${event.id}/bingo/image`, { content_type: file.type, data_base64: data })
-    setCard((c) => ({ ...c, image_url: saved.image_url }))
-  }, 'Image uploaded. Line the grid up below, then Save.')
+  }
 
-  const removeImage = () => run(async () => {
-    await apiDelete(`/api/events/${event.id}/bingo/image`)
-    setCard((c) => ({ ...c, image_url: null }))
-  }, 'Image removed.')
+  const removeImage = () => {
+    if (!window.confirm('Remove the card image? Members will see the squares as plain text.')) return
+    return act(setImageStatus, 'Removing…', async () => {
+      await apiDelete(`/api/events/${event.id}/bingo/image`)
+      setCard((c) => ({ ...c, image_url: null }))
+      return 'Image removed.'
+    })
+  }
 
-  const template = () => run(async () => {
+  const template = () => {
     if (card.tiles.some((t) => t.label) && !window.confirm('Replace every square with the Halloween card?')) return
-    const t = await apiGet(`/api/events/${event.id}/bingo/template`)
-    setCard((c) => ({ ...c, rows: t.rows, cols: t.cols, grid: t.grid, tiles: resize(t.tiles, t.rows, t.cols) }))
-  }, 'Halloween squares loaded — not saved yet.')
+    return act(setImageStatus, 'Loading the Halloween squares…', async () => {
+      const t = await apiGet(`/api/events/${event.id}/bingo/template`)
+      setCard((c) => ({ ...c, rows: t.rows, cols: t.cols, grid: t.grid, tiles: resize(t.tiles, t.rows, t.cols) }))
+      return 'Halloween squares loaded — not saved yet.'
+    })
+  }
 
   return (
     <section className="card p-6 space-y-5 max-w-3xl" aria-label="Bingo settings">
@@ -107,10 +149,10 @@ export default function BingoSettings({ event }) {
           Without an image the squares draw their own text.
         </p>
         <div className="flex flex-wrap gap-2">
-          <label className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm cursor-pointer">
+          <label className={`px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm ${busy ? 'opacity-50' : 'cursor-pointer'}`}>
             {card.image_url ? 'Replace image' : 'Upload image'}
             <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="sr-only" disabled={busy}
-              onChange={(e) => upload(e.target.files?.[0])} />
+              onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; upload(f) }} />
           </label>
           {card.image_url && (
             <button type="button" disabled={busy} onClick={removeImage}
@@ -119,6 +161,7 @@ export default function BingoSettings({ event }) {
           <button type="button" disabled={busy} onClick={template}
             className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 text-sm">Use the Halloween squares</button>
         </div>
+        <Status status={imageStatus} />
       </div>
 
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-6">
@@ -164,10 +207,11 @@ export default function BingoSettings({ event }) {
         </ol>
       </div>
 
-      {error && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-      {notice && <p className="text-sm text-green-700 dark:text-green-400">{notice}</p>}
-      <button type="button" disabled={busy} onClick={save}
-        className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50">Save bingo card</button>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" disabled={busy} onClick={save}
+          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50">Save bingo card</button>
+        <Status status={saveStatus} />
+      </div>
     </section>
   )
 }

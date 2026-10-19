@@ -18,6 +18,13 @@ surface it automatically.
 
 ---
 
+## [3.239.1] - 2026-10-19
+
+### Fixed
+- **Image uploads over 1 MB were rejected by the in-container nginx (413)** before reaching the app. Its body limit was nginx's 1 MB default, below the app's own limits (bingo card 5 MB, screenshots 3 MB). It's now 10 MB at the http level, covering every tenant's vhost and staging. This also affected feedback screenshots.
+- **Uploads show their status beside the button:** a spinner with the size while preparing and uploading, then ✓ or the reason in words (a 413 now reads "too large for the server", not "API error 413"). Before, the error was printed at the foot of the Bingo settings, off-screen on a phone, so a failed upload looked like nothing happening.
+- **Large phone images are resized before upload** (longest edge 2,400 px, re-encoded as WebP or JPEG) when over 1.5 MB. Smaller images are sent untouched.
+
 ## [3.239.0] - 2026-10-18
 
 ### Added

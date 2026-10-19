@@ -110,3 +110,24 @@ describe('leadership', () => {
     expect(body.tiles[1]).toMatchObject({ kind: 'auto', rule: 'respect_over_10' })
   })
 })
+
+describe('uploading the card image', () => {
+  it('shows progress, then the failure in words, beside the button', async () => {
+    let fail
+    api.put.mockImplementation(() => new Promise((_, rej) => { fail = rej }))
+    render(<BingoSettings event={EVENT} />)
+    const input = (await screen.findByText('Upload image')).querySelector('input')
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([1, 2, 3])], 'card.png', { type: 'image/png' })] } })
+    expect(await screen.findByText(/Uploading 1 KB/)).toBeTruthy()
+    fail(Object.assign(new Error('API error 413'), { status: 413 }))
+    expect(await screen.findByText(/too large for the server/)).toBeTruthy()
+  })
+
+  it('says when it worked', async () => {
+    api.put.mockResolvedValue({ ...CARD, image_url: '/api/events/4/bingo/image?v=1' })
+    render(<BingoSettings event={EVENT} />)
+    const input = (await screen.findByText('Upload image')).querySelector('input')
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([1])], 'card.png', { type: 'image/png' })] } })
+    expect(await screen.findByText(/Image uploaded/)).toBeTruthy()
+  })
+})
