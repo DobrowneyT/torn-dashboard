@@ -67,3 +67,39 @@ describe('oc-suggestions job', () => {
     expect((await open()).every((r: any) => r.status === 'open')).toBe(true)
   })
 })
+
+describe('seat swaps on the real model (#1021)', () => {
+  it('measures the gain in success chance with the local simulator, and needs both movers online', async () => {
+    const BFTP = { id: 21, name: 'Blast from the Past', difficulty: 7, status: 'Planning', ready_at: NOW + 7200, slots: [
+      // Full crime. Muscle (P5, 35% weight) holds 60; Picklock #2 (P6, 3%) holds the member who reads 85 at Muscle.
+      ['P1', 'Picklock #1', 9001, 70], ['P2', 'Hacker', 9002, 70], ['P3', 'Engineer', 9003, 70],
+      ['P4', 'Bomber', 9004, 70], ['P5', 'Muscle', 9005, 60], ['P6', 'Picklock #2', 9006, 62],
+    ].map(([pid, label, id, cpr]) => ({
+      position_info: { id: pid, label }, checkpoint_pass_rate: cpr,
+      // 9004 has finished planning: the seat to move through.
+      user: { id, joined_at: NOW - 3600, progress: id === 9004 ? 100 : 40 },
+    })) }
+    await stack.db.query(`INSERT INTO members (member_id, member_name, tier, is_current) VALUES
+      ('9001','A',3,true),('9002','B',3,true),('9003','C',3,true),('9004','D',3,true),('9005','E',3,true),('9006','F',3,true)
+      ON CONFLICT (member_id) DO NOTHING`)
+    await stack.db.query(`INSERT INTO member_cpr_v2 (member_id, crime_name, position_label, cpr_value) VALUES
+      ('9006', 'Blast from the Past', 'Muscle', 85), ('9005', 'Blast from the Past', 'Picklock #2', 65)`)
+    await storeSnapshot(stack.db, SNAPSHOT_CRIMES, [BFTP])
+    const roster = (online: number[]) => [9001, 9002, 9003, 9004, 9005, 9006].map((id) => ({
+      id, name: String(id), status: { state: 'Okay' },
+      last_action: { status: online.includes(id) ? 'Online' : 'Offline', timestamp: online.includes(id) ? NOW : NOW - 7200 },
+    }))
+
+    await storeSnapshot(stack.db, SNAPSHOT_MEMBERS, roster([9004, 9005]))   // 9006 offline
+    expect((await ocSuggestionsJob(deps())).details).toMatchObject({ swap: { live: 0 } })
+
+    await storeSnapshot(stack.db, SNAPSHOT_MEMBERS, roster([9004, 9005, 9006]))
+    await ocSuggestionsJob(deps())
+    const s = (await stack.db.query(`SELECT key, title, value, steps FROM oc_suggestions WHERE kind = 'swap'`)).rows[0]
+    expect(s.key).toBe('swap:21:9005@P6,9006@P5')
+    expect(s.value.success_pp).toBeGreaterThan(3)
+    expect(s.title).toMatch(/reseat for \+\d+\.\d% success/)
+    expect(s.steps[0]).toMatch(/^D leaves the crime/)
+    expect(s.steps.at(-1)).toMatch(/^D rejoins as Bomber/)
+  })
+})

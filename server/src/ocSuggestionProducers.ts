@@ -196,3 +196,222 @@ function fmtDuration(sec: number): string {
   const m = Math.round((sec % 3600) / 60)
   return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : h ? `${h}h ${m}m` : `${m}m`
 }
+
+// ── #1021: better seating within a crime ─────────────────────────────────────
+//
+// The members already in a crime, arranged across its seats so the heavy roles
+// hold the strongest CPRs. MonChoon (2026-10-19):
+//   • switching seats inside a crime keeps planning progress;
+//   • you cannot switch into a full crime — someone has to leave;
+//   • a member whose planning is COMPLETE is idle, and can leave and rejoin
+//     without costing the crime anything — so a full crime with one of those
+//     still has a seat to move through.
+
+export const SWAP_MIN_GAIN_PP_DEFAULT = 3
+export const SWAP_MIN_WEIGHTED_GAIN_DEFAULT = 3
+
+export interface SwapSlot extends Slot {
+  position_info?: { id?: string | null; label?: string | null } | null
+  checkpoint_pass_rate?: number | null
+  user?: { id?: number | string | null; joined_at?: number | null; name?: string | null; progress?: number | null } | null
+}
+export interface SwapCrime extends Crime {
+  ready_at?: number | null
+  slots?: SwapSlot[]
+}
+
+interface Seat2 { pid: string; label: string; weight: number; occupant: string | null; liveCpr: number | null; progress: number | null }
+
+/**
+ * The best arrangement of a crime's seated members, and the moves to reach it.
+ *
+ * `weights` is the crime's role weights by seat id (P1…); `successOf`, when the
+ * local simulator is trustworthy for this crime, turns a full CPR vector into a
+ * success chance. Without it the gain is stated in weighted CPR, honestly.
+ */
+export function seatSwap(args: {
+  crime: SwapCrime
+  weights: Map<string, number>
+  readings: Readings
+  online: Set<string>
+  names: Map<string, string>
+  nowSec: number
+  successOf?: ((cprByPid: Record<string, number>) => number) | null
+  minGainPp?: number
+  minWeightedGain?: number
+}): SuggestionInput | null {
+  const { crime } = args
+  if (crime.status !== 'Recruiting' && crime.status !== 'Planning') return null
+  if (crime.ready_at != null && crime.ready_at <= args.nowSec) return null
+  const seats: Seat2[] = (crime.slots ?? []).map((s) => ({
+    pid: String(s.position_info?.id ?? ''),
+    label: labelOf(s),
+    weight: args.weights.get(String(s.position_info?.id ?? '')) ?? 0,
+    occupant: s.user?.id == null ? null : String(s.user.id),
+    liveCpr: s.checkpoint_pass_rate ?? null,
+    progress: s.user?.progress ?? null,
+  })).filter((s) => s.pid && s.weight > 0)
+  if (seats.length !== (crime.slots ?? []).length) return null   // a seat we cannot weigh: no opinion
+  const members = seats.filter((s) => s.occupant).map((s) => s.occupant!) as string[]
+  if (members.length < 2) return null
+
+  const current = new Map<string, number>()   // member → seat index
+  seats.forEach((s, i) => { if (s.occupant) current.set(s.occupant, i) })
+  const readingsOf = (m: string) => args.readings.get(m)
+  // ⚠️ Measured only. The seat a member holds now uses Torn's live figure;
+  // any other seat needs a reading from the CPR scan, or the arrangement is out.
+  const cprOf = (m: string, i: number): number | null => {
+    if (current.get(m) === i) return seats[i].liveCpr ?? readingsOf(m)?.get(`${crime.name}||${seats[i].label}`) ?? null
+    return readingsOf(m)?.get(`${crime.name}||${seats[i].label}`) ?? null
+  }
+  const totalWeight = seats.reduce((n, s) => n + s.weight, 0)
+  const score = (assign: number[]) => {
+    let sc = 0
+    for (let k = 0; k < members.length; k++) {
+      const c = cprOf(members[k], assign[k])
+      if (c == null) return null
+      sc += seats[assign[k]].weight * c
+    }
+    return sc
+  }
+
+  const now = members.map((m) => current.get(m)!)
+  const nowScore = score(now)
+  if (nowScore == null) return null
+  let best = now
+  let bestScore = nowScore
+  // Every arrangement of the members over the seats they ALREADY hold (≤ 720).
+  //
+  // ⚠️ Only those seats. An empty seat scores nothing, so letting members
+  // spread into empty seats would "gain" by pushing anyone into a heavy empty
+  // role and leaving a light one for a newcomer nobody has measured — the
+  // opposite of the carry-role strategy. A free seat is a place to pass
+  // through, never a destination.
+  const held = [...now]
+  const used = new Array(held.length).fill(false)
+  const pick: number[] = []
+  const walk = (k: number) => {
+    if (k === members.length) {
+      const sc = score(pick)
+      // Ties keep the current arrangement — no churn for nothing.
+      if (sc != null && sc > bestScore + 1e-9) { bestScore = sc; best = [...pick] }
+      return
+    }
+    for (let j = 0; j < held.length; j++) {
+      if (used[j]) continue
+      used[j] = true; pick.push(held[j]); walk(k + 1); pick.pop(); used[j] = false
+    }
+  }
+  walk(0)
+
+  const movers = members.filter((m, k) => best[k] !== now[k])
+  if (movers.length === 0) return null
+  const weightedGain = (bestScore - nowScore) / totalWeight
+
+  // A seat to move through: an empty one, or an idle seated member (planning
+  // complete) who can leave without costing the crime anything.
+  const hasEmpty = seats.some((s) => !s.occupant)
+  let leaver: string | null = null
+  if (!hasEmpty) {
+    const idle = seats.filter((s) => s.occupant && (s.progress ?? 0) >= 100).map((s) => s.occupant!)
+    leaver = idle.find((m) => args.online.has(m)) ?? null
+    if (!leaver) return null
+  }
+  // ⚠️ Everyone who has to move must be online now (MonChoon).
+  if (![...movers, ...(leaver ? [leaver] : [])].every((m) => args.online.has(m))) return null
+
+  // The gain, in success chance where the simulator can be trusted.
+  let successPp: number | null = null
+  const full = seats.every((s) => s.occupant)
+  if (args.successOf && full) {
+    const vec = (assign: number[]) => {
+      const out: Record<string, number> = {}
+      members.forEach((m, k) => { out[seats[assign[k]].pid] = cprOf(m, assign[k])! })
+      return out
+    }
+    successPp = (args.successOf(vec(best)) - args.successOf(vec(now))) * 100
+  }
+  if (successPp != null ? successPp < (args.minGainPp ?? SWAP_MIN_GAIN_PP_DEFAULT)
+    : weightedGain < (args.minWeightedGain ?? SWAP_MIN_WEIGHTED_GAIN_DEFAULT)) return null
+
+  const name = (m: string) => args.names.get(m) ?? m
+  const target = new Map(members.map((m, k) => [m, best[k]]))
+  const steps = moveSequence(seats.map((s) => s.occupant), target, leaver)
+    .map((mv) => mv.kind === 'leave'
+      ? `${name(mv.member)} leaves the crime (their planning is complete, so nothing is lost)`
+      : mv.kind === 'join'
+        ? `${name(mv.member)} rejoins as ${seats[mv.to].label}`
+        : `${name(mv.member)} moves to ${seats[mv.to].label}`)
+  const pct = (w: number) => `${Math.round((w / totalWeight) * 100)}%`
+  const lines = movers.map((m) => {
+    const from = seats[current.get(m)!]
+    const to = seats[target.get(m)!]
+    return `${name(m)}: ${from.label} (CPR ${cprOf(m, current.get(m)!)}, ${pct(from.weight)} weight) → `
+      + `${to.label} (CPR ${cprOf(m, target.get(m)!)}, ${pct(to.weight)} weight)`
+  })
+  const worth = successPp != null ? `+${successPp.toFixed(1)}% success` : `+${weightedGain.toFixed(1)} weighted CPR`
+  return {
+    key: `swap:${crime.id}:${[...target.entries()].filter(([m]) => movers.includes(m))
+      .map(([m, i]) => `${m}@${seats[i].pid}`).sort().join(',')}`,
+    kind: 'swap',
+    crimeId: String(crime.id),
+    memberIds: [...movers, ...(leaver && !movers.includes(leaver) ? [leaver] : [])],
+    title: `${crime.name} (L${crime.difficulty}) — reseat for ${worth}`,
+    body: lines.join('\n') + (successPp == null
+      ? '\n_Success chance not computed for this crime; the gain is in role-weighted CPR._' : ''),
+    steps,
+    value: successPp != null ? { success_pp: Math.round(successPp * 10) / 10 } : { weighted_gain: Math.round(weightedGain * 10) / 10 },
+    severity: (successPp ?? weightedGain) >= 5 ? 'warn' : 'info',
+    expiresAt: crime.status === 'Planning' && crime.ready_at ? crime.ready_at * 1000 : null,
+  }
+}
+
+export type Move = { kind: 'move' | 'join'; member: string; to: number } | { kind: 'leave'; member: string }
+
+/**
+ * The moves from `seating` to `target`, through one free seat.
+ *
+ * A member whose target seat is empty moves straight there; when every
+ * misplaced member's target is taken (a cycle), one of them steps into a free
+ * seat to break it. `leaver` (an idle member in a full crime) leaves first and
+ * rejoins last, into the seat that is left.
+ */
+export function moveSequence(seating: (string | null)[], target: Map<string, number>, leaver: string | null = null): Move[] {
+  const seat = [...seating]
+  const moves: Move[] = []
+  const pos = (m: string) => seat.indexOf(m)
+  if (leaver) { seat[pos(leaver)] = null; moves.push({ kind: 'leave', member: leaver }) }
+  const pending = () => [...target.entries()].filter(([m, i]) => m !== leaver && pos(m) !== i)
+  for (let guard = 0; guard < 4 * seat.length && pending().length; guard++) {
+    const direct = pending().find(([, i]) => seat[i] == null)
+    if (direct) {
+      const [m, i] = direct
+      seat[pos(m)] = null; seat[i] = m; moves.push({ kind: 'move', member: m, to: i })
+      continue
+    }
+    // A cycle: park one member in a free seat that is nobody's target if
+    // possible, else any free seat.
+    const [m] = pending()[0]
+    const targets = new Set(target.values())
+    const free = seat.findIndex((x, i) => x == null && !targets.has(i))
+    const any = free >= 0 ? free : seat.findIndex((x) => x == null)
+    if (any < 0) break
+    seat[pos(m)] = null; seat[any] = m; moves.push({ kind: 'move', member: m, to: any })
+  }
+  if (leaver) {
+    const to = target.get(leaver) ?? seat.findIndex((x) => x == null)
+    moves.push({ kind: 'join', member: leaver, to })
+  }
+  return moves
+}
+
+/** A previous swap suggestion is resolved once every member sits where it said. */
+export function swapResolved(key: string, crimes: SwapCrime[]): boolean {
+  const [, crimeId, pairs] = key.split(':')
+  const crime = crimes.find((c) => String(c.id) === crimeId)
+  if (!crime || !pairs) return false
+  return pairs.split(',').every((p) => {
+    const [m, pid] = p.split('@')
+    return (crime.slots ?? []).some((s) => String(s.position_info?.id) === pid && String(s.user?.id) === m)
+  })
+}

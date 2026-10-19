@@ -12,9 +12,42 @@ import type { RunResult } from '../runLog.js'
 import { collectOcWatch } from '../../ocWatchInternal.js'
 import { reportSuggestions } from '../../ocSuggestions.js'
 import {
-  joinedTooLow, notInAnyOc, TOO_LOW_WINDOW_HOURS_DEFAULT, IDLE_GRACE_MINUTES_DEFAULT,
-  type Crime, type Readings,
+  joinedTooLow, notInAnyOc, seatSwap, swapResolved, TOO_LOW_WINDOW_HOURS_DEFAULT, IDLE_GRACE_MINUTES_DEFAULT,
+  SWAP_MIN_GAIN_PP_DEFAULT, SWAP_MIN_WEIGHTED_GAIN_DEFAULT, type Crime, type Readings, type SwapCrime,
 } from '../../ocSuggestionProducers.js'
+import { loadOcModel, scenarioDiagram, type OcScenarioModel } from '../../oc/modelLoader.js'
+import { parseScenarioTree, type ScenarioTree } from '../../oc/scenarioTree.js'
+import { simulatedSuccess } from '../../oc/scenarioSimulator.js'
+import { MAX_ROLE_FIDELITY_ERROR } from '../../oc/roleFidelity.js'
+
+/** "Online" for a swap (MonChoon: both people online): Torn says Online, or acted in the last 5 min. */
+export const ONLINE_WITHIN_SEC = 300
+
+const trees = new Map<string, ScenarioTree | null>()
+
+/**
+ * Success chance for a crime's CPR vector, from the committed scenario model —
+ * or null when the local simulation is not trustworthy for this crime.
+ *
+ * ⚠️ Local only: no call to tornprobability. Where the model's own fidelity
+ * check says the diagram reproduces the service (error ≤ 0.02), its answer is
+ * as good as the service's; where it does not (Ace in the Hole, Clinical
+ * Precision…), the swap is ranked on role weights and SAYS so.
+ */
+function successFor(model: OcScenarioModel | undefined): ((v: Record<string, number>) => number) | null {
+  if (!model || !model.diagramValid) return null
+  const err = Number((model.roleFidelity as { error?: number } | null)?.error)
+  if (!Number.isFinite(err) || err > MAX_ROLE_FIDELITY_ERROR) return null
+  if (!trees.has(model.slug)) {
+    const mmd = scenarioDiagram(model.slug)
+    trees.set(model.slug, mmd ? parseScenarioTree(mmd) : null)
+  }
+  const tree = trees.get(model.slug)
+  if (!tree) return null
+  const roleNames = model.roles.map((r) => r.roleName)
+  return (v) => simulatedSuccess(tree, roleNames,
+    Object.fromEntries(model.roles.map((r) => [r.roleName, v[r.positionId] ?? 0])))
+}
 
 export const CRIMES_MAX_AGE_MS = 5 * 60_000
 
@@ -69,10 +102,36 @@ export async function ocSuggestionsJob({ db }: JobDeps): Promise<RunResult> {
     previousKeys: await previous('idle'),
   })
 
+  // #1021 — better seating within each crime.
+  const online = new Set<string>()
+  for (const m of (feed.members as any[]) ?? []) {
+    const la = m?.last_action ?? {}
+    if (la.status === 'Online' || (Number(la.timestamp) && nowSec - Number(la.timestamp) <= ONLINE_WITHIN_SEC)) online.add(String(m.id))
+  }
+  const model = loadOcModel()
+  const minGainPp = await numberSetting(db, 'oc_swap_min_gain_pp', SWAP_MIN_GAIN_PP_DEFAULT)
+  const minWeightedGain = await numberSetting(db, 'oc_swap_min_weighted_gain', SWAP_MIN_WEIGHTED_GAIN_DEFAULT)
+  const swaps = []
+  for (const c of crimes as SwapCrime[]) {
+    const m = model.get(c.name)
+    if (!m) continue
+    const s = seatSwap({
+      crime: c, weights: new Map(m.roles.map((r) => [r.positionId, r.weight])),
+      readings, online, names, nowSec, successOf: successFor(m), minGainPp, minWeightedGain,
+    })
+    if (s) swaps.push(s)
+  }
+  const swapResolvedKeys = new Set((await previous('swap')).filter((k) => swapResolved(k, crimes as SwapCrime[])))
+  const c = await reportSuggestions(db, 'swap', swaps, swapResolvedKeys)
+
   const a = await reportSuggestions(db, 'too_low', tooLow.live, tooLow.resolved)
   const b = await reportSuggestions(db, 'idle', idle.live, idle.resolved)
   return {
-    rows: a.opened + b.opened,
-    details: { too_low: { live: tooLow.live.length, ...a }, idle: { live: idle.live.length, ...b } },
+    rows: a.opened + b.opened + c.opened,
+    details: {
+      swap: { live: swaps.length, ...c },
+      too_low: { live: tooLow.live.length, ...a },
+      idle: { live: idle.live.length, ...b },
+    },
   }
 }

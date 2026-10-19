@@ -18,6 +18,16 @@ surface it automatically.
 
 ---
 
+## [3.244.0] - 2026-10-19
+
+### Added
+- **Seat-swap suggestions for the OC action feed (#1021).** For each recruiting or planning crime, `oc-suggestions` tries every arrangement of the members already seated, over the seats they already hold, and ranks each by role weight × CPR. Seats keep Torn's live CPR; any other seat needs a measured reading.
+  - **The suggestion:** each mover's seat change with its CPR and weight, plus the moves in a legal order (only one free seat ever needed). Key: `swap:<crime>:<member@seat…>`.
+  - **Conditions:** posted only when there's a seat to move through, every mover is online (Torn says Online, or they acted in the last 5 minutes), and the gain clears the threshold. A seat to move through is either a free seat, or a full crime where a member with planning complete leaves first and rejoins last.
+  - **Gain:** where the committed model's local simulation matches tornprobability (fidelity ≤ 0.02), the gain is in **success chance** (`oc_swap_min_gain_pp`, default 3), with **no third-party call**. Elsewhere it's stated as role-weighted CPR (`oc_swap_min_weighted_gain`, default 3) and says so.
+  - **Lifecycle:** resolves when everyone sits where it said, and expires when the crime is due.
+- A free seat is somewhere to pass through, never a destination: spreading members into empty seats would push weak members into heavy roles.
+
 ## [3.243.0] - 2026-10-19
 
 ### Added
