@@ -121,7 +121,6 @@ export function joinedTooLow(args: {
       const best = openSeatsFor(id, args.crimes, args.readings, c.difficulty)[0]
       if (!best) continue
       const name = s.user?.name ?? args.names.get(id) ?? id
-      const minutes = Math.max(0, Math.round((args.nowSec - joined) / 60))
       live.push({
         key: `too_low:${id}:${c.id}`,
         kind: 'too_low',
@@ -129,7 +128,9 @@ export function joinedTooLow(args: {
         memberIds: [id],
         title: `${name} joined ${c.name} (L${c.difficulty})`,
         body: `${where(best)} has an open seat — ${seatLine(best)}.\n`
-          + `They joined ${minutes} min ago, so moving now loses little progress.`,
+          // ⚠️ A Discord timestamp, not "N min ago": text that changes every
+          // minute bumps the version every minute, and the bot redraws it.
+          + `They joined <t:${joined}:R>, so moving now loses little progress.`,
         steps: [`${name} leaves ${c.name}`, `${name} joins ${best.crime.name} as ${best.label}`],
         value: {},
         severity: best.clears === true && best.crime.difficulty >= TOP_TIER ? 'warn' : 'info',
@@ -172,7 +173,8 @@ export function notInAnyOc(args: {
     const last = args.lastSeatedSec.get(m.id)
     if (last != null && args.nowSec - last < graceSec) continue
     const best = openSeatsFor(m.id, args.crimes, args.readings)[0]
-    const since = last == null ? 'not seen in a crime yet' : `out of a crime for ${fmtDuration(args.nowSec - last)}`
+    // ⚠️ A Discord timestamp, for the same reason as in joinedTooLow.
+    const since = last == null ? 'not seen in a crime yet' : `out of a crime since <t:${last}:R>`
     live.push({
       key: `idle:${m.id}`,
       kind: 'idle',
@@ -191,11 +193,6 @@ export function notInAnyOc(args: {
   return { live, resolved }
 }
 
-function fmtDuration(sec: number): string {
-  const h = Math.floor(sec / 3600)
-  const m = Math.round((sec % 3600) / 60)
-  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : h ? `${h}h ${m}m` : `${m}m`
-}
 
 // ── #1021: better seating within a crime ─────────────────────────────────────
 //

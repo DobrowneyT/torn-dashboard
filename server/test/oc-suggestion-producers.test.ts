@@ -71,7 +71,7 @@ describe('not in any OC (#1023)', () => {
     const last = new Map([['200', NOW - 2 * 3600], ['201', NOW - 10 * 60]])
     const { live } = notInAnyOc({ crimes: crimes(), readings: readings(), members, lastSeatedSec: last, nowSec: NOW })
     expect(live.map((s) => s.key)).toEqual(['idle:200'])
-    expect(live[0].body).toContain('out of a crime for 2h 0m')
+    expect(live[0].body).toContain(`out of a crime since <t:${NOW - 2 * 3600}:R>`)
     expect(live[0].body).toContain('no CPR reading for this seat yet')
   })
 
@@ -85,5 +85,16 @@ describe('not in any OC (#1023)', () => {
     const { resolved } = notInAnyOc({ crimes: crimes(), readings: readings(), members, lastSeatedSec: new Map(),
       nowSec: NOW, previousKeys: ['idle:101', 'idle:200'] })
     expect([...resolved]).toEqual(['idle:101'])
+  })
+})
+
+describe('stable text (#1022/#1023 follow-up)', () => {
+  it('the same situation a minute later is word-for-word the same, so the bot does not redraw it', () => {
+    const at = (nowSec: number) => [
+      ...joinedTooLow({ crimes: crimes(), readings: readings(), names: new Map(), nowSec }).live,
+      ...notInAnyOc({ crimes: crimes(), readings: readings(), members: [{ id: '200', name: 'Dee' }],
+        lastSeatedSec: new Map([['200', NOW - 7200]]), nowSec }).live,
+    ].map((x) => x.body)
+    expect(at(NOW + 60)).toEqual(at(NOW))
   })
 })
