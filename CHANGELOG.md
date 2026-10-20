@@ -18,6 +18,15 @@ surface it automatically.
 
 ---
 
+## [3.245.3] - 2026-10-20
+
+### Fixed
+- **OC suggestions only name seats the member clears.** "Not in an OC" pointed WalkMode at Clinical Precision's Cat Burglar on CPR 48 against a bar of 67, because the ranking preferred higher levels even below the bar. Both "not in an OC" and "joined too low" now require a measured CPR at or above the seat's minimum. With none, nothing is posted. Suggestions that no longer qualify expire and are deleted from the thread.
+- **Real names, not "Member 4295621".** A member who signs in before the hourly members sync has a placeholder name in the members table; suggestions now take the name from Torn's roster first.
+
+### Changed
+- **Grace periods for "not in an OC":** a member is left alone for 24 hours after joining the faction (`oc_idle_new_member_hours`), or until the membership sync has recorded them. After leaving a crime they're left alone for 2 hours, up from 30 minutes (`oc_idle_grace_minutes`).
+
 ## [3.245.2] - 2026-10-19
 
 ### Changed

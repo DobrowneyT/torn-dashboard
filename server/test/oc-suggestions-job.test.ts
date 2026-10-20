@@ -21,7 +21,10 @@ beforeAll(async () => {
   await stack.db.query(`INSERT INTO members (member_id, member_name, tier, is_current) VALUES
     ('8101', 'Alice', 3, true), ('8102', 'Dee', 3, true) ON CONFLICT (member_id) DO NOTHING`)
   await stack.db.query(`INSERT INTO member_cpr_v2 (member_id, crime_name, position_label, cpr_value) VALUES
-    ('8101', 'Blast from the Past', 'Hacker', 74)`)
+    ('8101', 'Blast from the Past', 'Hacker', 74), ('8102', 'Blast from the Past', 'Hacker', 71)`)
+  // Long-standing members: the new-member grace does not apply.
+  await stack.db.query(`INSERT INTO member_faction_stints (member_id, joined_at) VALUES
+    ('8101', now() - interval '30 days'), ('8102', now() - interval '30 days')`)
   await stack.db.query(`INSERT INTO faction_settings (key, value) VALUES ('cpr_requirements', $1)
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
     [JSON.stringify({ 'Blast from the Past': { positions: { Hacker: 70 } } })])
@@ -86,7 +89,7 @@ describe('seat swaps on the real model (#1021)', () => {
       ('9006', 'Blast from the Past', 'Muscle', 85), ('9005', 'Blast from the Past', 'Picklock #2', 65)`)
     await storeSnapshot(stack.db, SNAPSHOT_CRIMES, [BFTP])
     const roster = (online: number[]) => [9001, 9002, 9003, 9004, 9005, 9006].map((id) => ({
-      id, name: String(id), status: { state: 'Okay' },
+      id, name: 'ABCDEF'[id - 9001], status: { state: 'Okay' },
       last_action: { status: online.includes(id) ? 'Online' : 'Offline', timestamp: online.includes(id) ? NOW : NOW - 7200 },
     }))
 

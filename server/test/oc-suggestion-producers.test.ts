@@ -17,6 +17,10 @@ const crimes = (): Crime[] => [
 ]
 const readings = (): Readings => new Map([
   ['101', new Map([['Blast from the Past||Hacker', 74], ['Blast from the Past||Bomber', 70], ['Break the Bank||Robber', 55]])],
+  ['200', new Map([['Break the Bank||Robber', 66]])],
+  ['300', new Map([['Blast from the Past||Hacker', 72]])],
+  // WalkMode, 2026-10-20: 48 against a bar of 67 — must never be suggested.
+  ['400', new Map([['Blast from the Past||Hacker', 48], ['Blast from the Past||Bomber', 48]])],
 ])
 
 describe('openSeatsFor', () => {
@@ -68,16 +72,16 @@ describe('not in any OC (#1023)', () => {
     { id: '202', name: 'Fed', state: 'Federal' },
   ]
   it('flags members out past the grace period, with their best seat; seated and federal are skipped', () => {
-    const last = new Map([['200', NOW - 2 * 3600], ['201', NOW - 10 * 60]])
+    const last = new Map([['200', NOW - 3 * 3600], ['201', NOW - 30 * 60]])
     const { live } = notInAnyOc({ crimes: crimes(), readings: readings(), members, lastSeatedSec: last, nowSec: NOW })
     expect(live.map((s) => s.key)).toEqual(['idle:200'])
-    expect(live[0].body).toContain(`out of a crime since <t:${NOW - 2 * 3600}:R>`)
-    expect(live[0].body).toContain('no CPR reading for this seat yet')
+    expect(live[0].body).toContain(`out of a crime since <t:${NOW - 3 * 3600}:R>`)
+    expect(live[0].body).toContain('Break the Bank** (L8) as **Robber** — CPR 66, clears the bar of 60')
   })
 
   it('someone never seen in a crime counts as out', () => {
-    const { live } = notInAnyOc({ crimes: crimes(), readings: readings(), members: [{ id: '300', name: 'New' }],
-      lastSeatedSec: new Map(), nowSec: NOW })
+    const { live } = notInAnyOc({ crimes: crimes(), readings: readings(), members: [{ id: '300', name: 'Old hand' }],
+      lastSeatedSec: new Map(), nowSec: NOW, joinedFactionSec: new Map([['300', NOW - 10 * 86400]]) })
     expect(live[0].body).toContain('not seen in a crime yet')
   })
 
@@ -98,3 +102,38 @@ describe('stable text (#1022/#1023 follow-up)', () => {
     expect(at(NOW + 60)).toEqual(at(NOW))
   })
 })
+
+describe('only seats they clear, and grace (2026-10-20)', () => {
+  it('never suggests a seat below their bar — and with none they clear, says nothing', () => {
+    const { live } = notInAnyOc({ crimes: crimes(), readings: readings(), members: [{ id: '400', name: 'WalkMode' }],
+      lastSeatedSec: new Map(), nowSec: NOW })
+    expect(live).toEqual([])
+    const noReading = notInAnyOc({ crimes: crimes(), readings: readings(), members: [{ id: '999', name: 'Nobody' }],
+      lastSeatedSec: new Map(), nowSec: NOW })
+    expect(noReading.live).toEqual([])
+  })
+
+  it('joined too low only points at a seat they clear', () => {
+    const c = crimes()
+    c[0].slots![0].user = { id: 400, joined_at: NOW - 60, name: 'WalkMode' }
+    const { live } = joinedTooLow({ crimes: c, readings: readings(), names: new Map(), nowSec: NOW })
+    expect(live).toEqual([])
+  })
+
+  it('leaves a member new to the faction alone for a day, and one the membership sync has not recorded', () => {
+    const members = [{ id: '200', name: 'Dee' }]
+    const base = { crimes: crimes(), readings: readings(), members, lastSeatedSec: new Map<string, number>(), nowSec: NOW }
+    expect(notInAnyOc({ ...base, joinedFactionSec: new Map([['200', NOW - 3600]]) }).live).toEqual([])
+    expect(notInAnyOc({ ...base, joinedFactionSec: new Map() }).live).toEqual([])
+    expect(notInAnyOc({ ...base, joinedFactionSec: new Map([['200', NOW - 2 * 86400]]) }).live).toHaveLength(1)
+  })
+
+  it('waits two hours after a crime by default', () => {
+    const members = [{ id: '200', name: 'Dee' }]
+    const at = (ago: number) => notInAnyOc({ crimes: crimes(), readings: readings(), members,
+      lastSeatedSec: new Map([['200', NOW - ago]]), nowSec: NOW }).live.length
+    expect(at(90 * 60)).toBe(0)
+    expect(at(150 * 60)).toBe(1)
+  })
+})
+

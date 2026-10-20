@@ -20,7 +20,13 @@ import type { SuggestionInput } from './ocSuggestions.js'
 /** Levels 7 and 8 are the top tier (MonChoon, 2026-10-19). */
 export const TOP_TIER = 7
 export const TOO_LOW_WINDOW_HOURS_DEFAULT = 4
-export const IDLE_GRACE_MINUTES_DEFAULT = 30
+/**
+ * How long after leaving a crime before "not in an OC" — 2 h (MonChoon,
+ * 2026-10-20: not straight after a crime finishes).
+ */
+export const IDLE_GRACE_MINUTES_DEFAULT = 120
+/** A member new to the faction is left alone this long (MonChoon, 2026-10-20). */
+export const NEW_MEMBER_HOURS_DEFAULT = 24
 
 export interface Slot {
   position_label?: string
@@ -118,7 +124,10 @@ export function joinedTooLow(args: {
       const id = s.user?.id == null ? null : String(s.user.id)
       const joined = s.user?.joined_at ?? null
       if (!id || joined == null || args.nowSec - joined > windowSec) continue
-      const best = openSeatsFor(id, args.crimes, args.readings, c.difficulty)[0]
+      // ⚠️ Only a seat they CLEAR. Pointing someone at a seat whose bar they
+      // miss (WalkMode: 48 against 67, 2026-10-20) is a bad instruction, not
+      // a near miss; with nothing they clear there is nothing to say.
+      const best = openSeatsFor(id, args.crimes, args.readings, c.difficulty).find((x) => x.clears === true)
       if (!best) continue
       const name = s.user?.name ?? args.names.get(id) ?? id
       live.push({
@@ -159,11 +168,15 @@ export function notInAnyOc(args: {
   readings: Readings
   members: Array<{ id: string; name: string; state?: string | null }>
   lastSeatedSec: Map<string, number>
+  /** When each member's current faction stint began (epoch s); absent when not recorded yet. */
+  joinedFactionSec?: Map<string, number>
   nowSec: number
   graceMinutes?: number
+  newMemberHours?: number
   previousKeys?: string[]
 }): { live: SuggestionInput[]; resolved: Set<string> } {
   const graceSec = (args.graceMinutes ?? IDLE_GRACE_MINUTES_DEFAULT) * 60
+  const newSec = (args.newMemberHours ?? NEW_MEMBER_HOURS_DEFAULT) * 3600
   const seated = new Set<string>()
   for (const c of args.crimes) for (const s of c.slots ?? []) if (s.user?.id != null) seated.add(String(s.user.id))
 
@@ -172,19 +185,25 @@ export function notInAnyOc(args: {
     if (seated.has(m.id) || m.state === 'Federal') continue
     const last = args.lastSeatedSec.get(m.id)
     if (last != null && args.nowSec - last < graceSec) continue
-    const best = openSeatsFor(m.id, args.crimes, args.readings)[0]
+    // ⚠️ New to the faction: leave them be. No recorded stint means the
+    // membership sync has not seen them yet — newer still.
+    if (args.joinedFactionSec) {
+      const joined = args.joinedFactionSec.get(m.id)
+      if (joined == null || args.nowSec - joined < newSec) continue
+    }
+    // ⚠️ Only a seat they clear — see joinedTooLow.
+    const best = openSeatsFor(m.id, args.crimes, args.readings).find((x) => x.clears === true)
+    if (!best) continue
     // ⚠️ A Discord timestamp, for the same reason as in joinedTooLow.
     const since = last == null ? 'not seen in a crime yet' : `out of a crime since <t:${last}:R>`
     live.push({
       key: `idle:${m.id}`,
       kind: 'idle',
-      crimeId: best ? String(best.crime.id) : null,
+      crimeId: String(best.crime.id),
       memberIds: [m.id],
       title: `${m.name} isn't in an OC`,
-      body: best
-        ? `${m.name} has been ${since}. Best open seat: ${where(best)} — ${seatLine(best)}.`
-        : `${m.name} has been ${since}, and there is no open seat to suggest right now.`,
-      steps: best ? [`${m.name} joins ${best.crime.name} as ${best.label}`] : [],
+      body: `${m.name} has been ${since}. Best open seat: ${where(best)} — ${seatLine(best)}.`,
+      steps: [`${m.name} joins ${best.crime.name} as ${best.label}`],
       value: {},
       severity: 'info',
     })
