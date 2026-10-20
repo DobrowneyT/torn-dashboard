@@ -30,6 +30,9 @@ beforeAll(async () => {
   await stack.db.query(`INSERT INTO member_cpr_v2 (member_id, crime_name, position_label, cpr_value) VALUES
     ('9103', 'Break the Bank', 'Robber', 75), ('9104', 'Break the Bank', 'Robber', 40),
     ('9102', 'Blast from the Past', 'Muscle', 90)`)
+  await stack.db.query(`INSERT INTO member_faction_stints (member_id, joined_at) VALUES
+    ('9101', now() - interval '30 days'), ('9102', now() - interval '30 days'),
+    ('9103', now() - interval '30 days'), ('9104', now() - interval '30 days')`)
 }, 60000)
 afterAll(async () => { await stack?.close() })
 beforeEach(async () => {

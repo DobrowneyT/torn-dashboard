@@ -13,6 +13,7 @@ import { collectOcWatch } from '../../ocWatchInternal.js'
 import { reportSuggestions, feedKinds } from '../../ocSuggestions.js'
 import {
   joinedTooLow, notInAnyOc, seatSwap, swapResolved, TOO_LOW_WINDOW_HOURS_DEFAULT, IDLE_GRACE_MINUTES_DEFAULT,
+  NEW_MEMBER_HOURS_DEFAULT,
   SWAP_MIN_GAIN_PP_DEFAULT, SWAP_MIN_WEIGHTED_GAIN_DEFAULT, type Crime, type Readings, type SwapCrime,
 } from '../../ocSuggestionProducers.js'
 import { loadOcModel, scenarioDiagram, type OcScenarioModel } from '../../oc/modelLoader.js'
@@ -67,7 +68,15 @@ export async function ocSuggestionsJob({ db }: JobDeps): Promise<RunResult> {
 
   const { rows: current } = await db.query(
     `SELECT member_id, member_name FROM members WHERE is_current IS TRUE AND is_fallen IS NOT TRUE`)
-  const names = new Map<string, string>(current.map((r: any) => [String(r.member_id), r.member_name]))
+  // ⚠️ Names from Torn's roster first: a member who signed in before the
+  // hourly members sync still has the placeholder "Member <id>" here.
+  const placeholder = (id: string, n: unknown) => !n || n === `Member ${id}`
+  const rosterName = new Map<string, string>()
+  for (const m of (feed.members as any[]) ?? []) if (m?.id != null && m?.name) rosterName.set(String(m.id), String(m.name))
+  const names = new Map<string, string>(current.map((r: any) => {
+    const id = String(r.member_id)
+    return [id, rosterName.get(id) ?? (placeholder(id, r.member_name) ? id : r.member_name)]
+  }))
   const ids = [...names.keys()]
 
   const readings: Readings = new Map()
@@ -84,6 +93,9 @@ export async function ocSuggestionsJob({ db }: JobDeps): Promise<RunResult> {
   const stateOf = new Map<string, string>()
   for (const m of (feed.members as any[]) ?? []) if (m?.id != null) stateOf.set(String(m.id), m?.status?.state ?? null)
   const { rows: seen } = await db.query(`SELECT member_id, max(last_seen_at)::bigint AS last FROM crime_occupancy GROUP BY 1`)
+  const { rows: stints } = await db.query(
+    `SELECT member_id, extract(epoch FROM joined_at)::bigint AS joined FROM member_faction_stints WHERE left_at IS NULL`)
+  const joinedFactionSec = new Map<string, number>(stints.map((r: any) => [String(r.member_id), Number(r.joined)]))
   const lastSeatedSec = new Map<string, number>(seen.map((r: any) => [String(r.member_id), Number(r.last)]))
 
   const previous = async (kind: string) => (await db.query(
@@ -98,7 +110,9 @@ export async function ocSuggestionsJob({ db }: JobDeps): Promise<RunResult> {
   const idle = notInAnyOc({
     crimes, readings, nowSec, lastSeatedSec,
     members: ids.map((id) => ({ id, name: names.get(id) ?? id, state: stateOf.get(id) ?? null })),
+    joinedFactionSec,
     graceMinutes: await numberSetting(db, 'oc_idle_grace_minutes', IDLE_GRACE_MINUTES_DEFAULT),
+    newMemberHours: await numberSetting(db, 'oc_idle_new_member_hours', NEW_MEMBER_HOURS_DEFAULT),
     previousKeys: await previous('idle'),
   })
 
