@@ -18,6 +18,12 @@ surface it automatically.
 
 ---
 
+## [3.245.4] - 2026-10-23
+
+### Security
+- **Node.js 24.22.1 in every image.** The October 2026 Node security release fixes 10 vulnerabilities, including a remote-code-execution bug in the bundled Brotli decoder (CVE-2026-111497, public proof of concept 22 Oct). The API, admin and frontend-build images now pin `node:24.22.1-alpine` instead of the floating `node:24-alpine`, which only moves when the cached base is re-pulled.
+- **The backup image takes Node from the official image** instead of Alpine's `nodejs` package, which lags Node's releases. It was running 24.18.1.
+
 ## [3.245.3] - 2026-10-20
 
 ### Fixed

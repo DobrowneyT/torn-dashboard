@@ -5,7 +5,10 @@
 # ⚠️ Deployed deliberately, never swept along with tenants: it sits behind
 # `profiles: ["admin"]` in compose, so a plain `docker compose up` does not
 # start it. A bad push here is fleet-wide.
-FROM node:24-alpine
+# ⚠️ Pinned: 24.22.1 fixes the Oct 2026 security release (Brotli RCE,
+# CVE-2026-111497). Raise deliberately; a floating tag only moves when the
+# cached base is re-pulled.
+FROM node:24.22.1-alpine
 
 WORKDIR /app
 COPY package.json package-lock.json ./
